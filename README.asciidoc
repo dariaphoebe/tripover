@@ -1,0 +1,58 @@
+= tripover - journey planner for air and long-haul rail
+
+An attempt to build a journey planner good at broad searches.
+Like "from Germany to Java, depart next month, return one to two weeks later".
+Aiming at the longer distance traveller searching for good trip options.
+
+== Description
+Aimed at transport options running on a schedule, with or without fares:
+Flights, ferries, trains and buses.
+For manageability anticipating only the longer-haul routes.
+Results are to be selected on a handful of criteria, like price, travel time, number of stops or stopover time.
+
+The planner is targeted to run on a server, accessed by local and web clients.
+
+=== Goals
+
+* flexible dates with broad departure and return date ranges
+* include nearby airports or stations
+* consider price, time, conditions or a combination
+* real-time update changes and fare availability
+
+=== Non-goals
+
+* obtaining schedule and fare data
++
+[small]#airline data is generally not publicly available#
++
+[small]#arranging public transport data is a project in itself#
++
+
+* booking+ticketing
++
+[small]#only up-to-date fare availability#
++
+
+* roads, door-to-door
++
+[small]#consider only the scheduled trip#
++
+
+* lightweigt edition
++
+[small]#aim at higher system requirements#
+
+== Installation
+
+== Usage
+
+== Configuration
+
+== Authors
+
+Joris van der Geer
+
+
+== Contributing
+
+== License
