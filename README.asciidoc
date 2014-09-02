@@ -42,7 +42,28 @@ The planner is targeted to run on a server, accessed by local and web clients.
 +
 [small]#aim at higher system requirements#
 
+== Status
+Starting
+
+* Initial framework
+
 == Installation
+
+=== Configure compilers
+
+`./emka config`
+
+This generates predefined options for a few common compilers in +./config+
+
+=== Review options
+
+edit +./config+ if needed
+
+=== Build
+
+`./emka`
+
+This will compile and link tripover
 
 == Usage
 

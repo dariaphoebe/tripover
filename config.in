@@ -1,0 +1,73 @@
+## config.in - emka build configuration template
+# config - emka build configuration
+
+## predefine a few common compilers here
+## double hash lines are not passed to the output
+
+# You can edit this file, however changes are lost when rerunning emka config
+# For permanent changes, edit the template file config.in
+
+# This file is part of Tripover, a broad-search journey planner.
+
+#  Copyright (C) 2014 Joris van der Geer.
+
+#  This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
+#  To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
+
+[compiler = clang]
+  cdef = -DNOW=%.now
+  cinc = 
+  copt = -O
+  cdiag = -Weverything -pedantic -Wno-sign-conversion
+  csyn = -w -fsyntax-only
+  cfmt = -fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info
+  cdbg = -gline-tables-only
+  cextra =
+
+[compiler = gcc]
+  cdef = -DNOW=%.now
+  cinc = 
+  copt = -O
+  cdiag = -Wall -Wextra -pedantic -Wno-sign-conversion -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls -Winit-self -Wmissing-include-dirs -Wfloat-equal -Wundef -Wshadow -Wbad-function-cast -Wcast-align -Wconversion -Wstrict-prototypes
+  csyn = -w -fsyntax-only
+  cfmt = -fmessage-length=0 -fno-diagnostics-show-caret -fno-diagnostics-show-option
+  cdbg =
+  cextra = -std=c99
+
+[compiler = cc]
+  cdef = -DNOW=%.now
+  cinc =
+  copt = 
+  cdiag =
+  csyn =
+  cfmt =
+  cdbg =
+  cextra =
+
+# no syntax-check only for standard compiler
+  .c. =
+
+[compiler = all]
+
+# regular compile
+  .c.o = %compiler -c %cdef %cinc %copt %cdiag %cfmt %cextra %.c
+
+# syntax-check only, precedes regular compile
+  .c. = %compiler %csyn %cinc %cfmt %.c
+
+[linker = clang]
+  lopt =
+  ldiag = -Weverything -fno-caret-diagnostics
+  ldbg = -gline-tables-only
+  lextra =
+
+[linker = gcc]
+  lopt =
+  ldiag = -Wall
+  ldbg =
+  lextra =
+
+[linker = all]
+  .o.x = %linker -o %.x %lopt %ldiag %ldbg %lextra %.o
+
+# end of config

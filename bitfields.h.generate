@@ -1,0 +1,5 @@
+# bitfields.h.generate - generated source config
+#
+# This file is read by the emka build tool
+
+generate 'bitfields.h' from 'bitfields.h.in' with 'genbits.pl %.in %.out'
