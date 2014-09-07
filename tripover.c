@@ -19,15 +19,23 @@
 #include "base.h"
 #include "os.h"
 #include "time.h"
-#include "util.h"
 #include "mem.h"
+#include "util.h"
 
 static ub4 msgfile;
 #include "msg.h"
 
+#include "bitfields.h"
+#include "netbase.h"
+#include "net.h"
+
 struct globs globs;
 
 static const char copyright[] = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
+
+static netbase basenet;
+
+static int streq(const char *s,const char *q) { return !strcmp(s,q); }
 
 static int init0(char *progname)
 {
@@ -40,13 +48,34 @@ static int init0(char *progname)
   iniutil();
   initime();
   inimem();
+  ininet();
 
+  return 0;
+}
+
+// read or generate base network
+static int getbasenet(void)
+{
+  if (*globs.netfile) {  // todo read compiled net
+    info(0,"TODO read compiled net from %s",globs.netfile);
+    return 1;
+  }
+  info(0,"generate random %u port %u hop net", globs.maxports, globs.maxhops);
+  basenet.portcnt = globs.maxports;
+  basenet.hopcnt = globs.maxhops;
+  mkrandnet(&basenet);
   return 0;
 }
 
 static int cmd_vrb(struct cmdval *cv) {
   if (cv->valcnt) globs.vrblvl = cv->uval;
   else globs.vrblvl++;
+  return 0;
+}
+
+static int cmd_max(struct cmdval *cv) {
+  if (streq(cv->subarg,"ports")) globs.maxports = cv->uval;
+  if (streq(cv->subarg,"hops")) globs.maxhops = cv->uval;
   return 0;
 }
 
@@ -59,11 +88,15 @@ static int cmd_cfg(struct cmdval *cv)
 static int cmd_arg(struct cmdval *cv) {
 // add plain arg
   info(0,"add arg %s", cv->sval);
+  strcopy(globs.netfile, cv->sval);
+
   return 0;
 }
 
 static struct cmdarg cmdargs[] = {
   { "verbose|v", "[level]%u", "set or increase verbosity", cmd_vrb },
+  { "max-ports", "limit%u", "limit #ports", cmd_max },
+  { "max-hops", "limit%u", "limit #hops", cmd_max },
   { "config|c", "file", "specify config file", cmd_cfg },
   { NULL, "files...", "tripover", cmd_arg }
 };
@@ -74,7 +107,7 @@ int main(int argc, char *argv[])
 
   if (cmdline(argc,argv,cmdargs)) return 1;
 
-  info0(0,"test");
+  getbasenet();
 
   return 0;
 }

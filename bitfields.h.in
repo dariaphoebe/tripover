@@ -11,9 +11,8 @@
 //  Syntax is like C for checking purposes.
 //  Digits in the field names indicate desired range and is checked
 
-struct test_bitfield_tag {
-  int free:7;         // comment
-  int ranged_1440:11;
-  int one_1:1;
-  int zero:0;
+struct datetime {
+  int dow:7;      // day of week mon-sun utc
+  int hod:5;      // hours of day
+  int mih:6;      // minute in hour
 };
