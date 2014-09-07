@@ -13,6 +13,12 @@
 
 #define alloc(len,el,fill,desc,arg) (el*)alloc_fln((len),sizeof(el),#len,#el,(fill),(desc),(arg),MFLN)
 
-extern void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,char *desc,ub4 arg,ub4 fln);
+extern void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,const char *desc,ub4 arg,ub4 fln);
+
+struct strpool {
+  char *pool;
+  ub4 len;
+};
+typedef struct strpool spool;
 
 extern void inimem(void);

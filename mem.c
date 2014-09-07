@@ -26,7 +26,7 @@ static const ub8 Maxmem = 1024UL * 1024 * 1024 * 2;
 
 static ub8 totalalloc;
 
-void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,char *desc,ub4 arg,ub4 fln)
+void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,const char *desc,ub4 arg,ub4 fln)
 {
   ub8 n8 = elems * elsize;
   ub4 n;

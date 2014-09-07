@@ -12,10 +12,12 @@
 // to be determined what goes in here
 
 typedef unsigned char ub1;
+typedef unsigned char bool;
 typedef unsigned short ub2;
 typedef unsigned int ub4;
 typedef unsigned long ub8;
 
+typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
@@ -46,6 +48,8 @@ typedef int sb4;
 extern struct globs { // program-wide global vars go here
   char *progname;
   char cfgfile[1024];
+  char netfile[1024];
   ub4 vrblvl;
-  ub4 x;
+  ub4 maxports;
+  ub4 maxhops;
 } globs;

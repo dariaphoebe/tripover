@@ -125,6 +125,7 @@ my $configtime = 0;
 my $verbose = 0;
 my $unconditional = 0;
 my $dryrun = 0;
+my $loop = 0;
 
 my $logfh;
 
@@ -295,17 +296,19 @@ sub readconfig($) {
   my $varcnt = 0;
   my ($fh,$line);
   my $linno = 0;
-  my ($var,$val,$varline);
+  my ($var,$val,$varline,$cmtpos);
 
   my $varisval = qr/^([a-z_.]+)\s*=\s*(.+)/;  # var = value
   my $varis = qr/^([a-z_.]+)\s*=/;  # var = value
   vrb("reading config in '$name'");
-  open($fh,"<",$name) || error_exit("cannot open $name: $!");
+  open($fh,"<",$name) || error_exit("cannot open $name: $!\nconsider running 'emka config'");
 
   while($line = readline $fh) {
     $linno++;
     $line = trimws($line);
-    next if index($line,'#') == 0;
+    $cmtpos = index($line,'#');
+    next if $cmtpos == 0;
+    $line = substr($line,0,$cmtpos) if $cmtpos > 0;
     next if length($line) < 1;
     ($var,$val) = ($line =~ $varisval);
     if (defined $var) {
@@ -415,7 +418,8 @@ sub run($$$$) {
     error_exit("$cmd received signal $sig");
   } elsif ($rv >> 8) {
     my $rc = ($rv >> 8);
-    error_exit("$cmd returned $rc");
+    error_exit("$cmd returned $rc") unless $loop;
+    return error("$cmd returned $rc");
   }
   return 1;
 }
@@ -745,7 +749,8 @@ sub src2obj($) {
   vrb("arg $arg now %now");
   $arg =~ s?%\.c?$srclist?g;
 
-  return run($dir,$cmd,$arg,$cmd . ' compile ' . $srclist);
+  run($dir,$cmd,$arg,$cmd . ' compile ' . $srclist);
+  return 0;
 }
 
 sub obj2exe($) {
@@ -833,6 +838,7 @@ sub cmd_static() {
 # continuous build
 sub cmd_loop() {
   $starttime = $itertime = time();
+  $loop = 1;
 
   while ($itertime < $starttime + $endtime) {
     sleep 1;
@@ -861,6 +867,7 @@ sub cmd_build() {
     read_dir($prjroot) or redo;
     gen() or redo;
     src2obj('nogen') or redo;
+
     obj2exe('nogen');
     $changed = 0;
   }

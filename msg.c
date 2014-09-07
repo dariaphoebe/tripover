@@ -1,4 +1,4 @@
-// msg.c
+// msg.c - messages
 
 /*
    This file is part of Tripover, a broad-search journey planner.
@@ -368,6 +368,7 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
     if (n) memset(msgbuf + pos,' ',n);
     pos += n;
   }
+  if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert");
   pos += myvsnprintf(msgbuf, pos, maxlen, fmt, ap);
   if (pos < maxlen) msgbuf[pos++] = '\n';
   msgwrite(msgbuf, pos);

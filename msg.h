@@ -1,4 +1,4 @@
-// msg.h
+// msg.h -messages, logging and assertions
 
 /*
    This file is part of Tripover, a broad-search journey planner.
@@ -11,7 +11,7 @@
 
 /* Defines for console, debug and assert messages
    Most entries are macros to add file and line to the functions
-   Assertions are here for trivial inlining or  low-overhead calling
+   Assertions are here for trivial inlining or low-overhead calling
  */
 
 enum Msglvl { Msglvl_nil,Fatal,Assert,Error,Warn,Info,Vrb,Msglvl_last };
@@ -130,8 +130,8 @@ static void error_nz_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 
 static void error_zz_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
-  if (a == 0) assertfln(line,Exit,"\n%s:%u = 0", sa,a);
-  else if (b == 0) assertfln(line,Exit,"\n%s:%u = 0", sb,b);
+  if (a == 0) assertfln(line,Exit,"\n%s = 0", sa);
+  else if (b == 0) assertfln(line,Exit,"\n%s = 0", sb);
 }
 
 static void error_zp_fln(void *a,ub4 b,const char *sa,const char *sb,ub4 line)

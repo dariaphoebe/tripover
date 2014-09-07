@@ -31,7 +31,7 @@
 #  # define pack_tt_flight_dayofweek(x) (x)
 #  # define tt_flight_hhmm_(x)          (((x) >> 7) & 0x7ff)
 #  # define pack_tt_flight_hhmm(x)      ((tt_flightpack)(x) << 7)
-#  typedef uint64_t tt_flightpack; // 58 bits
+#  typedef ub8 tt_flight; // 58 bits
 
 use 5.008;
 use integer;
@@ -104,7 +104,7 @@ while($line = readline $infh) {
     $fieldmax = 0;
     $fieldbits = $3;
   } elsif (index($line,'};') == 0) {
-    printf($outfh "typedef %s %spack; // %u bits\n\n", $fieldpos > 32 ? 'uint64_t' : 'uint32_t', $packname,$fieldpos);
+    printf($outfh "typedef %s %s; // %u bits\n\n", $fieldpos > 32 ? 'ub8' : 'ub4', $packname,$fieldpos);
   } else { warning("skipping unknown $line"); }
 
   if ($fieldbits) {

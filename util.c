@@ -21,6 +21,7 @@
 static ub4 msgfile;
 #include "msg.h"
 
+#include "mem.h"
 #include "util.h"
 #include "time.h"
 
@@ -169,7 +170,7 @@ static struct cmdarg *findarg(const char *arg,struct cmdarg *cap)
 
 int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
 {
-  char *eq,*valp,cnv;
+  char *eq,*valp,*sub,cnv;
   const char *arg,*vp;
   ub4 argno,vlen;
   struct cmdarg *cap = cmdargs,*ap = allargs;
@@ -217,6 +218,9 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
     }
     clear(&cv);
     cv.retval = 1;
+    sub = strchr(ap->arg,'-');
+    if (sub) cv.subarg = sub + 1;
+    else cv.subarg = ap->arg;
     vp = ap->val;
     if (vp) {
       cv.valcnt = 1;
