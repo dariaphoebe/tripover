@@ -43,7 +43,7 @@
 
 # author: Joris van der Geer
 
-# last changed:  2 sep 2014 20:30+10
+# last changed:  16 sep 2014 07:30+10
 
 use 5.008;
 use integer;
@@ -52,13 +52,15 @@ use strict;
 use Fcntl ':mode';
 
 my $progname = 'emka';
-my $verstr = '0.5';
+my $verstr = '0.6';
 
 sub cmd_help() {
   print("Usage: $progname [options] [command] [dir]\n");
   print("Options:\n");
   print("-h, -help, -?       Show help and quit\n");
   print("-n, -dryrun         No action mode\n");
+  print("-s, -static         Add static analysis pass\n");
+  print("-u, -unconditional  Unconditional build\n");
   print("-v, -verbose        Verbose mode\n");
   print("-V, -version        Show version and quit\n\n");
   print("Commands:\n");
@@ -90,6 +92,8 @@ my %defconfig = (
 
 # initial syntax-check only for .c
   _c_ => '%compiler -fsyntax_only -w %.c',
+
+  _c_s => '',
 
   linker => 'clang',
     lopt => '-O',
@@ -125,6 +129,7 @@ my $configtime = 0;
 my $verbose = 0;
 my $unconditional = 0;
 my $dryrun = 0;
+my $do_sca = 0;
 my $loop = 0;
 
 my $logfh;
@@ -416,11 +421,13 @@ sub run($$$$) {
   elsif ($rv & 127) {
     my $sig = $rv & 127;
     error_exit("$cmd received signal $sig");
-  } elsif ($rv >> 8) {
-    my $rc = ($rv >> 8);
+  }
+  my $rc = ($rv >> 8);
+  if ($rc) {
     error_exit("$cmd returned $rc") unless $loop;
     return error("$cmd returned $rc");
   }
+  info('OK');
   return 1;
 }
 
@@ -625,12 +632,15 @@ sub timebyname($$) {
   return $files{$path}->{mtime};
 }
 
-sub cmd_ana() {
+sub cmd_static() {
 
   my ($path,$info,$dir,$name,$type,$out,$binname,$args,$line);
   my @out;
 
   my $perlunused = qr?\s+i[0-9]+$?;
+
+  $itertime = time();
+  read_dir($prjroot) or return 0;
 
   foreach $path (sort keys %files) {
     $info = $files{$path};
@@ -640,11 +650,12 @@ sub cmd_ana() {
     if ($type eq 'pl') {
       $binname = 'perl';
       $args = '-W -MO=Xref ' . $name;
+      info("run $binname $args");
       @out = qx?$binname $args?;
       foreach $line (@out) { info($line) if $line =~ $perlunused; }
     } elsif ($type eq 'c') {
-      print("TODO - run static analysis");
-    }
+      info("TODO - run static analysis for $name");
+    } else { vrb("no static analysis for $name"); }
   }
   return 0;
 }
@@ -736,7 +747,6 @@ sub src2obj($) {
     $pos = index($arg, $cmd);
     $arg = substr($arg, length($cmd)) if $pos == 0;
     $arg =~ s?%.now?$now?;
-    vrb("arg $arg now %now");
     $arg =~ s?%\.c?$srclist?g;
     return 0 unless run($dir,$cmd,$arg,$cmd . ' syntax  ' . $srclist);
   }
@@ -744,12 +754,21 @@ sub src2obj($) {
   $arg = $config{_c_o};
   $pos = index($arg, $cmd);
   $arg = substr($arg, length($cmd)) if $pos == 0;
-  vrb("arg $arg now %now");
   $arg =~ s?%.now?$now?;
   vrb("arg $arg now %now");
   $arg =~ s?%\.c?$srclist?g;
 
-  run($dir,$cmd,$arg,$cmd . ' compile ' . $srclist);
+  return 0 unless run($dir,$cmd,$arg,$cmd . ' compile ' . $srclist);
+  return 0 unless $do_sca;
+
+  $arg = $config{_c_s};
+  return 0 unless length($arg);
+  $pos = index($arg, $cmd);
+  $arg = substr($arg, length($cmd)) if $pos == 0;
+  $arg =~ s?%.now?$now?;
+  $arg =~ s?%\.c?$srclist?g;
+
+  return 0 unless run($dir,$cmd,$arg,$cmd . ' static ' . $srclist);
   return 0;
 }
 
@@ -830,11 +849,6 @@ sub cmd_clean() {
   print("clean not yet implemented\n");
 }
 
-# TODO: run static analysis only, e.g. clang --analyze
-sub cmd_static() {
-  print("clean not yet implemented\n");
-}
-
 # continuous build
 sub cmd_loop() {
   $starttime = $itertime = time();
@@ -846,15 +860,15 @@ sub cmd_loop() {
 
     read_dir($prjroot) or redo;
 
-    print('g ');
+    vrb('g ');
     gen() or redo;
 
-    print('c ');
+    vrb('c ');
     src2obj('nogen') or redo;
 
-    print('l ');
+    vrb('l ');
     obj2exe('nogen');
-    sleep 3;
+#    sleep 2;
   }
 }
 
@@ -889,12 +903,12 @@ foreach $arg (@ARGV) {
 my $cmd = 'build';
 
 foreach $arg (@ARGV) {
-  info("a $arg");
   if (substr($arg,0,1) eq '-') {
     $opt = $arg;
     $opt =~ s/^-+//;
     if ($opt eq 'v') { info('verbose'); $verbose = 1; }
     if ($opt eq 'n') { info('dryrun'); $dryrun = 1; }
+    if ($opt eq 's') { info('+static'); $do_sca = 1; }
     if ($opt eq 'u') { info('unconditional build except generated sources'); $unconditional = 1; }
     elsif (index($opt,'t') == 0) { $endtime = int(substr($opt,2)); }
   } else {

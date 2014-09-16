@@ -18,11 +18,13 @@
   cdef = -DNOW=%.now
   cinc = 
   copt = -O
-  cdiag = -Weverything -pedantic -Wno-sign-conversion
+  cdiag = -Weverything -pedantic -Wno-sign-conversion -Wno-padded
   csyn = -w -fsyntax-only
   cfmt = -fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info
   cdbg = -gline-tables-only
   cextra =
+
+  .c.s = %compiler --analyze %.c
 
 [compiler = gcc]
   cdef = -DNOW=%.now
@@ -50,10 +52,10 @@
 [compiler = all]
 
 # regular compile
-  .c.o = %compiler -c %cdef %cinc %copt %cdiag %cfmt %cextra %.c
+  .c.o = %compiler -c %cdef %cinc %copt %cdiag %cfmt %cdbg %cextra %.c
 
 # syntax-check only, precedes regular compile
-  .c. = %compiler %csyn %cinc %cfmt %.c
+  .c. = %compiler %csyn %cinc %cfmt %cextra %.c
 
 [linker = clang]
   lopt =
@@ -68,6 +70,6 @@
   lextra =
 
 [linker = all]
-  .o.x = %linker -o %.x %lopt %ldiag %ldbg %lextra %.o
+  .o.x = %linker -o %.x %lopt %ldiag %ldbg %lextra %.o -lm
 
 # end of config
