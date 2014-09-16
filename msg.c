@@ -15,7 +15,7 @@
    - assertions
 
    As the program relies heavily on format flexibility, a custom print formatter
-   is included here that is compatible with printf, yet contains custom features
+   is included here that is mostly compatible with printf, yet contains custom features
 
   assertions are used extensively, and are made to be enabled in production 
  */
@@ -24,6 +24,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <math.h>
 
 #include "base.h"
 
@@ -82,6 +83,7 @@ static void myttywrite(char *buf, ub4 len)
   if (nw <= 0) oserrcnt++;
 }
 
+// basic %x
 static ub4 xcnv(char *dst, ub4 x)
 {
   ub4 n=0,c,nib = 7;
@@ -106,6 +108,7 @@ static ub4 xcnv(char *dst, ub4 x)
   return n+1;
 }
 
+// basic %u
 static ub4 ucnv(char *dst, ub4 x,ub4 wid,char pad)
 {
   ub4 n,nn;
@@ -132,10 +135,16 @@ static ub4 ucnv(char *dst, ub4 x,ub4 wid,char pad)
   return nn;
 }
 
+// human-readable %u, 12.3G 
 static ub4 Ucnv(char *dst, ub4 x1,ub4 x2,char c)
 {
   ub4 n;
 
+  if (x1 > 1 && x2 >= 1000) {
+    n = ucnv(dst,x1+1,0,0);
+    dst[n] = c;
+    return n+1;
+  }
   if (x1 < 10) n = 1;
   else if (x1 < 100) n = 2;
   else if (x1 < 1000) n = 3;
@@ -157,8 +166,50 @@ static ub4 Ucnv(char *dst, ub4 x1,ub4 x2,char c)
   return n + 3;
 }
 
+// simple %e
+static ub4 ecnv(char *dst, double x)
+{
+  double fexp,exp;
+  ub4 xscale;
+  ub4 nmant,n = 0;
+  char *org = dst;
+  char mantissa[32];
+
+  if (isnan(x)) { memcpy(dst,"#NaN",4); return 4; }
+  else if (isinf(x)) { memcpy(dst,"#Inf",4); return 4; }
+
+  if (x < 0) { *dst++ = '-'; x = -x; }
+  if (x < 1.0e-200) { memcpy(dst,"<1e-200",7); return 7; }
+
+  fexp = log10(x);
+  if (fexp < 0) {     // |x| < 1.0
+    exp = floor(fexp);
+    x *= pow(10,-exp);
+  } else if (fexp >= 1) { // |x| >= 10.0
+    exp = floor(fexp);
+    x /= pow(10,exp);
+  } else {
+    exp = 0;
+  }
+  xscale = (ub4)(x * 1.0e+6);
+  memcpy(mantissa,"??????",6);
+  nmant = ucnv(mantissa,xscale,0,0);
+  *dst++ = mantissa[0];
+  *dst++ = '.';
+  if (nmant < 2) { nmant = 6; }
+  memcpy(dst,mantissa + 1,nmant - 1);
+  dst += nmant - 1;
+  *dst++ = 'e';
+  if (exp < 0) { *dst++ = '-'; exp = -exp; }
+  else *dst++ = '+';
+  n = ucnv(dst,(ub4)exp,0,0);
+
+  n += (ub4)(dst - org);
+  return n;
+}
+
 /* supports a basic, yet compatible subset of printf :
-   %c %d %u %x %s %p %03u %-12.6s %ld
+   %c %d %u %x %e %s %p %03u %-12.6s %ld
    no floating point
    extensions are led in by '\a' preceding a conversion :
    \ah%u  makes the integer formatted 'human readable' like 123.8 M for 123800000
@@ -166,7 +217,6 @@ static ub4 Ucnv(char *dst, ub4 x1,ub4 x2,char c)
    int arr[] = { 23,65,23,54 };  printf("\av%u%p", 4, arr ); 
     shows  '[23 65 23 54]'
  */
-
 static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
 {
   const char *p = fmt;
@@ -176,6 +226,7 @@ static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
   unsigned long luval,lx;
   int ival,alt,padleft,do_U = 0, do_vec = 0;
   long lival;
+  double dval;
   char *pval;
   char c1,c2;
   char pad;
@@ -256,6 +307,10 @@ static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   if (ival < 0) { dst[n++] = '-'; n += ucnv(dst + n, -ival,wid,pad); }
                   else n += ucnv(dst + n,ival,wid,pad);
                   break;
+        case 'e': dval = va_arg(ap,double);
+                  if (len - n <= 12) break;
+                  n += ecnv(dst + n,dval);
+                  break;
         case 'c': uval = va_arg(ap,unsigned int);
                   if (isprint(uval)) dst[n++] = (char)uval;
                   else {
@@ -286,7 +341,9 @@ static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     do_vec = 0;
                   } else {
                     if (len - n <= 10) break;
-                    n += xcnv(dst + n,(unsigned int)puval);
+                    luval = (unsigned long)puval;
+                    n += xcnv(dst + n,(unsigned int)(luval & 0xffffffff));
+                    if (sizeof(puval) > 4) n += xcnv(dst + n,(unsigned int)(luval >> 32));
                   }
                   break;
         default: dst[n++] = c2;
@@ -373,6 +430,16 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   if (pos < maxlen) msgbuf[pos++] = '\n';
   msgwrite(msgbuf, pos);
   if ( (opts & Msg_ccerr) && lvl <= Warn && msg_fd != 2) myttywrite(msgbuf,pos);
+}
+
+void __attribute__ ((format (printf,4,5))) genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...)
+{
+  va_list ap;
+
+  if (msglvl < lvl) return;
+  va_start(ap, fmt);
+  msg(lvl, 0, fln, code, fmt, ap);
+  va_end(ap);
 }
 
 void __attribute__ ((format (printf,3,4))) vrbfln(ub4 fln, ub4 code, const char *fmt, ...)
@@ -471,7 +538,13 @@ void inimsg(char *progname, int fd, ub4 opts, enum Msglvl lvl, ub4 vlvl)
   iniassert();
 }
 
-// just to make assert and debug calls more compact
+void setmsglvl(enum Msglvl lvl, ub4 vlvl)
+{
+  msglvl = lvl;
+  vrblvl = vlvl;
+}
+
+// make assert and debug calls more compact
 ub4 setmsgfile(const char *filename)
 {
   if (filendx + 1 >= Elemcnt(filenames)) return 0;

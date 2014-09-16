@@ -12,3 +12,7 @@
 extern ub8 gettime_usec(void);
 extern char *getoserr(void);
 extern int oswrite(int fd, const void *buf,ub4 len);
+extern int oscreate(const char *name);
+extern int osclose(int fd);
+extern int setsigs(void);
+extern void inios(void);

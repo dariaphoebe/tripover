@@ -33,6 +33,7 @@ enum Msgopts { Msg_init = 1, Msg_stamp = 2, Msg_pos = 4, Msg_type = 8, Msg_ccerr
 // arrange file coords
 #define FLN __LINE__|msgfile
 
+#define genmsg(lvl,code,fmt,...) genmsgfln(FLN,(lvl),(code),fmt,__VA_ARGS__)
 #define vrb(code,fmt,...) vrbfln(FLN,(code),fmt,__VA_ARGS__)
 #define info(code,fmt,...) infofln(FLN,(code),fmt,__VA_ARGS__)
 #define warning(code,fmt,...) warningfln(FLN,(code),fmt,__VA_ARGS__)
@@ -47,6 +48,7 @@ extern ub4 mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...) __attri
 
 extern ub4 setmsgfile(const char *filename);
 extern void inimsg(char *progname, int fd, ub4 opts, enum Msglvl lvl, ub4 vrblvl);
+extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
 // when failing, both names and values are shown
@@ -65,6 +67,7 @@ extern void inimsg(char *progname, int fd, ub4 opts, enum Msglvl lvl, ub4 vrblvl
 
 #define error_ovf(a,b) error_ovf_fln((a),sizeof(b),#a,#b,FLN)
 
+extern void genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 extern void vrbfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int infofln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int warningfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
@@ -154,7 +157,7 @@ static void error_ovf_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   ub4 bb;
 
-  if (b > 8) assertfln(line,Exit,"\n%s:%u overflows sizeof %s:%u", sa,a,sb,b);
+  if (b > 7) assertfln(line,Exit,"\n%s:%u overflows sizeof %s:%u", sa,a,sb,b);
 
   bb = ovfsizes[b];
   if (a < bb) return;
