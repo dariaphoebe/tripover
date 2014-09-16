@@ -15,8 +15,11 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
 
 #include "base.h"
+#include "os.h"
 
 static ub4 msgfile;
 #include "msg.h"
@@ -31,10 +34,49 @@ int str2ub4(const char *s, ub4 *pv)
   char *ep;
 
   *pv = 0;
+  if (!s || !*s) return 1;
   n = strtoul(s,&ep,0);
   if (ep == s) return 1;
   if (n > hi32) *pv = hi32;
   else *pv = (ub4)n;
+  return 0;
+}
+
+// write simple 2D pixmap
+int writeppm(const char *name,ub4 *data,ub4 nx,ub4 ny)
+{
+  int fd;
+  ub4 v0,v1,dv,v,x,y,xy,pos,mval;
+  char buf[8192];
+
+  v0 = hi32;
+  v1 = 0;
+  for (xy = 0; xy < nx * ny; xy++) {
+    v0 = min(v0,data[xy]);
+    v1 = max(v1,data[xy]);
+  }
+  dv = v1 - v0;
+  info(0,"ppm: lo %u hi \ah%u range %u",v0,v1,dv);
+  fd = oscreate(name);
+  if (fd == -1) return oserror(0,"cannot create ppm file %s",name);
+
+  pos = fmtstring(buf,"P3\n%u %u\n255\n",nx,ny);
+  oswrite(fd,buf,pos);
+
+  pos = 0;
+  for (y = 0; y < ny; y++) {
+    for (x = 0; x < nx; x++) {
+      mval = data[y * ny + x];
+      if (dv) v = (mval - v0) * 256 / dv;
+      else v = 0;
+      pos += mysnprintf(buf,pos,sizeof(buf),"%u %u %u ",v,v,v);
+      if (pos >= 4096) { oswrite(fd,buf,pos); pos = 0; }
+    }
+    pos += mysnprintf(buf,pos,sizeof(buf),"\n");
+  }
+  if (pos) oswrite(fd,buf,pos);
+  osclose(fd);
+
   return 0;
 }
 
@@ -98,6 +140,7 @@ static int usage(struct cmdval *cv)
     val = ap->val;
     desc = ap->desc;
     ap++;
+    if (*arg == '.') continue;
     alt = strchr(arg,'|');
     if (alt) {
       aclear(argstr);
@@ -159,6 +202,7 @@ static struct cmdarg *findarg(const char *arg,struct cmdarg *cap)
         if (memeq(arg,a,(ub4)(b - a))) return cap;
         a = b + 1;
       } else {
+        if (*a == '.') a++;
         if (streq(arg,a)) return cap;
         else break;
       }
@@ -190,8 +234,6 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
   }
 
   globs.progname = argv[0];
-
-  argno = 1;
 
   for (argno = 1; argno < (ub4)argc; argno++) {
     arg = argv[argno];
@@ -230,7 +272,10 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
       } else cnv = 's';
       if (*vp != '[' && !valp) { warning(User,"%smissing value",msg); continue; }
       if (cnv == 'u') {
-        if (str2ub4(valp,&cv.uval)) { warning(User,"%signoring non-integer value %s",msg,valp); continue; }
+        if (str2ub4(valp,&cv.uval)) {
+        if (*vp != '[' || valp)
+          warning(User,"%signoring non-integer value %s",msg,valp); continue;
+        }
       }
       cv.sval = valp;
     } else {
@@ -246,8 +291,10 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
   return 0;
 }
 
-void iniutil(void)
+int iniutil(void)
 {
   msgfile = setmsgfile(__FILE__);
   iniassert();
+
+  return 0;
 }

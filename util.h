@@ -40,4 +40,6 @@ extern int cmdline(int argc, char *argv[], struct cmdarg *cap);
 
 extern int str2ub4(const char *s, ub4 *pv);
 
-extern void iniutil(void);
+extern int writeppm(const char *name,ub4 *data,ub4 nx,ub4 ny);
+
+extern int iniutil(void);

@@ -52,7 +52,9 @@ struct portbase {
   bool air;
   bool rail;
 
-  ub4 lon,lat;
+  ub4 lat,lon;
+  double rlat,rlon;
+
   ub4 utcofs;
 
   ub4 size;
@@ -66,7 +68,7 @@ struct hopbase {
 
   enum txkind kind;
 
-  ub4 dport,aport;
+  ub4 dep,arr;
 
   ub4 dist;
 
@@ -152,5 +154,6 @@ struct networkbase {
 };
 typedef struct networkbase netbase;
 
-extern int mkrandnet(netbase *basenet);
-void ininet(void);
+extern netbase *getnetbase(void);
+extern int mkrandnet(ub4 portcnt,ub4 hopcnt);
+extern void ininetbase(void);

@@ -23,6 +23,8 @@ struct port {
   ub4 gid;   // global port, index in net.gports, in full connectivity matrix
   ub4 lid;   // local port, index in net.lports, local connections only
 
+  ub2 depcnt;
+
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
 
   ub4 terms[Nterm];  // terminal or transfer port 
@@ -65,14 +67,18 @@ struct timetable {
 // holds all
 struct network {
   ub4 portcnt;
+  ub4 hopcnt;
   ub4 routecnt;
   ub4 carriercnt;
   ub4 timetablecnt;
 
   struct port *ports;
+  struct hop *hops;
   struct route *routes;
   struct carrier *carriers;  
   struct timetable *timetables;  // [routecnt]
+
+  struct networkbase *base;
 
 // access
   ub4 tthops[Hopcnt];   // index in timetables above
@@ -80,11 +86,17 @@ struct network {
   ub4 fports2ports[Portcnt];
 
 // connection matrices. cached separately ?
-//   net0[fportcnt2]
-//   netn...
+  ub2 *con0cnt;    // [portcnt2]  0-stop connections
+  ub4 *con0ofs;
+  ub4 *con0lst;     // [hopcnt]
+
+// idem for each of n-stop...
 
 // pools
 // ?  datetime *gopool;
 
 };
-typedef struct network net;
+
+extern int mknet(netbase *basenet);
+
+extern void ininet(void);

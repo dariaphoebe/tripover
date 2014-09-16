@@ -45,7 +45,7 @@ The planner is targeted to run on a server, accessed by local and web clients.
 == Status
 Starting
 
-* Initial framework, initial defines
+* Initial artificial network
 
 == Installation
 

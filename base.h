@@ -24,6 +24,7 @@ typedef int sb4;
 #define Version_min 0
 #define Version_phase "initial"
 
+// handful of useful macros
 #define hi16 0xffff
 #define hi32 0xffffffff
 
@@ -45,11 +46,20 @@ typedef int sb4;
 
 #define strcopy(dst,src) strncpy((dst),(src),sizeof (dst) )
 
-extern struct globs { // program-wide global vars go here
+// program-wide global vars go here
+extern struct globs {
   char *progname;
   char cfgfile[1024];
   char netfile[1024];
+  ub4 msglvl;
   ub4 vrblvl;
   ub4 maxports;
   ub4 maxhops;
+  ub4 testa,testb;
+  ub4 testcnt;
+  ub4 testset[16];
 } globs;
+
+// 360 at 40k = 111 km / lon
+#define Latscale 100
+#define Lonscale 100
