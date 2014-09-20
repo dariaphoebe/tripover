@@ -61,6 +61,13 @@ extern struct globs {
   ub4 testset[16];
 } globs;
 
+struct myfile {
+  int exist;
+  size_t len;
+  unsigned long mtime;
+  char *buf;
+};
+
 // 360 at 40k = 111 km / lon
 #define Latscale 100
 #define Lonscale 100

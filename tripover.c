@@ -26,6 +26,7 @@
 static ub4 msgfile;
 #include "msg.h"
 
+#include "cfg.h"
 #include "bitfields.h"
 #include "netbase.h"
 #include "net.h"
@@ -135,11 +136,14 @@ int main(int argc, char *argv[])
   globs.maxstops = 4;
   globs.maxports = 3000;
   globs.maxhops = 25000;
+  strcopy(globs.cfgfile,"tripover.cfg");
 
   if (init0(argv[0])) return 1;
 
   if (cmdline(argc,argv,cmdargs)) return 1;
   setmsglvl(globs.msglvl,0);
+
+  if (config(globs.cfgfile)) return 1;
 
   if (getbasenet()) return 1;
   base = getnetbase();

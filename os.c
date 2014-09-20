@@ -38,9 +38,34 @@ int oscreate(const char *name)
   return fd;
 }
 
+int osopen(const char *name)
+{
+  int fd = open(name,O_RDONLY);
+  return fd;
+}
+
+int osfdinfo(struct myfile *mf,int fd)
+{
+  struct stat ino;
+
+  if (fstat(fd,&ino)) { osclose(fd); return 1; }
+  mf->mtime = ino.st_mtime;
+  mf->len = ino.st_size;
+  return 0;
+}
+
 int oswrite(int fd, const void *buf,ub4 len)
 {
   return (int)write(fd,buf,len);
+}
+
+int osread(int fd,void *buf,size_t len)
+{
+  ssize_t nread;
+
+  nread = read(fd,buf,len);
+  if (nread != (ssize_t)len) { osclose(fd); return 1; }
+  return 0;
 }
 
 int osclose(int fd)

@@ -42,6 +42,28 @@ int str2ub4(const char *s, ub4 *pv)
   return 0;
 }
 
+int readfile(struct myfile *mf,const char *name, int mustexist)
+{
+  int fd = osopen(name);
+  char *buf;
+  size_t len;
+
+  clear(mf);
+  if (fd == -1) {
+    if (mustexist) return oserror(0,"cannot open %s",name);
+    else return info(0,"optional %s is not present",name);
+  }
+  if (osfdinfo(mf,fd)) return oserror(0,"cannot get info for %s",name);
+  mf->exist = 1;
+  len = mf->len;
+  if (len == 0) { osclose(fd); return info(0,"%s is empty",name); }
+  buf = alloc((ub4)len,char,0,name,0);
+  mf->buf = buf;
+  if (osread(fd,buf,len)) return oserror(0,"cannot read %s",name);
+  osclose(fd);
+  return 0;
+}
+
 // write simple 2D pixmap
 int writeppm(const char *name,ub4 *data,ub4 nx,ub4 ny)
 {
