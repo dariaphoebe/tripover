@@ -13,16 +13,19 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+
 #include <fcntl.h>
 #include <unistd.h>
 
-#include <sys/time.h>
 #include <errno.h>
 #include <signal.h>
 
 #include <string.h>
 
 #include "base.h"
+#include "mem.h"
 
 static ub4 msgfile;
 #include "msg.h"
@@ -52,14 +55,15 @@ char *getoserr(void)
 
 static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __attribute__ ((unused)) p)
 {
-  char buf[4096];
+  char buf[1024];
   ub4 pos;
-  size_t adr;
+  size_t adr,nearby;
 
   switch(sig) {
   case SIGSEGV:
     adr = (size_t)(si->si_addr);
-    pos = mysnprintf(buf,0,sizeof buf,"\nsigsegv at %lx\n", (unsigned long)adr);
+    nearby = nearblock(adr);
+    pos = mysnprintf(buf,0,sizeof buf,"\nsigsegv at %lx near %lx\n", (unsigned long)adr,(unsigned long)nearby);
     break;
   default: pos = mysnprintf(buf,0,sizeof buf,"\nsignal %u\n", sig);
   }
@@ -90,8 +94,23 @@ ub8 gettime_usec(void)
   return usec;
 }
 
+static int rlimit(int res,rlim_t lim,const char *desc)
+{
+  struct rlimit rlim;
+
+  if (getrlimit(res,&rlim)) return oserror(0,"cannot get resource limit for %s",desc);
+
+  rlim.rlim_cur = lim;
+  if (setrlimit(res,&rlim)) return oserror(0,"cannot set resource limit for %s",desc);
+  return info(0,"resource limit for %s set to \ah%lu",desc,lim);
+}
+
 void inios(void)
 {
+
   msgfile = setmsgfile(__FILE__);
   iniassert();
+
+  rlimit(RLIMIT_AS,Maxmem,"virtual memory");
+  rlimit(RLIMIT_CORE,1024 * 1024,"core size");
 }

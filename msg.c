@@ -34,7 +34,11 @@ static ub4 msgfile;
 #include "os.h"
 #include "time.h"
 
-static const char *filenames[32];
+struct filecoord {
+  char name[16];
+};
+
+static struct filecoord filenames[64];
 static ub4 filendx = 1;
 
 static enum Msglvl msglvl = Vrb;
@@ -72,6 +76,7 @@ static void msgwrite(char *buf, ub4 len)
 
   if (nw <= 0) nw = oswrite(2,"\nI/O error on msg write\n",24);
   if (nw <= 0) oserrcnt++;
+  if (msg_fd > 2) oswrite(1,buf,len);
 }
 
 // make errors appear on stderr
@@ -209,15 +214,14 @@ static ub4 ecnv(char *dst, double x)
 }
 
 /* supports a basic, yet compatible subset of printf :
-   %c %d %u %x %e %s %p %03u %-12.6s %ld
-   no floating point
+   %c %d %u %x %e %s %p %03u %-12.6s %ld %*s
    extensions are led in by '\a' preceding a conversion :
    \ah%u  makes the integer formatted 'human readable' like 123.8 M for 123800000
    \av%u%p interprets the pointer arg '%p' as an array of '%u' integers. thus :  
    int arr[] = { 23,65,23,54 };  printf("\av%u%p", 4, arr ); 
     shows  '[23 65 23 54]'
  */
-static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
+static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
 {
   const char *p = fmt;
   ub4 n = 0,x;
@@ -248,6 +252,7 @@ static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
       prec = len;
       c2 = *p++;
       if (c2 == '-') { padleft = 1; c2 = *p++; }
+      if (c2 == '*') { wid = va_arg(ap,unsigned int); c2 = *p++; }
       if (c2 == '0') pad = c2;
       while (c2 >= '0' && c2 <= '9') {
         wid = wid * 10 + (c2 - '0');
@@ -257,8 +262,9 @@ static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
       alt = 0;
       if (c2 == '#') { alt = 1; c2 = *p++; }
       else if (c2 == '.') {
-        prec = 0;
         c2 = *p++;
+        if (c2 == '*') { prec = va_arg(ap,unsigned int); c2 = *p++; }
+        else prec = 0;
         while (c2 >= '0' && c2 <= '9') {
           prec = prec * 10 + (c2 - '0');
           c2 = *p++;
@@ -275,9 +281,11 @@ static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     else n += Ucnv(dst + n,(ub4)(lx >> 10),(ub4)lx,'K');
                   } else n += ucnv(dst + n,(ub4)luval,wid,pad  );
                   break;
-        case 'x': luval = va_arg(ap,unsigned long);
+        case 'x':
+        case 'p': luval = va_arg(ap,unsigned long);
                   if (len - n <= 10) break;
                   n += xcnv(dst + n,(ub4)luval);
+                  n += xcnv(dst + n,(ub4)(luval >> 32));
                   break;
         case 'd': lival = va_arg(ap,long);
                   if (len - n <= 20) break;
@@ -331,13 +339,20 @@ static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   }
                   break;
         case 'p': puval = va_arg(ap,unsigned int *);
+                  if (len - n <= 10) break;
                   if (do_vec) {
-                    while (vlen-- && n < len) {
+                    n += ucnv(dst + n,vlen,0,0);
+                    luval = (unsigned long)puval;
+                    dst[n++] = '.'; dst[n++] = '[';
+                    while (vlen--) {
                       uval = *puval++;
                       if (len - n <= 10) break;
                       n += ucnv(dst + n,uval,wid,pad);
-                      dst[n++] = '-';
+                      if (vlen) dst[n++] = '-';
                     }
+                    dst[n++] = ']'; dst[n++] = ' ';
+                    n += xcnv(dst + n,(unsigned int)(luval & 0xffffffff));
+                    if (sizeof(puval) > 4) n += xcnv(dst + n,(unsigned int)(luval >> 32));
                     do_vec = 0;
                   } else {
                     if (len - n <= 10) break;
@@ -355,7 +370,13 @@ static ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
     }
   }
   dst[n] = 0;
+  if (n && len - n < 10) dst[n-1] = '!';
   return n;
+}
+
+ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
+{
+  return vsnprint(dst,pos,len,fmt,ap);
 }
 
 ub4 __attribute__ ((format (printf,4,5))) mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...)
@@ -364,15 +385,24 @@ ub4 __attribute__ ((format (printf,4,5))) mysnprintf(char *dst, ub4 pos, ub4 len
   ub4 n;
 
   va_start(ap, fmt);
-  n = myvsnprintf(dst,pos,len,fmt,ap);
+  n = vsnprint(dst,pos,len,fmt,ap);
   va_end(ap);
   return n;
+}
+
+// print file coords only
+ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid)
+{
+  ub4 line = fln & 0xffff;
+  ub4 fileno = fln >> 16;
+
+  if (fileno < Elemcnt(filenames)) return mysnprintf(dst,pos,len, "%*s%-4u ",wid,filenames[fileno].name,line);
+  return mysnprintf(dst,pos,len, "*%7x*%-4u ",fileno,line);
 }
 
 // main message printer. supports decorated and undecorated style
 static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fline, ub4 code, const char *fmt, va_list ap)
 {
-  ub4 line,fileno;
   ub4 opts;
   ub4 pos = 0, maxlen = MSGLEN;
   sb4 n = 0;
@@ -388,17 +418,16 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
     now_usec = gettime_usec();
     dusec = now_usec - progstart;
     dsec = dusec / (1000 * 1000);
-    d100usec = (dusec - dsec) / 100;
+    d100usec = (dusec % (1000 * 1000)) / 100;
   } else dsec = d100usec = 0;
   if (lvl >= Msglvl_last) {
     pos += mysnprintf(msgbuf,pos,maxlen, "\nE unknown msglvl %u\n",lvl);
     lvl = Error;
   } else if (lvl <= Warn) { // precede errors with relevant past message
     if (cclen) {
-      line = ccfln & 0xffff;
-      fileno = ccfln >> 16;
-      if (fileno < Elemcnt(filenames)) n = mysnprintf(ccbuf2,0,maxlen, "CC         %s %4u %s",filenames[fileno],line,ccbuf);
-      else n = mysnprintf(ccbuf2,0,maxlen, "CC         *%x* %4u %s",fileno,line,ccbuf);
+      n = mysnprintf(ccbuf2,0,maxlen, "CC           %s ",ccbuf);
+      n += msgfln(ccbuf2,n,maxlen,ccfln,0);
+      n += mysnprintf(ccbuf2,n,maxlen, "\n");
       msgwrite(ccbuf2,n);
     }
     cclen = 0;
@@ -414,22 +443,26 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
 
   if (opts & Msg_stamp) pos += mysnprintf(msgbuf, pos, maxlen, "%03u.%04u  ",(ub4)dsec,(ub4)d100usec);
   if (opts & Msg_pos) {
-    line = fline & 0xffff;
-    fileno = fline >> 16;
-    if (fileno < Elemcnt(filenames)) pos += mysnprintf(msgbuf, pos, maxlen, "%s %4u ",filenames[fileno],line);
-    else pos += mysnprintf(msgbuf, pos, maxlen, "*%x* %4u ",fileno,line);
+    pos += msgfln(msgbuf,pos,maxlen,fline,9);
   }
 
   if (code & Ind) {
-    n = min(code & 0xff, maxlen - pos);
+    n = min(code & Indent, maxlen - pos);
     if (n) memset(msgbuf + pos,' ',n);
     pos += n;
   }
-  if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert");
-  pos += myvsnprintf(msgbuf, pos, maxlen, fmt, ap);
-  if (pos < maxlen) msgbuf[pos++] = '\n';
+  if (pos < maxlen) msgbuf[pos++] = ' ';
+  if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert\n  ");
+  pos += vsnprint(msgbuf, pos, maxlen, fmt, ap);
+  pos = min(pos,maxlen-1);
+  msgbuf[pos++] = '\n';
   msgwrite(msgbuf, pos);
   if ( (opts & Msg_ccerr) && lvl <= Warn && msg_fd != 2) myttywrite(msgbuf,pos);
+}
+
+void vmsg(enum Msglvl lvl,ub4 fln,const char *fmt,va_list ap)
+{
+  msg(lvl,0,fln,0,fmt,ap);
 }
 
 void __attribute__ ((format (printf,4,5))) genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...)
@@ -446,17 +479,18 @@ void __attribute__ ((format (printf,3,4))) vrbfln(ub4 fln, ub4 code, const char 
 {
   va_list ap;
   va_list ap1;
-  ub4 lvl = (code >> 14) & 3;
+  ub4 lvl;
 
   if (code & CC) {
     code &= ~CC;
     va_start(ap1, fmt);
-    cclen = myvsnprintf(ccbuf,0,sizeof(ccbuf),fmt,ap1);
+    cclen = vsnprint(ccbuf,0,sizeof(ccbuf),fmt,ap1);
     ccfln = fln;
     va_end(ap1);
   }
-
-  if (msglvl < Vrb || lvl > vrblvl) return;
+  if (msglvl < Vrb) return;
+  lvl = code / V0;
+  if (lvl > vrblvl) return;
 
   va_start(ap, fmt);
   msg(Vrb, lvl, fln, code, fmt, ap);
@@ -514,15 +548,80 @@ int __attribute__ ((format (printf,3,4))) oserrorfln(ub4 line,ub4 code,const cha
   char buf[MSGLEN];
 
   va_start(ap, fmt);
-  myvsnprintf(buf,0,sizeof(buf),fmt,ap);
+  vsnprint(buf,0,sizeof(buf),fmt,ap);
   va_end(ap);
   errorfln(line,code,"%s: %s",buf,errstr);
   return 1;
 }
 
-void inimsg(char *progname, int fd, ub4 opts, enum Msglvl lvl, ub4 vlvl)
+int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim, ub4 fln)
 {
-  msg_fd = fd;
+  if (x <= lim) return x;
+  warningfln(fln,0,"limiting %s:%u to %s:%u",sx,x,slim,lim);
+  return lim;
+}
+
+void error_ge_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line,const char *fmt,...)
+{
+  va_list ap;
+
+  if (a < b) return;
+
+  va_start(ap,fmt);
+  vmsg(Info,line,fmt,ap);
+  va_end(ap);
+  assertfln(line,Exit,"\n%s:%u >= %s:%u", sa,a,sb,b);
+}
+
+void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line,const char *fmt,...)
+{
+  va_list ap;
+
+  if (a <= b) return;
+
+  va_start(ap,fmt);
+  vmsg(Info,line,fmt,ap);
+  va_end(ap);
+  assertfln(line,Exit,"\n%s:%lu > %s:%lu", sa,a,sb,b);
+}
+
+void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 cur,ub4 end,const char *fmt, ...)
+{
+  va_list ap;
+  ub8 sec = 1000 * 1000,dt,est,est100,now = gettime_usec();
+  ub4 perc;
+  char buf[256];
+  ub4 pos,len = sizeof(buf);
+
+  va_start(ap,fmt);
+
+  if (cur == 0) {
+    eta->cur = eta->end = 0;
+    eta->stamp = eta->start = now;
+  } else if (cur >= end || now - eta->stamp < 2 * sec) return;
+  eta->stamp = now;
+
+  pos = vsnprint(buf,0,len,fmt,ap);
+  va_end(ap);
+  perc = (ub4)(((unsigned long)cur * 100) / end);
+  perc = min(perc,100);
+
+  dt = (now - eta->start);
+  if (perc == 0) est = 0;
+  else if (perc == 100) est = 0;
+  else {
+    est100 = dt * 100 / (perc * sec);
+    est = est100 * (100 - perc) / perc;
+  }
+  pos += mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
+  infofln(fln,0,"%s",buf);
+}
+
+void inimsg(char *progname, const char *logname, ub4 opts, enum Msglvl lvl, ub4 vlvl)
+{
+  msg_fd = oscreate(logname);
+
+  if (msg_fd == -1) msg_fd = 2;
 
   progstart = gettime_usec();
 
@@ -530,10 +629,9 @@ void inimsg(char *progname, int fd, ub4 opts, enum Msglvl lvl, ub4 vlvl)
   vrblvl = vlvl;
 
   msgopts = opts;
-  filenames[0] = "(no file)";
   msgfile = setmsgfile(__FILE__);
-  if (fd != 1 && fd != 2 && (opts & Msg_init)) {
-    infofln(0,User,"opening log for %s", progname);
+  if (msg_fd > 2 && (opts & Msg_init)) {
+    infofln(0,User,"opening log %s for %s", logname,progname);
   }
   iniassert();
 }
@@ -547,7 +645,16 @@ void setmsglvl(enum Msglvl lvl, ub4 vlvl)
 // make assert and debug calls more compact
 ub4 setmsgfile(const char *filename)
 {
+  char *ext;
+  struct filecoord *fc;
+  ub4 len;
+
   if (filendx + 1 >= Elemcnt(filenames)) return 0;
-  filenames[++filendx] = filename;
-  return (filendx << 16);
+  ext = strrchr(filename,'.');
+  fc = filenames + filendx;
+  if (ext) len = (ub4)(ext - filename);
+  else len = (ub4)strlen(filename);
+  len = min(len,sizeof(fc->name) - 1);
+  memcpy(fc->name,filename,len);
+  return (filendx++ << 16);
 }

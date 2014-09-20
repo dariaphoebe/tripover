@@ -55,6 +55,7 @@ extern struct globs {
   ub4 vrblvl;
   ub4 maxports;
   ub4 maxhops;
+  ub4 maxstops;
   ub4 testa,testb;
   ub4 testcnt;
   ub4 testset[16];

@@ -34,6 +34,31 @@ static ub4 pdfscale_lon = 2000;
 static ub4 lat2pdf(ub4 lat) { return lat * pdfscale_lat / (180 * Latscale); }
 static ub4 lon2pdf(ub4 lon) { return lon * pdfscale_lon / (360 * Lonscale); }
 
+int net2txt(netbase *net)
+{
+  int fd;
+  char buf[1024];
+  ub4 pos;
+
+  struct hopbase *hp,*hops = net->hops;
+  ub4 hop,hopcnt = net->hopcnt;
+  ub4 portcnt = net->portcnt;
+
+  fd = oscreate("net.txt");
+  if (fd == -1) return 1;
+
+  pos = fmtstring(buf,"hops %u ports %u\n",hopcnt,portcnt);
+  oswrite(fd,buf,pos);
+
+  for(hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    pos = fmtstring(buf,"hop %u dep %u arr %u\n",hop,hp->dep,hp->arr);
+    oswrite(fd,buf,pos);
+  }
+  osclose(fd);
+  return 0;
+}
+
 // write network as page content
 static ub4 addnetpdf(netbase *net, char *buf, ub4 len)
 {

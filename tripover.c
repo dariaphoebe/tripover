@@ -41,7 +41,7 @@ static int init0(char *progname)
 {
   setsigs();
 
-  inimsg(progname,1,Msg_init|Msg_stamp|Msg_pos|Msg_type,globs.msglvl, 0);
+  inimsg(progname,"tripover.log",Msg_init|Msg_stamp|Msg_pos|Msg_type,globs.msglvl, 0);
   msgfile = setmsgfile(__FILE__);
   iniassert();
 
@@ -86,6 +86,7 @@ static int cmd_vrb(struct cmdval *cv) {
 static int cmd_max(struct cmdval *cv) {
   if (streq(cv->subarg,"ports")) globs.maxports = cv->uval;
   else if (streq(cv->subarg,"hops")) globs.maxhops = cv->uval;
+  else if (streq(cv->subarg,"stops")) globs.maxstops = cv->uval;
   return 0;
 }
 
@@ -117,6 +118,7 @@ static struct cmdarg cmdargs[] = {
   { "verbose|v", "[level]%u", "set or increase verbosity", cmd_vrb },
   { "max-ports", "limit%u", "limit #ports", cmd_max },
   { "max-hops", "limit%u", "limit #hops", cmd_max },
+  { "max-stops", "limit%u", "limit #stops", cmd_max },
   { ".test-a", "test%u", "test", cmd_test },
   { ".test-b", "test%u", "test", cmd_test },
   { ".test-set", "test%u", "tests", cmd_test },
@@ -128,7 +130,11 @@ int main(int argc, char *argv[])
 {
   netbase *base;
 
+  // temporary defaults
   globs.msglvl = Info;
+  globs.maxstops = 4;
+  globs.maxports = 3000;
+  globs.maxhops = 25000;
 
   if (init0(argv[0])) return 1;
 
@@ -137,7 +143,7 @@ int main(int argc, char *argv[])
 
   if (getbasenet()) return 1;
   base = getnetbase();
-  if (mknet(base)) return 1;
+  if (mknet(base,globs.maxstops)) return 1;
 
   return 0;
 }
