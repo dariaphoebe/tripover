@@ -257,6 +257,8 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   while (curhop < hopcnt && iter++ < (1 << 20)) {
     dep = rnd(portcnt);
     arr = rnd(portcnt);
+    if (dep == arr) continue;
+
     error_ge(dep,portcnt);
     error_ge(arr,portcnt);
 

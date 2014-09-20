@@ -588,7 +588,7 @@ void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line,co
 void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 cur,ub4 end,const char *fmt, ...)
 {
   va_list ap;
-  ub8 sec = 1000 * 1000,dt,est,est100,now = gettime_usec();
+  ub8 sec = 1000 * 1000,dt,est,now = gettime_usec();
   ub4 perc;
   char buf[256];
   ub4 pos,len = sizeof(buf);
@@ -606,12 +606,12 @@ void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4
   perc = (ub4)(((unsigned long)cur * 100) / end);
   perc = min(perc,100);
 
-  dt = (now - eta->start);
+  dt = (now - eta->start) / sec;
   if (perc == 0) est = 0;
   else if (perc == 100) est = 0;
   else {
-    est100 = dt * 100 / (perc * sec);
-    est = est100 * (100 - perc) / perc;
+    dt = dt * 100 / perc;
+    est = (dt * (100UL - perc)) / 100;
   }
   pos += mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
   infofln(fln,0,"%s",buf);

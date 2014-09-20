@@ -53,6 +53,7 @@ void ininet(void)
 #define Geohist (100+2)
 
 #define Watches 4
+static ub4 watches = 0;
 static ub4 watch_dep[Watches];
 static ub4 watch_arr[Watches];
 
@@ -161,7 +162,7 @@ static int mknet0(void)
         error_ge(ofs,hopcnt);
         error_ge(gen,concnt);
         con0lst[ofs+gen] = hop;
-        for (watch = 0; watch < Watches; watch++) {
+        for (watch = 0; watch < watches; watch++) {
           if (dep == watch_dep[watch] && arr == watch_arr[watch]) {
             info(0,"dep %u arr %u hop %u %u of %u at %p",dep,arr,hop,gen,concnt,con0lst + ofs + gen);
           }
@@ -214,7 +215,7 @@ static int mknetn(ub4 nstop)
   ub4 portcnt = net.portcnt;
   ub4 hopcnt = net.hopcnt;
 
-  struct portbase *bports;
+  struct portbase *bports,*pdep,*parr,*pmid;
   struct port *ports;
   struct hopbase *bhops;
   block *lstblk,*lstblk1,*lstblk2;
@@ -307,11 +308,17 @@ static int mknetn(ub4 nstop)
 
     progress(&eta,"port %u of %u in pass 1 %u-stop net",dep,portcnt,nstop);
 
+    pdep = bports + dep;
+    if (pdep->deps == 0) continue;
+
     outcnt = 0;
 
     // for each arrival port
     for (arr = 0; arr < portcnt; arr++) {
       if (arr == dep) continue;
+
+      parr = bports + arr;
+      if (parr->arrs == 0) continue;
 
       deparr = dep * portcnt + arr;
 
@@ -335,6 +342,9 @@ static int mknetn(ub4 nstop)
         // first obtain distance range
         for (mid = 0; mid < portcnt; mid++) {
           if (mid == dep || mid == arr) continue;
+          pmid = bports + mid;
+          if (pmid->deps == 0 || pmid->arrs == 0) continue;
+
           depmid = dep * portcnt + mid;
 
           n1 = cnts1[depmid];
@@ -412,7 +422,7 @@ static int mknetn(ub4 nstop)
             n2 = cnts2[midarr];
             if (n2 == 0) continue;
 
-            for (watch = 0; watch < Watches; watch++) {
+            for (watch = 0; watch < watches; watch++) {
               if (dep == watch_dep[watch]) info(0,"dep %u arr %u mid %u n1 %u n2 %u",dep,arr,mid,n1,n2);
             }
 
@@ -450,7 +460,7 @@ static int mknetn(ub4 nstop)
               dupstats[min(dupcode,Elemcnt(dupstats))]++;
               if (dupcode) continue;
 
-              for (watch = 0; watch < Watches; watch++) {
+              for (watch = 0; watch < watches; watch++) {
                 if (dep == watch_dep[watch]) info(0,"dep %u arr %u mid %u \av%u%p n1 %u n2 %u",dep,arr,mid,nleg1,lst11,n1,n2);
               }
               checktrip(lst11,nleg1,dep,mid,dist1);
@@ -805,5 +815,6 @@ int mknet(netbase *basenet,ub4 maxstop)
   for (nstop = 1; nstop <= maxstop; nstop++) {
     if (mknetn(nstop)) return 1;
   }
+  info0(0,"static network init done");
   return 0;
 }
