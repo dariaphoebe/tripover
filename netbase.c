@@ -34,6 +34,125 @@ void ininetbase(void)
   iniassert();
 }
 
+// check whether ports are in trip
+// todo use portsbyhop
+int portintrip(ub4 *legs,ub4 nleg,ub4 dep,ub4 mid,ub4 arr)
+{
+  ub4 legno,leg,hopcnt = basenet.hopcnt;
+  struct hopbase *hp,*hops = basenet.hops;
+
+  if (nleg == 0) return 0;
+
+  leg = legs[0];
+  if (leg >= hopcnt) return 1;
+
+  hp = hops + leg;
+
+  if (nleg == 1) {
+    if (hp->dep == mid) return 2;
+    if (hp->dep == arr) return 3;
+    if (hp->arr == dep) return 4;
+    if (hp->arr == mid) return 5;
+  }
+
+  if (hp->dep == mid) return 6;
+  if (hp->dep == arr) return 7;
+  if (hp->arr == dep) return 8;
+  if (hp->arr == mid) return 9;
+
+//  if (hp->arr == arr) return 10;
+
+  for (legno = 1; legno < nleg-1; legno++) {
+    leg = legs[legno];
+    if (leg >= hopcnt) return 1;
+    hp = hops + leg;
+    if (hp->dep == dep) return 11;
+    if (hp->dep == mid) return 12;
+    if (hp->dep == arr) return 13;
+    if (hp->arr == dep) return 14;
+    if (hp->arr == mid) return 15;
+    if (hp->arr == arr) return 16;
+  }
+  leg = legs[nleg-1];
+  if (leg >= hopcnt) return 1;
+  hp = hops + leg;
+//  if (hp->dep == dep) return 17;
+  if (hp->dep == mid) return 18;
+  if (hp->dep == arr) return 19;
+  if (hp->arr == dep) return 20;
+  if (hp->arr == mid) return 21;
+
+  return 0;
+}
+
+// check whether a triplet passes thru the given ports
+void checktrip_fln(ub4 *legs, ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln)
+{
+  ub4 legno,legno2,leg,leg2,arr0,cdist,hopcnt = basenet.hopcnt;
+  struct hopbase *hp,*hp2,*hops = basenet.hops;
+
+  error_eq_fln(arr,dep,"arr","dep",fln);
+
+  for (legno = 0; legno < nleg; legno++) {
+    leg = legs[legno];
+    error_ge_fln(leg,hopcnt,"hop","hopcnt",fln);
+  }
+  if (nleg > 2) {
+    for (legno = 0; legno < nleg; legno++) {
+      leg = legs[legno];
+      hp = hops + leg;
+      for (legno2 = legno+1; legno2 < nleg; legno2++) {
+        leg2 = legs[legno2];
+        hp2 = hops + leg2;
+        error_eq_fln(leg,leg2,"leg1","leg2",fln);
+        error_eq_fln(hp->dep,hp2->dep,"dep1","dep2",fln);
+        error_eq_fln(hp->dep,hp2->arr,"dep1","arr2",fln);
+        if (legno2 != legno + 1) error_eq_fln(hp->arr,hp2->dep,"arr1","dep2",fln);
+        error_eq_fln(hp->arr,hp2->arr,"arr1","arr2",fln);
+      }
+    }
+  }
+
+  leg = legs[0];
+  hp = hops + leg;
+  error_ne_fln(hp->dep,dep,"hop.dep","dep",fln);
+  arr0 = hp->arr;
+  cdist = hp->dist;
+
+  leg = legs[nleg-1];
+  hp = hops + leg;
+  error_ne_fln(hp->arr,arr,"hop.arr","arr",fln);
+
+  for (legno = 1; legno < nleg; legno++) {
+    leg = legs[legno];
+    hp = hops + leg;
+    error_ne_fln(arr0,hp->dep,"prv.arr","dep",fln);
+    arr0 = hp->arr;
+    cdist += hp->dist;
+  }
+  error_ne_fln(dist,cdist,"dist","cdist",fln);
+}
+
+// check whether a triplet passes thru the given ports
+void checktrip3_fln(ub4 *legs, ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln)
+{
+  ub4 legno,leg;
+  struct hopbase *hp,*hops = basenet.hops;
+  int hasvia = 0;
+
+  error_lt_fln(nleg,2,"nleg","2",fln);
+  checktrip_fln(legs,nleg,dep,arr,dist,fln);
+  error_eq_fln(via,dep,"via","dep",fln);
+  error_eq_fln(via,arr,"via","arr",fln);
+
+  for (legno = 1; legno < nleg; legno++) {
+    leg = legs[legno];
+    hp = hops + leg;
+    if (hp->dep == via) hasvia = 1;
+  }
+  error_z_fln(hasvia,0,"via","0",fln);
+}
+
 static void addport(struct portbase *ports,ub4 port,ub4 lat,ub4 lon,double rlat,double rlon,ub4 size,enum txkind kind)
 {
   struct portbase *pp = ports + port;
@@ -70,7 +189,7 @@ static ub4 getz(ub4 lat,ub4 lon)
 
 int mkrandnet(ub4 portcnt,ub4 hopcnt)
 {
-  struct portbase *ports;
+  struct portbase *ports,*pdep,*parr;
   struct hopbase *hops;
   struct range zrange;
   ub1 *net0;
@@ -147,6 +266,10 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     hops[curhop].dep = dep;
     hops[curhop].arr = arr;
     curhop++;
+    pdep = ports + dep;
+    parr = ports + arr;
+    pdep->deps++;
+    parr->arrs++;
   }
 
   aclear(depstats);
@@ -157,11 +280,14 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     }
     depstats[min(Elemcnt(depstats),depcnt)]++;
   }
-  for (iv = 0; iv < Elemcnt(depstats); iv++) info(0,"%u ports with %u departures", depstats[iv], iv);
+  for (iv = 0; iv < Elemcnt(depstats); iv++) vrb(0,"%u ports with %u departures", depstats[iv], iv);
 
   basenet.hops = hops;
   basenet.portcnt = portcnt;
   basenet.hopcnt = hopcnt;
+
+//  net2txt(&basenet);
+
   info0(0,"done generating artificial net");
   return 0;
 }

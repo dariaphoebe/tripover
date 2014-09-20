@@ -46,6 +46,7 @@ The planner is targeted to run on a server, accessed by local and web clients.
 Starting
 
 * Initial artificial network
+* Static connectivity matrix aka graph builing
 
 == Installation
 

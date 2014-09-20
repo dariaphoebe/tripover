@@ -55,6 +55,8 @@ struct portbase {
   ub4 lat,lon;
   double rlat,rlon;
 
+  ub4 deps,arrs;
+
   ub4 utcofs;
 
   ub4 size;
@@ -153,6 +155,12 @@ struct networkbase {
 
 };
 typedef struct networkbase netbase;
+
+#define checktrip(legs,nleg,dep,arr,dist) checktrip_fln((legs),(nleg),(dep),(arr),(dist),FLN)
+#define checktrip3(legs,nleg,dep,arr,via,dist) checktrip3_fln((legs),(nleg),(dep),(arr),(via),(dist),FLN)
+extern void checktrip_fln(ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln);
+extern void checktrip3_fln(ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln);
+extern int portintrip(ub4 *legs,ub4 nleg,ub4 dep,ub4 mid,ub4 arr);
 
 extern netbase *getnetbase(void);
 extern int mkrandnet(ub4 portcnt,ub4 hopcnt);

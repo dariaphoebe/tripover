@@ -14,6 +14,7 @@
  */
 
 #define Nterm 4
+#define Nstop 8
 
 struct port {
   ub4 magic;
@@ -28,6 +29,7 @@ struct port {
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
 
   ub4 terms[Nterm];  // terminal or transfer port 
+  ub2 depcnts[Nstop];
 };
 
 struct hop {
@@ -64,6 +66,8 @@ struct timetable {
 
 };
 
+#define Nleg (Nstop+1)
+
 // holds all
 struct network {
   ub4 portcnt;
@@ -85,18 +89,36 @@ struct network {
 
   ub4 fports2ports[Portcnt];
 
+  ub4 *dist0;      // [portcnt2] distance
+  ub4 *hopdist;    // [hopcnt] idem
+  ub4 *portsbyhop; // [hopcnt * 2] <dep,arr>
+
 // connection matrices. cached separately ?
-  ub2 *con0cnt;    // [portcnt2]  0-stop connections
-  ub4 *con0ofs;
-  ub4 *con0lst;     // [hopcnt]
+  ub2 *con0cnt;    // [port2]  0-stop connections
+  ub4 *con0ofs;    // [port2]  offsets in lst
+
+//  block con0lst;    // [hopcnt]
+
+  ub4 maxstop;     // 
+
+  size_t needconn;    // final required any-stop connectivity
 
 // idem for each of n-stop...
+  ub2 *concnt[Nstop];  // [port2]
+  ub4 *conofs[Nstop];  // [port2]
+
+  block conlst[Nstop];  // [x]
+
+  ub4 *lodist[Nstop];  // [port2] lowest over-route distance
+  ub4 *hidist[Nstop];  // [port2] lowest over-route distance
+
+  ub4 *portdst[Nstop];  // [portcnt] #destinations per port
 
 // pools
 // ?  datetime *gopool;
 
 };
 
-extern int mknet(netbase *basenet);
+extern int mknet(netbase *basenet,ub4 maxstop);
 
 extern void ininet(void);
