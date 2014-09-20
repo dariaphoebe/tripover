@@ -16,38 +16,56 @@
 
 enum Msglvl { Msglvl_nil,Fatal,Assert,Error,Warn,Info,Vrb,Msglvl_last };
 
-#define Exit  0x80000000 // exit program
-#define CC    0x40000000 // keep to precede next error
+enum Msgcode {
+  Indent = 0xff,
+  Exit = 0x100,   // exit program
+  CC   = 0x200,   // keep to precede next error
+  User = 0x400, // user-style, undecorated
+  Ind  = 0x800,  // indent
 
-#define User  0x10000000 // user-style, undecorated
-#define Ind   0x08000000 // indent
+  GT   = 0x1000,
+  GE   = 0x2000,
 
-// todo: verbosity levels above 'verbose'
-#define V0    0x0000
-#define V1    0x4000
-#define V2    0x8000
-#define V3    0xc000
+  V0   = 0x10000, V1 = 0x20000, V3 = 0x30000
+};
 
 enum Msgopts { Msg_init = 1, Msg_stamp = 2, Msg_pos = 4, Msg_type = 8, Msg_ccerr = 16 };
+
+struct eta {
+  ub8 now,stamp,start;
+  ub4 cur,end;
+};
 
 // arrange file coords
 #define FLN __LINE__|msgfile
 
-#define genmsg(lvl,code,fmt,...) genmsgfln(FLN,(lvl),(code),fmt,__VA_ARGS__)
-#define vrb(code,fmt,...) vrbfln(FLN,(code),fmt,__VA_ARGS__)
-#define info(code,fmt,...) infofln(FLN,(code),fmt,__VA_ARGS__)
-#define warning(code,fmt,...) warningfln(FLN,(code),fmt,__VA_ARGS__)
-#define error(code,fmt,...) errorfln(FLN,(code),fmt,__VA_ARGS__)
-#define oserror(code,fmt,...) oserrorfln(FLN,(code),fmt,__VA_ARGS__)
+#define genmsg(lvl,code,fmt,...) genmsgfln(FLN,(lvl),(code),(fmt),__VA_ARGS__)
+#define vrb(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
+#define info(code,fmt,...) infofln(FLN,(code),(fmt),__VA_ARGS__)
+#define warning(code,fmt,...) warningfln(FLN,(code),(fmt),__VA_ARGS__)
+#define error(code,fmt,...) errorfln(FLN,(code),(fmt),__VA_ARGS__)
+#define oserror(code,fmt,...) oserrorfln(FLN,(code),(fmt),__VA_ARGS__)
 
 #define info0(code,s) infofln(FLN,(code),(s))
 
+// no misprint: access first two format args
+#define progress(eta,fmt,cur,end,...) progress2((eta),FLN,(cur),(end),(fmt),(cur),(end),__VA_ARGS__)
+
+extern void progress2(struct eta *eta,ub4 fln,ub4 cur,ub4 end,const char *fmt, ...) __attribute__ ((format (printf,5,6)));
+
 extern ub4 mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...) __attribute__ ((format (printf,4,5)));
+
+#ifdef va_arg
+  extern ub4 myvsnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap);
+  extern void vmsg(enum Msglvl lvl,ub4 fln,const char *fmt,va_list ap);
+#endif
 
 #define fmtstring(dst,fmt,...) mysnprintf((dst),0,sizeof (dst),(fmt),__VA_ARGS__)
 
 extern ub4 setmsgfile(const char *filename);
-extern void inimsg(char *progname, int fd, ub4 opts, enum Msglvl lvl, ub4 vrblvl);
+extern ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid);
+
+extern void inimsg(char *progname, const char *logname, ub4 opts, enum Msglvl lvl, ub4 vrblvl);
 extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
@@ -65,7 +83,12 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 
 #define error_gt2(a1,a2,b) error_gt2_fln((a1),(a2),(b),#a1,#a2,#b,FLN)
 
+#define error_ge_cc(a,b,fmt,...) error_ge_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)
+#define error_gt_cc(a,b,fmt,...) error_gt_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)
+
 #define error_ovf(a,b) error_ovf_fln((a),sizeof(b),#a,#b,FLN)
+
+#define limit_gt(x,lim) (x) = limit_gt_fln((x),(lim),#x,#lim,FLN)
 
 extern void genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 extern void vrbfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
@@ -75,80 +98,85 @@ extern int errorfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((for
 extern int oserrorfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 
+extern int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim,ub4 fln);
+
+extern void error_ge_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line,const char *fmt,...);
+extern void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line,const char *fmt,...);
+
 static void error_eq_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   if (a != b) return;
 
-  assertfln(line,Exit,"\n%s:%u == %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:%u == %s:%u", sa,a,sb,b);
 }
 
-static void error_ne_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
+static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a == b) return;
 
-  assertfln(line,Exit,"\n%s:%u != %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:%lu != %s:%lu", sa,a,sb,b);
 }
 
-static void error_gt_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
+static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a <= b) return;
 
-  assertfln(line,Exit,"\n%s:%u > %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:%lu > %s:%lu", sa,a,sb,b);
 }
 
-static void error_ge_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
+static void error_ge_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a < b) return;
 
-  assertfln(line,Exit,"\n%s:%u >= %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:%lu >= %s:%lu", sa,a,sb,b);
 }
 
 static void error_lt_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   if (a >= b) return;
 
-  assertfln(line,Exit,"\n%s:%u < %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:%u < %s:%u", sa,a,sb,b);
 }
 
 static void error_le_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   if (a > b) return;
 
-  assertfln(line,Exit,"\n%s:%u <= %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:%u <= %s:%u", sa,a,sb,b);
 }
 
-static void error_z_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
+static void error_z_fln(size_t a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   if (a != 0) return;
 
-  assertfln(line,Exit,"\n%s = 0 at %s:%u", sa,sb,b);
+  assertfln(line,Exit,"%s = 0 at %s:%u", sa,sb,b);
 }
 
 static void error_nz_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   if (a == 0) return;
 
-  assertfln(line,Exit,"\n%s:%u != 0 at %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:%u != 0 at %s:%u", sa,a,sb,b);
 }
 
-static void error_zz_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
+static void error_zz_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
-  if (a == 0) assertfln(line,Exit,"\n%s = 0", sa);
-  else if (b == 0) assertfln(line,Exit,"\n%s = 0", sb);
+  if (a == 0) assertfln(line,Exit,"%s = 0", sa);
+  else if (b == 0) assertfln(line,Exit,"%s = 0", sb);
 }
 
 static void error_zp_fln(void *a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   if (a) return;
 
-  assertfln(line,Exit,"\n%s == nil at %s:%u", sa,sb,b);
+  assertfln(line,Exit,"%s == nil at %s:%u", sa,sb,b);
 }
 
-static void error_gt2_fln(ub4 a1,ub4 a2,ub8 b,const char *sa1,const char *sa2,const char *sb,ub4 line)
+static void error_gt2_fln(size_t a1,size_t a2,ub8 b,const char *sa1,const char *sa2,const char *sb,ub4 line)
 {
-  if (a1 > b) assertfln(line,Exit,"\n%s:%u > %s:%lu", sa1,a1,sb,b);
-  if (a2 > b) assertfln(line,Exit,"\n%s:%u > %s:%lu", sa2,a2,sb,b);
-  if ((ub8)a1 + (ub8)a2 > b) assertfln(line,Exit,"\n%s:%u+%s:%u > %s:%lu", sa1,a1,sa2,a2,sb,b);
+  if (a1 > b) assertfln(line,Exit,"%s:%lu > %s:%lu", sa1,a1,sb,b);
+  if (a2 > b) assertfln(line,Exit,"%s:%lu > %s:%lu", sa2,a2,sb,b);
+  if ((ub8)a1 + (ub8)a2 > b) assertfln(line,Exit,"%s:%lu+%s:%lu > %s:%lu", sa1,a1,sa2,a2,sb,b);
 }
 
 static ub4 ovfsizes[] = { 0, 0xff, 0xffff, 0, 0xffffffff, 0, 0, 0, 0xffffffff };
@@ -157,12 +185,12 @@ static void error_ovf_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   ub4 bb;
 
-  if (b > 7) assertfln(line,Exit,"\n%s:%u overflows sizeof %s:%u", sa,a,sb,b);
+  if (b > 7) assertfln(line,Exit,"%s:%u overflows sizeof %s:%u", sa,a,sb,b);
 
   bb = ovfsizes[b];
   if (a < bb) return;
 
-  assertfln(line,Exit,"\n%s:%u overflows sizeof %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:%u overflows sizeof %s:%u", sa,a,sb,b);
 }
 
 // dummy to prevent 'unused' warnings, as above are static
