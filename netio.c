@@ -16,6 +16,7 @@
 #include <stdlib.h>
 
 #include "base.h"
+#include "cfg.h"
 #include "mem.h"
 #include "util.h"
 #include "os.h"

@@ -40,9 +40,6 @@
 
 enum txkind { Air, Rail };
 
-#define Hopcnt 1024 * 1024
-#define Portcnt 1024 * 1024
-
 struct portbase {
   ub4 magic;
   ub4 id;      // index in net.ports

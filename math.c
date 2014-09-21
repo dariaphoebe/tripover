@@ -197,7 +197,7 @@ int mkheightmap(ub4 *map,ub4 n)
       range1 = range - 1;
     }
 
-    info(0,"len %u range %u",len,range);
+    vrb(0,"len %u range %u",len,range);
     for (y = 0; y + len < n; y += len) {
 
       for (x = 0; x + len < n; x += len) {
@@ -233,7 +233,7 @@ int mkheightmap(ub4 *map,ub4 n)
     len2 >>= 1;
   } while(len);
 
-  writeppm("heightmap.ppm",map,n,n);
+//  writeppm("heightmap.ppm",map,n,n);
 
   return 0;
 }

@@ -451,7 +451,7 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
     if (n) memset(msgbuf + pos,' ',n);
     pos += n;
   }
-  if (pos < maxlen) msgbuf[pos++] = ' ';
+  if (opts && pos < maxlen) msgbuf[pos++] = ' ';
   if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert\n  ");
   pos += vsnprint(msgbuf, pos, maxlen, fmt, ap);
   pos = min(pos,maxlen-1);
@@ -631,7 +631,7 @@ void inimsg(char *progname, const char *logname, ub4 opts, enum Msglvl lvl, ub4 
   msgopts = opts;
   msgfile = setmsgfile(__FILE__);
   if (msg_fd > 2 && (opts & Msg_init)) {
-    infofln(0,User,"opening log %s for %s", logname,progname);
+    infofln(0,User,"opening log %s for %s\n", logname,progname);
   }
   iniassert();
 }

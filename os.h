@@ -18,4 +18,5 @@ extern int oscreate(const char *name);
 extern int osfdinfo(struct myfile *mf,int fd);
 extern int osclose(int fd);
 extern int setsigs(void);
+extern int oslimits(void);
 extern void inios(void);

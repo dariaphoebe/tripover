@@ -36,50 +36,57 @@ void inicfg(void)
 static ub4 linno;
 static const char *cfgname;
 
-enum Cfgvar { Maxhops,Maxports,Net2pdf,Cfgcnt };
+enum Cfgvar { Maxhops,Maxports,Maxstops,Net2pdf,Cfgcnt };
 enum Cfgcnv { String, Uint, Bool,None };
 static struct cfgvar {
   const char *name;
   enum Cfgcnv cnv;
   enum Cfgvar var;
+  ub4 lo,hi,def;
+  const char *desc;
 } cfgvars[Cfgcnt] = {
-  {"maxhops",Uint,Maxhops},
-  {"maxports",Uint,Maxports},
-  {"net.pdf",Bool,Net2pdf}
+  {"maxhops",Uint,Maxhops,0,Hopcnt,5000,"maximum number of hops"},
+  {"maxports",Uint,Maxports,0,Portcnt,1000,"maximum number of maxport"},
+  {"maxstops",Uint,Maxstops,0,Stopcnt,3,"maximum number of stops"},
+  {"net.pdf",Bool,Net2pdf,0,0,0,"write network to pdf"}
 };
+static int varseen[Cfgcnt];
 
 extern struct globs globs;
 
 static int memeq(const char *s,const char *q,ub4 n) { return !memcmp(s,q,n); }
 
-static int writecfg(void)
+int writecfg(const char *curname)
 {
   struct cfgvar *vp = cfgvars;
   ub4 uval,pos;
   int fd;
   char buf[4096];
   const char *name;
+  const char *desc;
   char *sval = (char *)"";
 
-  fd = oscreate("tripover.curcfg");
+  fd = oscreate(curname);
   if (fd == -1) return 1;
 
   while (vp < cfgvars + Cfgcnt) {
     name = vp->name;
+    desc = vp->desc;
 
     uval = 0;
     switch(vp->var) {
     case Maxhops: uval = globs.maxhops; break;
     case Maxports: uval = globs.maxports; break;
+    case Maxstops: uval = globs.maxstops; break;
     case Net2pdf: break;
     case Cfgcnt: break;
     }
 
     switch(vp->cnv) {
-    case Uint: pos = fmtstring(buf,"%s %u\n",name,uval); break;
-    case Bool: pos = fmtstring(buf,"%s %u\n",name,uval); break;
-    case String: pos = fmtstring(buf,"%s %s\n",name,sval);break;
-    case None: pos = fmtstring(buf,"%s\n",name);break;
+    case Uint: pos = fmtstring(buf,"%s %u\t# %s [%u]\n",name,uval,desc,vp->def); break;
+    case Bool: pos = fmtstring(buf,"%s %u\t# %s\n",name,uval,desc); break;
+    case String: pos = fmtstring(buf,"%s %s\t# %s\n",name,sval,desc);break;
+    case None: pos = fmtstring(buf,"%s\t# %s\n",name,desc);break;
     }
     oswrite(fd,buf,pos);
     vp++;
@@ -88,42 +95,82 @@ static int writecfg(void)
   return 0;
 }
 
-static int addvar(char *var,char *val,ub4 varlen,ub4 vallen)
+static void limitval(struct cfgvar *vp,ub4 *puval)
+{
+  ub4 newval = *puval & ~Cfgcl;
+  if (newval < vp->lo) { newval = vp->lo; warning(0,"config var %s below %u",vp->name,vp->lo); }
+  else if (newval > vp->hi) { newval = vp->hi; warning(0,"config var %s above \ah%u",vp->name,vp->hi); }
+  *puval = newval;
+}
+
+static int limitvals(void)
+{
+  struct cfgvar *vp;
+
+  for (vp = cfgvars; vp < cfgvars + Cfgcnt; vp++) {
+    switch(vp->var) {
+    case Maxhops: limitval(vp,&globs.maxhops); break;
+    case Maxports: limitval(vp,&globs.maxports); break;
+    case Maxstops: limitval(vp,&globs.maxstops); break;
+    case Net2pdf: break;
+    case Cfgcnt: break;
+    }
+  }
+  return 0;
+}
+
+static void setval(struct cfgvar *vp,ub4 *puval,ub4 newval)
+{
+  if (*puval & Cfgcl) {
+    info(0,"config var %s set on commandline",vp->name);
+    *puval &= ~Cfgcl;
+  } else *puval = newval;
+}
+
+static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
 {
   struct cfgvar *vp = cfgvars;
-  ub4 n,uval = 0;
+  ub4 n,prvline,uval = 0;
   const char *name;
+  enum Cfgvar var;
 
-  var[varlen] = 0;
+  varname[varlen] = 0;
   while (vp < cfgvars + Cfgcnt) {
     name = vp->name;
     n = (ub4)strlen(name);
-    if (n == varlen && memeq(name,var,n)) break;
+    if (n == varlen && memeq(name,varname,n)) break;
     vp++;
   }
-  if (vp == cfgvars + Cfgcnt) return error(0,"%s.%u: unknown config var '%s'",cfgname,linno,var);
+  if (vp == cfgvars + Cfgcnt) return error(0,"%s.%u: unknown config var '%s'",cfgname,linno,varname);
+  var = vp->var;
+  error_ge(var,Cfgcnt);
 
-  if (vallen == 0) return error(0,"%s.%u: '%s' needs arg",cfgname,linno,var);
+  prvline = varseen[var];
+  if (prvline) return warning(0,"%s.%u: %s previously defined at line %u",cfgname,linno,varname,prvline);
+  varseen[var] = linno;
+
+  if (vallen == 0) return error(0,"%s.%u: '%s' needs arg",cfgname,linno,varname);
 
   switch(vp->cnv) {
   case Uint: val[vallen] = 0;
-             if (str2ub4(val,&uval)) return error(0,"%s.%u: %s : '%s' needs numerical arg",cfgname,linno,var,val);
+             if (str2ub4(val,&uval)) return error(0,"%s.%u: %s : '%s' needs numerical arg",cfgname,linno,varname,val);
              break;
   case Bool: break;
   case String: break;
   case None: break;
   }
 
-  switch(vp->var) {
-  case Maxhops: globs.maxhops = uval; break;
-  case Maxports: globs.maxports = uval; break;
+  switch(var) {
+  case Maxhops: setval(vp,&globs.maxhops,uval); break;
+  case Maxports: setval(vp,&globs.maxports,uval); break;
+  case Maxstops: setval(vp,&globs.maxstops,uval); break;
   case Net2pdf: break;
   case Cfgcnt: break;
   }
   return 0;
 }
 
-int config(const char *name)
+static int rdcfg(const char *name)
 {
   struct myfile cfg;
   enum states { Out,Var,Val0,Val,Val9,Fls } state;
@@ -139,6 +186,7 @@ int config(const char *name)
   if (cfg.exist == 0) return 0;
 
   len = (ub4)cfg.len;
+  vrb(CC,"parse config in %s",name);
 
   if (len == 0) return 0;
 
@@ -206,6 +254,12 @@ int config(const char *name)
   }
 
   if (rv) return rv;
-  writecfg();
+
   return 0;
+}
+
+int readcfg(const char *name)
+{
+  if (rdcfg(name)) return 1;
+  return limitvals();
 }

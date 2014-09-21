@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "base.h"
+#include "cfg.h"
 #include "mem.h"
 #include "math.h"
 

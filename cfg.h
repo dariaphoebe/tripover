@@ -1,4 +1,4 @@
-// time.h
+// cfg.h
 
 /*
    This file is part of Tripover, a broad-search journey planner.
@@ -9,5 +9,18 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-extern int config(const char *name);
+// compile-time limits: architectural
+#define Hopcnt (1024 * 1024)
+
+// compile-time limits: practical
+#define Portcnt (1024 * 64 - 2)
+
+#define Stopcnt 16
+
+// end of limits
+
+#define Cfgcl (1U << 31)
+
+extern int readcfg(const char *name);
+extern int writecfg(const char *name);
 extern void inicfg(void);

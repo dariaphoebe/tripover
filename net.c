@@ -31,6 +31,7 @@
 #include <string.h>
 
 #include "base.h"
+#include "cfg.h"
 #include "mem.h"
 #include "math.h"
 
@@ -78,6 +79,7 @@ static int mknet0(void)
   ub4 dep,arr,port2,da,depcnt,needconn,watch;
   ub2 iv;
   ub4 depstats[16];
+  struct eta eta;
 
   if (portcnt == 0 || hopcnt == 0) return 1;
 
@@ -120,6 +122,7 @@ static int mknet0(void)
 
   // create 0-stop connectivity
   // support multiple hops per port pair
+  ub4 ovfcnt = 0;
   for (hop = 0; hop < hopcnt; hop++) {
     hp = bhops + hop;
     dep = hp->dep;
@@ -130,16 +133,20 @@ static int mknet0(void)
     portsbyhop[hop * 2 + 1] = arr;
     da = dep * portcnt + arr;
     concnt = con0cnt[da];
-    error_ovf(concnt,ub2);
-    con0cnt[da] = (ub2)(concnt+1);
+    if (concnt == hi16-1) ovfcnt++;
+    else con0cnt[da] = (ub2)(concnt+1);
     dist = dist0[da];
     hp->dist = dist;
     hopdist[hop] = dist;
   }
+  if (ovfcnt) warning(0,"limiting 0-stop net by \ah%u",ovfcnt);
 
   ofs = 0;
   needconn = 0;
   for (dep = 0; dep < portcnt; dep++) {
+
+    progress(&eta,"port %u of %u in pass 2 0-stop %u hop net",dep,portcnt,hopcnt);
+
     dport = bports + dep;
     if (dport->deps == 0) continue;
 

@@ -130,12 +130,18 @@ static int rlimit(int res,rlim_t lim,const char *desc)
   return info(0,"resource limit for %s set to \ah%lu",desc,lim);
 }
 
+int oslimits(void)
+{
+  int rv;
+
+  rv = rlimit(RLIMIT_AS,Maxmem,"virtual memory");
+  rv |= rlimit(RLIMIT_CORE,1024 * 1024,"core size");
+  return rv;
+}
+
 void inios(void)
 {
 
   msgfile = setmsgfile(__FILE__);
   iniassert();
-
-  rlimit(RLIMIT_AS,Maxmem,"virtual memory");
-  rlimit(RLIMIT_CORE,1024 * 1024,"core size");
 }

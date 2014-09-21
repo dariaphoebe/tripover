@@ -85,9 +85,11 @@ static int cmd_vrb(struct cmdval *cv) {
 }
 
 static int cmd_max(struct cmdval *cv) {
-  if (streq(cv->subarg,"ports")) globs.maxports = cv->uval;
-  else if (streq(cv->subarg,"hops")) globs.maxhops = cv->uval;
-  else if (streq(cv->subarg,"stops")) globs.maxstops = cv->uval;
+  ub4 val = cv->uval | Cfgcl;
+
+  if (streq(cv->subarg,"ports")) globs.maxports = val;
+  else if (streq(cv->subarg,"hops")) globs.maxhops = val;
+  else if (streq(cv->subarg,"stops")) globs.maxstops = val;
   return 0;
 }
 
@@ -133,9 +135,6 @@ int main(int argc, char *argv[])
 
   // temporary defaults
   globs.msglvl = Info;
-  globs.maxstops = 4;
-  globs.maxports = 3000;
-  globs.maxhops = 25000;
   strcopy(globs.cfgfile,"tripover.cfg");
 
   if (init0(argv[0])) return 1;
@@ -143,7 +142,10 @@ int main(int argc, char *argv[])
   if (cmdline(argc,argv,cmdargs)) return 1;
   setmsglvl(globs.msglvl,0);
 
-  if (config(globs.cfgfile)) return 1;
+  oslimits();
+
+  if (readcfg(globs.cfgfile)) return 1;
+  writecfg("tripover.curcfg");
 
   if (getbasenet()) return 1;
   base = getnetbase();
