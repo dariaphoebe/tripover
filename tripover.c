@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "base.h"
+#include "cfg.h"
 #include "os.h"
 #include "time.h"
 #include "mem.h"
@@ -26,7 +27,8 @@
 static ub4 msgfile;
 #include "msg.h"
 
-#include "cfg.h"
+#include "server.h"
+
 #include "bitfields.h"
 #include "netbase.h"
 #include "net.h"
@@ -42,7 +44,7 @@ static int init0(char *progname)
 {
   setsigs();
 
-  inimsg(progname,"tripover.log",Msg_init|Msg_stamp|Msg_pos|Msg_type,globs.msglvl, 0);
+  inimsg(progname,"tripover.log",Msg_init|Msg_stamp|Msg_pos|Msg_type);
   msgfile = setmsgfile(__FILE__);
   iniassert();
 
@@ -52,6 +54,7 @@ static int init0(char *progname)
   initime();
   inimem();
   inios();
+  iniserver();
   inimath();
   ininetbase();
   ininet();
@@ -81,6 +84,7 @@ static int getbasenet(void)
 static int cmd_vrb(struct cmdval *cv) {
   if (cv->valcnt) globs.msglvl = cv->uval + Error;
   else globs.msglvl++;
+  setmsglvl(globs.msglvl,0);
   return 0;
 }
 
@@ -136,11 +140,12 @@ int main(int argc, char *argv[])
   // temporary defaults
   globs.msglvl = Info;
   strcopy(globs.cfgfile,"tripover.cfg");
+  strcopy(globs.querydir,"queries");
 
+  setmsglvl(globs.msglvl,0);
   if (init0(argv[0])) return 1;
 
   if (cmdline(argc,argv,cmdargs)) return 1;
-  setmsglvl(globs.msglvl,0);
 
   oslimits();
 
@@ -150,6 +155,8 @@ int main(int argc, char *argv[])
   if (getbasenet()) return 1;
   base = getnetbase();
   if (mknet(base,globs.maxstops)) return 1;
+
+  serverloop();
 
   return 0;
 }

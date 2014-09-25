@@ -42,25 +42,46 @@ int str2ub4(const char *s, ub4 *pv)
   return 0;
 }
 
+int hex2ub4(const char *s, ub4 *pv)
+{
+  unsigned long n;
+  char *ep;
+
+  *pv = 0;
+  if (!s || !*s) return 1;
+  n = strtoul(s,&ep,16);
+  if (ep == s) return 1;
+  if (n > hi32) *pv = hi32;
+  else *pv = (ub4)n;
+  return 0;
+}
+
 int readfile(struct myfile *mf,const char *name, int mustexist)
 {
   int fd = osopen(name);
   char *buf;
   size_t len;
+  ssize_t nr;
 
   clear(mf);
   if (fd == -1) {
     if (mustexist) return oserror(0,"cannot open %s",name);
     else return info(0,"optional %s is not present",name);
   }
-  if (osfdinfo(mf,fd)) return oserror(0,"cannot get info for %s",name);
+  if (osfdinfo(mf,fd)) { oserror(0,"cannot get info for %s",name); osclose(fd); return 1; }
   mf->exist = 1;
   len = mf->len;
   if (len == 0) { osclose(fd); return info(0,"%s is empty",name); }
-  buf = alloc((ub4)len,char,0,name,0);
+  if (len < sizeof(mf->localbuf)) buf = mf->localbuf;
+  else {
+    buf = alloc((ub4)len,char,0,name,0);
+    mf->alloced = 1;
+  }
   mf->buf = buf;
-  if (osread(fd,buf,len)) return oserror(0,"cannot read %s",name);
+  nr = osread(fd,buf,len);
+  if (nr == -1) { oserror(0,"cannot read %s",name); osclose(fd); return 1; }
   osclose(fd);
+  if (nr != (ssize_t)len) return error(0,"partial read of %s",name);
   return 0;
 }
 

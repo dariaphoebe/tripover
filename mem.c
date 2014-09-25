@@ -56,6 +56,13 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   return p;
 }
 
+void afree_fln(void *p,ub4 fln, const char *desc)
+{
+  vrbfln(fln,0,"free %p",p);
+  if (!p) warningfln(fln,0,"free nil pointer for %s",desc);
+  else free(p);
+}
+
 static block lrupool[256];
 
 static block *lruhead = lrupool;

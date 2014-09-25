@@ -102,8 +102,9 @@ my %defconfig = (
     lextra => '',
 
 # standard .o.x rule
-  _o_x => '%linker -o %.x %lopt %ldiag %lextra %.o'
+  _o_x => '%linker -o %.x %lopt %ldiag %lextra %.o',
 
+  ignore => 'data doc queries'
 );
 
 my @filelist;
@@ -114,6 +115,8 @@ my %files;
 # ofile = obj  typical compile s into o
 # xfile = app binary
 # afile = main app obj. has depobjs
+
+my @ignoredirs;
 
 my ($static_ana,$do_clean);
 
@@ -188,7 +191,7 @@ sub which($) {
   return 0;
 }
 
-sub inarray($$) {
+sub inarray($@) {
   my ($a,@arr) = @_;
 
   foreach my $b (@arr) { return 1 if $a eq $b; }
@@ -357,6 +360,9 @@ sub readconfig($) {
     vrb("'$var' = '$val'");
     $config{$var} = $val;
   }
+  if (exists($config{ignore})) {
+    @ignoredirs = split(' ',$config{ignore});
+  }
   return $varcnt;
 }
 
@@ -427,7 +433,7 @@ sub run($$$$) {
     error_exit("$cmd returned $rc") unless $loop;
     return error("$cmd returned $rc");
   }
-  info('OK');
+#  info('OK');
   return 1;
 }
 
@@ -554,7 +560,8 @@ sub read_dir($) {
     ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat _;
 
     if (S_ISDIR($mode)) {
-      vrb("recurse into $path");
+      if (inarray($name,@ignoredirs)) { next; }
+      info("recurse into $name");
       return 0 unless read_dir_recurse($path);
       next;
     }

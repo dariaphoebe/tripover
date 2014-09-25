@@ -47,30 +47,59 @@ Starting
 
 * Initial artificial network
 * Static connectivity matrix aka graph builing
+* rudimentary local commandline client / server interface
 
 == Installation
+
+Unless mentioned otherwise, actions below are to be run with the current dir at the project root.
+The latter can be any dir that contains the source code.
 
 === Configure compilers
 
 `./emka config`
 
-This generates predefined options for a few common compilers in +./config+
+Based on installed compilers, you are offered a selection.
+Predefined options for a few common compilers are generated and written to +./config+
 
-=== Review options
+=== Review build options
 
-edit +./config+ if needed
+edit +./config+ if needed. This is the output of the compiler selection above and contains the default build options.
 
-=== Build
+edit +./cfg.h+ if needed. This file contains compile-time constants that you may want to revise.
+
+=== Build server
 
 `./emka`
 
-This will compile and link tripover
+This will compile and link the server +tripover+
+
+=== Build client
+
+Currently, the local commandline client does not need a build step
 
 == Usage
 
+Invoke the server without an existing network :
+
+`./tripover -max-ports=500 -max-hops=500 -max-stops=2`
+
+This will create a small artificial network, then enters a loop waiting for client requests.
+
+Invoke the commandline client :
+
+`./plantrip plan 12 34`
+
+Currently, tripover sends a dummy reply.
+
 == Configuration
 
-== Authors
+By default tripover reads its runtine configuration from +tripover.cfg+
+
+After tripover has been run, the configuration in effect is written to +tripover.curcfg+
+
+You can use the latter as a starting point for the former. It shows all defaults, as well as a short description.
+ 
+== Author
 
 Joris van der Geer
 
@@ -78,3 +107,5 @@ Joris van der Geer
 == Contributing
 
 == License
+This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
+To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/.

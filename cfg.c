@@ -36,7 +36,7 @@ void inicfg(void)
 static ub4 linno;
 static const char *cfgname;
 
-enum Cfgvar { Maxhops,Maxports,Maxstops,Net2pdf,Cfgcnt };
+enum Cfgvar { Maxhops,Maxports,Maxstops,Querydir,Net2pdf,Cfgcnt };
 enum Cfgcnv { String, Uint, Bool,None };
 static struct cfgvar {
   const char *name;
@@ -48,6 +48,7 @@ static struct cfgvar {
   {"maxhops",Uint,Maxhops,0,Hopcnt,5000,"maximum number of hops"},
   {"maxports",Uint,Maxports,0,Portcnt,1000,"maximum number of maxport"},
   {"maxstops",Uint,Maxstops,0,Stopcnt,3,"maximum number of stops"},
+  {"querydir",String,Querydir,0,0,0,"client query queue directory"},
   {"net.pdf",Bool,Net2pdf,0,0,0,"write network to pdf"}
 };
 static int varseen[Cfgcnt];
@@ -64,7 +65,7 @@ int writecfg(const char *curname)
   char buf[4096];
   const char *name;
   const char *desc;
-  char *sval = (char *)"";
+  char *sval;
 
   fd = oscreate(curname);
   if (fd == -1) return 1;
@@ -74,10 +75,12 @@ int writecfg(const char *curname)
     desc = vp->desc;
 
     uval = 0;
+    sval = (char *)"";
     switch(vp->var) {
     case Maxhops: uval = globs.maxhops; break;
     case Maxports: uval = globs.maxports; break;
     case Maxstops: uval = globs.maxstops; break;
+    case Querydir: sval = globs.querydir; break;
     case Net2pdf: break;
     case Cfgcnt: break;
     }
@@ -113,6 +116,7 @@ static int limitvals(void)
     case Maxports: limitval(vp,&globs.maxports); break;
     case Maxstops: limitval(vp,&globs.maxstops); break;
     case Net2pdf: break;
+    case Querydir: break;
     case Cfgcnt: break;
     }
   }
@@ -164,6 +168,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
   case Maxhops: setval(vp,&globs.maxhops,uval); break;
   case Maxports: setval(vp,&globs.maxports,uval); break;
   case Maxstops: setval(vp,&globs.maxstops,uval); break;
+  case Querydir: strcopy(globs.querydir,val); break;
   case Net2pdf: break;
   case Cfgcnt: break;
   }

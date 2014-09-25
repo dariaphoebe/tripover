@@ -34,6 +34,8 @@ static ub4 msgfile;
 #include "os.h"
 #include "time.h"
 
+#undef hdrstop
+
 struct filecoord {
   char name[16];
 };
@@ -42,8 +44,9 @@ static struct filecoord filenames[64];
 static ub4 filendx = 1;
 
 static enum Msglvl msglvl = Vrb;
-static ub4 vrblvl = 0;
+static ub4 vrblvl = 2;
 static ub4 msgopts;
+static int msg_fd = 2;
 
 static const char msgnames[Msglvl_last] = "XFAEWIV";
 static const char *msgnames_long[Msglvl_last] = {
@@ -63,29 +66,32 @@ static ub4 cclen,ccfln;
 
 static ub4 oserrcnt;
 
-static int msg_fd;
 static ub8 progstart;
 
 // temporary choice. unbuffered is useful for console messages,
 // yet debug logging may ask for buffering
 static void msgwrite(char *buf, ub4 len)
 {
-  sb4 nw;
+  int nw;
 
-  nw = oswrite(msg_fd,buf,len);
+  if (len == 0) return;
 
-  if (nw <= 0) nw = oswrite(2,"\nI/O error on msg write\n",24);
-  if (nw <= 0) oserrcnt++;
+  nw = (int)oswrite(msg_fd,buf,len);
+
+  if (nw == -1) nw = (int)oswrite(2,"\nI/O error on msg write\n",24);
+  if (nw == -1) oserrcnt++;
   if (msg_fd > 2) oswrite(1,buf,len);
 }
 
 // make errors appear on stderr
 static void myttywrite(char *buf, ub4 len)
 {
-  sb4 nw;
+  int nw;
 
-  nw = oswrite(2,buf,len);
-  if (nw <= 0) oserrcnt++;
+  if (len == 0) return;
+
+  nw = (int)oswrite(2,buf,len);
+  if (nw == -1) oserrcnt++;
 }
 
 // basic %x
@@ -541,6 +547,18 @@ int __attribute__ ((format (printf,3,4))) assertfln(ub4 line, ub4 code, const ch
   return 1;
 }
 
+int __attribute__ ((format (printf,3,4))) oswarningfln(ub4 line,ub4 code,const char *fmt, ...)
+{
+  va_list ap;
+  char *errstr = getoserr();
+  char buf[MSGLEN];
+
+  va_start(ap, fmt);
+  vsnprint(buf,0,sizeof(buf),fmt,ap);
+  va_end(ap);
+  return warningfln(line,code,"%s: %s",buf,errstr);
+}
+
 int __attribute__ ((format (printf,3,4))) oserrorfln(ub4 line,ub4 code,const char *fmt, ...)
 {
   va_list ap;
@@ -550,8 +568,7 @@ int __attribute__ ((format (printf,3,4))) oserrorfln(ub4 line,ub4 code,const cha
   va_start(ap, fmt);
   vsnprint(buf,0,sizeof(buf),fmt,ap);
   va_end(ap);
-  errorfln(line,code,"%s: %s",buf,errstr);
-  return 1;
+  return errorfln(line,code,"%s: %s",buf,errstr);
 }
 
 int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim, ub4 fln)
@@ -617,16 +634,16 @@ void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4
   infofln(fln,0,"%s",buf);
 }
 
-void inimsg(char *progname, const char *logname, ub4 opts, enum Msglvl lvl, ub4 vlvl)
+// level to be set beforehand
+void inimsg(char *progname, const char *logname, ub4 opts)
 {
+  vrb(2,"init msg for %s",logname);
+
   msg_fd = oscreate(logname);
 
   if (msg_fd == -1) msg_fd = 2;
 
   progstart = gettime_usec();
-
-  msglvl = lvl;
-  vrblvl = vlvl;
 
   msgopts = opts;
   msgfile = setmsgfile(__FILE__);

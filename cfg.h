@@ -17,6 +17,9 @@
 
 #define Stopcnt 16
 
+#define Querycnt 256
+#define Maxquerysize (1024 * 64)
+
 // end of limits
 
 #define Cfgcl (1U << 31)

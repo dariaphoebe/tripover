@@ -1,0 +1,329 @@
+#!/usr/bin/perl -W
+
+# plantrip - local commandline client for tripover
+
+# This file is part of Tripover, a broad-search journey planner.
+
+#  Copyright (C) 2014 Joris van der Geer.
+
+#  This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
+#  To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
+
+# rudimentary interface and implementation : to be elaborated
+
+# post trip requests to a local queue, and watch that queue for answers
+# the queue location is configured in the server, yet created here if nonexistent
+
+use 5.008;
+use strict;
+use integer;
+
+use Fcntl ':mode';
+
+my $version_maj = 0;
+my $version_min = 1;
+my $lastchanged = "25 sep 2014";
+
+my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
+
+my $license = "This work is licensed under the Creative Commons\n" .
+  "Attribution-NonCommercial-NoDerivatives 4.0 International License.\n" .
+  "To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/.\n";
+
+my $verbose = 0;
+my $dryrun = 0;
+
+my $currentconfig = 'tripover.curcfg';
+my $querydirvar = 'querydir';
+my $querydir;
+
+my $timeout = 10; # seconds
+
+my $agelimit = 300; # seconds
+
+sub vrb($)     { print("$_[0]\n") if $verbose; return 1; }
+sub info($)    { print("$_[0]\n"); return 1; }
+sub warning($) { print("warning: $_[0]\n"); return 1; }
+sub error($)   { print("error: $_[0]\n"); return 0; }
+
+sub error_exit($) { print ("error: $_[0]\n"); exit 1; }
+
+sub filepatindir($$$$)
+{
+  my ($pat,$stamp,$clientid,$dir) = @_;
+
+  my ($dh,$serverid,$tstamp,$tid,$hstamp,$hid,$name);
+  my @names;
+
+  opendir($dh,$dir) or error_exit("cannot open $dir:$!");
+  @names = readdir($dh);
+  closedir($dh);
+  foreach $name (@names) {
+    ($hstamp,$hid,$serverid) = ($name =~ $pat);
+    next unless (defined $hstamp and defined $hid and defined $serverid);
+    $tstamp = hex($hstamp);
+    $tid = hex($hid);
+    if ($tstamp == $stamp and $tid == $clientid)  {
+      info("reply handled by server $serverid");
+      return $serverid;
+    } else { vrb("reply from $tstamp $tid, expect $stamp $clientid $serverid"); }
+  }
+  return '';
+}
+
+# catchall for any leftover file in query queue.
+sub agedir($$)
+{
+  my ($dir,$limit) = @_;
+
+  my ($dh,$serverid,$tstamp,$tid,$name,$path);
+  my @names;
+
+  my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks);
+
+  opendir($dh,$dir) or error_exit("cannot open $dir:$!");
+  @names = readdir($dh);
+  closedir($dh);
+  foreach $name (@names) {
+    next if $name eq '.' or $name eq '..';
+
+    $path = $dir . '/' . $name;
+
+    stat($path) or return error("cannot access $path: $!");
+    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat _;
+    return error("$path is not a regular file") unless S_ISREG($mode);
+
+    if ($mtime < $limit)  {
+      info("removing $path on timestamp $mtime below $limit");
+      unlink $path or return error("cannot remove $path: $!");
+    }
+  }
+  return 1;
+}
+
+sub plan($$$)
+{
+  my ($cmd,$dep,$arr) = @_;
+
+  my $region = 'glob';
+
+# todo determine regio
+  query('p',$region,"$dep $arr");
+}
+
+sub stop($)
+{
+  my ($cmd) = @_;
+
+  query('s','');
+}
+
+my $clientid = "$$";
+
+sub ret_close_err($$)
+{
+  my ($fh,$msg) = @_;
+
+  error("$msg:$!");
+  close($fh);
+  return 0;
+}
+
+sub query($$$)
+{
+  my ($cmd,$region,$str) = @_;
+  my ($stamp,$qfile,$qname,$qname_new,$qname_sub,$qname_rep,$qname_rcv,$serverid);
+
+# prepare the query. use atomic file renames, server does the same
+# query filename: 
+#  [a-z]_     command
+#  [a-z]_     (format todo) region
+#  [0-9a-f]_  hex timestamp in msec plus _
+#  [0-9a-f]   hex client id
+#  .sub
+
+  $stamp = time();
+  $qname = sprintf("%s/%s_%s_%010x_%04x",$querydir,$cmd,$region,$stamp,$clientid);
+  $qname_new = $qname . '.new';
+  $qname_sub = $qname . '.sub';
+  vrb("create $qname_new");
+  open($qfile,'>',$qname_new) or error_exit("cannot create $qname_new: $!");
+  print($qfile $str . "\n");
+  close($qfile);
+
+# reanme to submit: server will pick up from here. reply has serverid appended
+  vrb("rename to $qname_sub");
+  rename($qname_new,$qname_sub);
+
+  # cmd,region,stamp,clientid,serverid
+  my $pat = qr'^[a-z]_[a-z]+_([0-9a-f]+)_([0-9a-f]+)_([0-9a-f]+)\.rep';
+
+  while (time() - $stamp < $timeout) {
+    {
+      no integer;
+      select(undef,undef,undef,0.1);  # = sleep 100 millisec
+    }
+    $serverid = filepatindir($pat,$stamp,$clientid,$querydir);
+    last if length($serverid);
+  }
+  unless (length($serverid)) {
+    info("no reply in $timeout sec");
+    return;
+  }
+
+  # reply present: read and delete
+  $qname_rep = $qname . '_' . $serverid . '.rep';
+  $qname_rcv = $qname . '_' . $serverid . '.rcv';
+
+  my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks);
+
+  my $reply;
+  open($reply,'<',$qname_rep) or return error("cannot open $qname_rep:$!");
+
+  stat $reply or return ret_close_err($reply,"cannot access $qname_rep: $!");
+  ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat _;
+  ret_close_err($reply,"$qname_rep is not a regular file") unless S_ISREG($mode);
+  ret_close_err($reply,"$qname_rep is empty") unless $size > 0;
+  ret_close_err($reply,"$qname_rep is empty") unless -r $qname_rep;
+
+  my @lines = readline($reply);
+  close($reply);
+  unlink $qname_rep or return error("cannot remove $qname_rep:$!");
+
+  return error("$qname_rep is empty") unless (scalar @lines);
+#  foreach my $line (@lines) info("$line");
+  print @lines;
+  unlink $qname_rcv or return error("cannot remove $qname_rep:$!");
+}
+
+# obtain query dir from current config
+sub readcfg()
+{
+  my ($cfg,$var,$val);
+
+  open($cfg,'<',$currentconfig)  or error_exit("cannot open $currentconfig: $!\n\nCheck if the tripover server is running in this dir");
+
+  my @cfglines = readline($cfg);
+  unless (scalar @cfglines) { error_exit("$currentconfig is empty\n\nCheck if the tripover server is running in this dir"); }
+
+  my $varisval = qr'^([-a-zA-Z0-9_.]+)\s*=?\s*([-a-zA-Z0-9_.]+)';
+
+  foreach my $line (@cfglines) {
+    ($var,$val) = ($line =~ $varisval);
+    next unless defined $var;
+    next if $var ne $querydirvar;
+    $querydir = $val;
+    last;
+  }
+  error_exit("empty query config") unless length($querydir);
+  info("query dir $querydir/");
+}
+
+sub trimws($) {
+  my ($s) = @_;
+  $s =~ s/[ \t\n]+/ /g;
+  $s =~ s/^ //;
+  $s =~ s/ $//;
+  return $s;
+}
+
+sub usage()
+{
+  info("usage: plantrip [options] [cmd]\n");
+  info("options:");
+  info('-v -verbose        verbose mode');
+  info('-n -dryrun         dryrun mode');
+  info('-h -help           show help and quit');
+  info('-V -version        show version and quit');
+  info('-L -license        show license and quit\n');
+  info("commands:");
+  info("plan <from> <to>   plan a trip");
+  info("stop               stop server\n");
+  info("without command, interactive mode is entered");
+}
+
+sub showvers($)
+{
+  my ($full) = @_;
+
+  info("Tripover commandline client version $version_maj.$version_min");
+  info("last changed $lastchanged") if $full; 
+  info("$copyright\n");
+}
+
+sub init()
+{
+  readcfg();
+  unless (-d $querydir) {
+    mkdir($querydir) || error_exit("cannot create query dir:$!");
+  }
+}
+
+my ($arg,$opt,$cmd,$line,$prvline);
+my @args;
+
+if (@ARGV > 0) {
+  foreach $arg (@ARGV) {
+    if (substr($arg,0,1) eq '-') {
+      $opt = $arg;
+      $opt =~ s/^-+//;
+      if ($opt eq 'h' or $opt eq '?' or $opt eq 'help') { showvers(0); usage(); exit 1; }
+      if ($opt eq 'V' or $opt eq 'version') { showvers(1); exit 1; }
+      if ($opt eq 'L' or $opt eq 'license') { showvers(0); info("$license"); exit 1; }
+    }
+  }
+
+  foreach $arg (@ARGV) {
+    if (substr($arg,0,1) eq '-') {
+      $opt = $arg;
+      $opt =~ s/^-+//;
+      if ($opt eq 'v' or $opt eq 'verbose') { info('verbose mode'); $verbose = 1; }
+      if ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
+      if ($opt eq 'h' or $opt eq 'help') { usage(); exit 1; }
+      if ($opt eq 'V' or $opt eq 'version') { showvers(1); exit 1; }
+      else { info("ignring unknown option -$opt"); }
+    } else {
+      push(@args,$arg);
+    }
+  }
+  if (@args > 0) {
+    init();
+    $cmd = $args[0];
+    if ($cmd eq 'stop') { stop($cmd); }
+    elsif ($cmd eq 'plan') {
+      return info("plan needs 'from' and 'to' arg") unless (@args > 2);
+      plan($cmd,$args[1],$args[2]);
+      agedir($querydir,time() - $agelimit);
+    } else { info("unknown command"); }
+  }
+  exit 0;
+}
+
+init();
+
+info("entering command loop. commands:\n");
+info("  plan <from> <to>");
+info("  quit, exit");
+
+# loop 
+$cmd = ''; $prvline = '';
+while ($cmd ne 'quit') {
+  print("plantrip % ");
+  $line = <STDIN>;
+  next unless defined $line and length($line);
+  $line = trimws($line);
+  $line = $prvline if $line eq '!!';
+  @args = split(' ',$line);
+  $cmd = '';
+  $cmd = 'quit' unless index($line,'quit') < 0;
+  $cmd = 'quit' unless index($line,'exit') < 0;
+  $cmd = 'plan' unless index($line,'plan') < 0;
+  $cmd = 'stop' unless index($line,'stop') < 0;
+  info("unrecognised command") if length($line) and not length($cmd);
+  $prvline = $line;
+  if ($cmd eq 'plan') {
+    plan($cmd,$args[1],$args[2]);
+    agedir($querydir,time() - $agelimit);
+  }
+  elsif ($cmd eq 'stop') { stop($line); }
+}

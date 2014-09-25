@@ -40,6 +40,7 @@ extern int readfile(struct myfile *mf,const char *name, int mustexist);
 extern int cmdline(int argc, char *argv[], struct cmdarg *cap);
 
 extern int str2ub4(const char *s, ub4 *pv);
+extern int hex2ub4(const char *s, ub4 *pv);
 
 extern int writeppm(const char *name,ub4 *data,ub4 nx,ub4 ny);
 

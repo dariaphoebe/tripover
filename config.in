@@ -18,7 +18,7 @@
   cdef = -DNOW=%.now
   cinc = 
   copt = -O
-  cdiag = -Weverything -pedantic -Wno-sign-conversion -Wno-padded
+  cdiag = -Weverything -pedantic -Wno-sign-conversion -Wno-padded -Wno-disabled-macro-expansion
   csyn = -w -fsyntax-only
   cfmt = -fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info
   cdbg = -gline-tables-only
@@ -71,5 +71,7 @@
 
 [linker = all]
   .o.x = %linker -o %.x %lopt %ldiag %ldbg %lextra %.o -lm
+
+ignore = data doc queries
 
 # end of config

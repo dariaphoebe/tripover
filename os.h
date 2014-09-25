@@ -12,11 +12,17 @@
 extern ub8 gettime_usec(void);
 extern char *getoserr(void);
 extern int osopen(const char *name);
-extern int osread(int fd,void *buf,size_t len);
-extern int oswrite(int fd, const void *buf,ub4 len);
+extern long osread(int fd,void *buf,size_t len);
+extern long oswrite(int fd, const void *buf,ub4 len);
 extern int oscreate(const char *name);
 extern int osfdinfo(struct myfile *mf,int fd);
 extern int osclose(int fd);
 extern int setsigs(void);
 extern int oslimits(void);
+
+extern int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *ext);
+extern int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext);
+
+extern void osmillisleep(ub4 msec);
+
 extern void inios(void);

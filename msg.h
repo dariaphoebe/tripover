@@ -45,6 +45,7 @@ struct eta {
 #define warning(code,fmt,...) warningfln(FLN,(code),(fmt),__VA_ARGS__)
 #define error(code,fmt,...) errorfln(FLN,(code),(fmt),__VA_ARGS__)
 #define oserror(code,fmt,...) oserrorfln(FLN,(code),(fmt),__VA_ARGS__)
+#define oswarning(code,fmt,...) oswarningfln(FLN,(code),(fmt),__VA_ARGS__)
 
 #define info0(code,s) infofln(FLN,(code),(s))
 
@@ -65,7 +66,7 @@ extern ub4 mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...) __attri
 extern ub4 setmsgfile(const char *filename);
 extern ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid);
 
-extern void inimsg(char *progname, const char *logname, ub4 opts, enum Msglvl lvl, ub4 vrblvl);
+extern void inimsg(char *progname, const char *logname, ub4 opts);
 extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
@@ -96,6 +97,7 @@ extern int infofln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((form
 extern int warningfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int errorfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int oserrorfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
+extern int oswarningfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 
 extern int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim,ub4 fln);

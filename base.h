@@ -43,6 +43,7 @@ typedef int sb4;
 
 #define clear(p) memset((p),0,sizeof (*p) )
 #define aclear(p) memset((p),0,sizeof (p) )
+#define oclear(p) memset(&(p),0,sizeof (p) )
 
 #define strcopy(dst,src) strncpy((dst),(src),sizeof (dst) )
 
@@ -51,6 +52,8 @@ extern struct globs {
   char *progname;
   char cfgfile[1024];
   char netfile[1024];
+  char querydir[256];
+  ub4 serverid;
   ub4 msglvl;
   ub4 vrblvl;
   ub4 maxports;
@@ -62,9 +65,12 @@ extern struct globs {
 } globs;
 
 struct myfile {
-  int exist;
+  int exist,direxist,alloced;
+  ub4 basename;
   size_t len;
   unsigned long mtime;
+  char name[256];
+  char localbuf[1024];
   char *buf;
 };
 
