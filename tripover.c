@@ -33,6 +33,7 @@ static ub4 msgfile;
 #include "netbase.h"
 #include "net.h"
 #include "netio.h"
+#include "search.h"
 
 struct globs globs;
 
@@ -59,6 +60,7 @@ static int init0(char *progname)
   ininetbase();
   ininet();
   ininetio();
+  inisearch();
 
   return 0;
 }
@@ -113,6 +115,15 @@ static int cmd_cfg(struct cmdval *cv)
   return 0;
 }
 
+static int cmd_run(struct cmdval *cv)
+{
+  globs.nosteps = 0;
+  if (strstr(cv->sval,"init")) globs.doinit = 1;
+  if (strstr(cv->sval,"server")) globs.doserver = 1;
+  if (strstr(cv->sval,"randnet")) globs.dorandnet = 1;
+  return 0;
+}
+
 static int cmd_arg(struct cmdval *cv) {
 // add plain arg
   info(0,"add arg %s", cv->sval);
@@ -126,6 +137,7 @@ static struct cmdarg cmdargs[] = {
   { "max-ports", "limit%u", "limit #ports", cmd_max },
   { "max-hops", "limit%u", "limit #hops", cmd_max },
   { "max-stops", "limit%u", "limit #stops", cmd_max },
+  { "run","steps","run the given steps only",cmd_run },
   { ".test-a", "test%u", "test", cmd_test },
   { ".test-b", "test%u", "test", cmd_test },
   { ".test-set", "test%u", "tests", cmd_test },
@@ -145,6 +157,7 @@ int main(int argc, char *argv[])
   setmsglvl(globs.msglvl,0);
   if (init0(argv[0])) return 1;
 
+  globs.nosteps = 1;
   if (cmdline(argc,argv,cmdargs)) return 1;
 
   oslimits();
@@ -156,7 +169,28 @@ int main(int argc, char *argv[])
   base = getnetbase();
   if (mknet(base,globs.maxstops)) return 1;
 
-  serverloop();
+  if (globs.testcnt > 1) {
+    ub4 dep,arr,lostop = 0, histop = 3;
+    int rv;
+    search src;
+
+    dep = globs.testset[0];
+    arr = globs.testset[1];
+    if (globs.testcnt > 3) {
+      lostop = globs.testset[2];
+      histop= globs.testset[3];
+    }
+    info(0,"test plan %u to %u minstop %u maxstop %u",dep,arr,lostop,histop);
+
+    rv = searchgeo(&src,dep,arr,lostop,histop);
+    if (rv) warning(0,"search returned error %d",rv);
+    else if (src.tripcnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.tripports,src.lodist);
+    else info(0,"%u to %u : no trip\n",dep,arr);
+  }
+
+  if (globs.nosteps || globs.doserver) {
+    serverloop();
+  }
 
   return 0;
 }

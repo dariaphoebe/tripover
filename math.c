@@ -247,37 +247,42 @@ double lon2rad(ub4 lon) { return ((double)lon / Lonscale - 180.0) * 2 * M_PI / 3
 ub4 rad2lat(double rlat) { return (ub4)(( (rlat * 180 / M_PI) + 90) * Latscale); }
 ub4 rad2lon(double rlon) { return (ub4)(( (rlon * 180 / M_PI) + 180) * Lonscale); }
 
-static double geolow = 6.0 / 40.000;
+static double geolow = M_PI * 0.00001;
 
 // great circle lat/lon to Km.
 double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
 {
   double fdist, dlat, dlon;
-  double a,b,c,phi1,phi2,lam1,lam2,dphi,dlam,dsig,dist;
+  double d,phi1,phi2,lam1,lam2,dphi,dlam,dsig,dist;
 
   phi1 = rlat1;
   phi2 = rlat2;
   lam1 = rlon1;
   lam2 = rlon2;
 
+  if (rlat1 <= -0.5 * M_PI || rlat1 >= 0.5 * M_PI) { error(0,"lat1 %e", rlat1); return 0.0; }
+  if (rlat2 <= -0.5 * M_PI || rlat2 >= 0.5 * M_PI) { error(0,"lat2 %e", rlat2); return 0.0; }
+  if (rlon1 < -M_PI || rlon1 > M_PI) { error(0,"lon1 %e", rlon1); return 0.0; }
+  if (rlon2 < -M_PI || rlon2 > M_PI) { error(0,"lon2 %e", rlon2); return 0.0; }
+
   dlam = lam2 - lam1;
   dphi = phi2 - phi1;
 
   if (dlam > -geolow && dlam < geolow && dphi > -geolow && dphi < geolow) { // approx trivial case
-//    vrb(0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
+    vrb(0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
     dlat = dlam * mean_earth_radius / 4 * M_PI;
     dlon = dphi * mean_earth_radius / 4 * M_PI;
     fdist = sqrt(dlat * dlat + dlon * dlon);
     return fdist;
   }
 
-  // haversine functions
-  a = sin(dphi * 0.5);
-  a *= a;
-  b = dlam * 0.5;
-  b *= b;
-  c = a + cos(phi1) * cos(phi2) * b;
-  dsig = 2 * asin(sqrt(c));
+  d = sin(phi1) * sin(phi2) + cos(phi1) * cos(phi2) * cos(dlam);
+  if (d >= 1.0) { error(0,"geodist d %e for %e %e-%e %e",d,rlat1,rlon1,rlat2,rlon2); return 0.0; }
+  else if (d <= -1.0) { error(0,"geodist d %e for %e %e-%e %e",d,rlat1,rlon1,rlat2,rlon2); return 0.0; }
+
+  dsig = acos(d);
+
+  if (isnan(dsig)) error(0,"geodist %e %e-%e %e nan",rlat1,rlon1,rlat2,rlon2);
 
   dist = dsig * mean_earth_radius;
 

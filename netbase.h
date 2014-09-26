@@ -143,13 +143,14 @@ struct networkbase {
   struct carrierbase *carriers;  
   struct timetablebase *timetables;  // [routecnt]
 
+  struct memblk portmem;
+
 // access
   ub4 tthops[Hopcnt];   // index in timetables above
   ub4 farehops[Hopcnt];   // index in fares above
-
+  ub4 *id2ports;          // [maxid]
   datetime *gomaps;
   sb2 *faremaps;
-
 };
 typedef struct networkbase netbase;
 

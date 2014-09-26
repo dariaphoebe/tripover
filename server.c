@@ -42,6 +42,12 @@ static ub4 msgfile;
 
 #include "util.h"
 
+#include "bitfields.h"
+#include "netbase.h"
+#include "net.h"
+
+#include "search.h"
+
 extern struct globs globs;
 
 enum Cmds { Cmd_nil,Cmd_plan,Cmd_stop,Cmd_cnt };
@@ -51,7 +57,9 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
 {
   char *lp = req->buf;
   ub4 pos=0,len = (ub4)req->len;
-  ub4 dep,arr;
+  ub4 dep,arr,lostop = 0,histop = 2;
+  int rv;
+  search src;
 
   if (len == 0) return 1;
 
@@ -63,9 +71,11 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
   // invoke actual plan here
   info(0,"plan %u to %u",dep,arr);
 
+  rv = searchgeo(&src,dep,arr,lostop,histop);
+
   // prepare reply
   rep->buf = rep->localbuf;
-  len = fmtstring(rep->localbuf,"reply plan %u-%u = 1234\n",dep,arr);
+  len = fmtstring(rep->localbuf,"reply plan %u-%u = \av%u%p distance %u\n",dep,arr,src.lostop+1,src.trip,src.lodist);
   info(0,"reply len %u",len);
   rep->len = len;
   osmillisleep(500);

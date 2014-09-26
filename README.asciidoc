@@ -48,6 +48,7 @@ Starting
 * Initial artificial network
 * Static connectivity matrix aka graph builing
 * rudimentary local commandline client / server interface
+* rudimentary route-only search
 
 == Installation
 
@@ -89,7 +90,7 @@ Invoke the commandline client :
 
 `./plantrip plan 12 34`
 
-Currently, tripover sends a dummy reply.
+Currently, tripover only calculates a possible route, disregarding time or cost.
 
 == Configuration
 

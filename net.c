@@ -43,6 +43,8 @@ static ub4 msgfile;
 #include "netbase.h"
 #include "net.h"
 
+#undef hdrstop
+
 static struct network net;
 
 void ininet(void)
@@ -51,7 +53,9 @@ void ininet(void)
   iniassert();
 }
 
-#define Geohist (100+2)
+struct network *getnet(void) { return &net; }
+
+#define Geohist (20+2)
 
 #define Watches 4
 static ub4 watches = 0;
@@ -110,15 +114,19 @@ static int mknet0(void)
     dport = bports + dep;
     for (arr = 0; arr < portcnt; arr++) {
       if (dep == arr) continue;
+      da = dep * portcnt + arr;
       aport = bports + arr;
       fdist = geodist(dport->rlat,dport->rlon,aport->rlat,aport->rlon);
+      if (fdist < 1.0) return error(0,"port %u-%u distance %e for latlon %u %u-%u %u",dep,arr,fdist,dport->lat,dport->lon,aport->lat,aport->lon);
+      else if (fdist > 1.0e+8) warning(0,"port %u-%u distance %e for latlon %u %u-%u %u",dep,arr,fdist,dport->lat,dport->lon,aport->lat,aport->lon);
       dist = (ub4)fdist;
-      error_ovf(dist,ub2);
-      dist0[dep * portcnt + arr] = dist;
+      error_ovf(dist,ub4);
+      error_z(dist,arr);
+      dist0[da] = dist;
     }
   }
   info(0,"done calculating \ah%u distance pairs", port2);
-  mkhist(dist0,port2,&distrange,Geohist,geohist,"geodist",Vrb);
+  mkhist(dist0,port2,&distrange,Geohist,geohist,"geodist",Info);
 
   // create 0-stop connectivity
   // support multiple hops per port pair
@@ -136,6 +144,7 @@ static int mknet0(void)
     if (concnt == hi16-1) ovfcnt++;
     else con0cnt[da] = (ub2)(concnt+1);
     dist = dist0[da];
+    error_z(dist,hop);
     hp->dist = dist;
     hopdist[hop] = dist;
   }
@@ -179,6 +188,7 @@ static int mknet0(void)
       ofs += gen;
     }
   }
+  net.lstlen[0] = ofs;
 
   // get connectivity stats
   aclear(depstats);
@@ -391,6 +401,7 @@ static int mknetn(ub4 nstop)
         outcnt++;
         lodists[deparr] = lodist;
         hidists[deparr] = hidist;
+        error_zz(lodist,hidist);
         error_gt(lodist,hidist);
         distrange = max(hidist - lodist,1);
       } else {
@@ -556,6 +567,7 @@ static int mknetn(ub4 nstop)
   lstblk = net.conlst + nstop;
 
   lst = mkblock(lstblk,lstlen * nleg,ub4,Init1,"%u-stop conlst",nstop);
+  net.lstlen[nstop] = lstlen;
 
   ofs = 0;
   for (deparr = 0; deparr < port2; deparr++) {
@@ -819,9 +831,29 @@ int mknet(netbase *basenet,ub4 maxstop)
 
   net.maxstop = maxstop;
 
-  for (nstop = 1; nstop <= maxstop; nstop++) {
-    if (mknetn(nstop)) return 1;
+  if (globs.nosteps || globs.doinit) {
+    for (nstop = 1; nstop <= maxstop; nstop++) {
+      if (mknetn(nstop)) return 1;
+    }
   }
   info0(0,"static network init done");
+
+  return 0;
+}
+
+int trip2ports(ub4 *trip,ub4 triplen,ub4 *ports)
+{
+  ub4 leg,l,dep,arr = hi32;
+
+  for (leg = 0; leg < triplen; leg++) {
+    l = trip[leg];
+    dep = net.portsbyhop[2 * l];
+    if (leg) {
+      if (dep != arr) warning(0,"leg %u hop %u dep %u not connects to preceding arr %u",leg,l,dep,arr);
+    }
+    arr = net.portsbyhop[2 * l + 1];
+    ports[leg] = dep;
+  }
+  ports[triplen] = arr;
   return 0;
 }

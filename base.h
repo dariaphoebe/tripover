@@ -50,6 +50,10 @@ typedef int sb4;
 // program-wide global vars go here
 extern struct globs {
   char *progname;
+  ub2 nosteps;
+  ub2 dorandnet;
+  ub2 doinit;
+  ub2 doserver;
   char cfgfile[1024];
   char netfile[1024];
   char querydir[256];
@@ -75,5 +79,5 @@ struct myfile {
 };
 
 // 360 at 40k = 111 km / lon
-#define Latscale 100
-#define Lonscale 100
+#define Latscale 100000
+#define Lonscale 100000

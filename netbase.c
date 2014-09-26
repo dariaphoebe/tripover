@@ -24,6 +24,7 @@ static ub4 msgfile;
 #include "util.h"
 #include "bitfields.h"
 #include "netbase.h"
+#include "netio.h"
 
 static netbase basenet;
 
@@ -154,10 +155,21 @@ void checktrip3_fln(ub4 *legs, ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln
   error_z_fln(hasvia,0,"via","0",fln);
 }
 
-static void addport(struct portbase *ports,ub4 port,ub4 lat,ub4 lon,double rlat,double rlon,ub4 size,enum txkind kind)
+static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rlat,double rlon,ub4 size,enum txkind kind)
 {
-  struct portbase *pp = ports + port;
+  struct portbase *pp;
+  ub4 port;
 
+  for (port = 0; port < newport; port++) {
+    pp = ports + port;
+    if (pp->lat == lat && pp->lon == lon) {
+      info(0,"port %u is colocated with %u at latlon %u %u",port,newport,lat,lon);
+      return 1;
+    }
+  }
+  if (lat == 0 && lon == 0) return error(0,"port %u latlon 0",newport);
+
+  pp = ports + newport;
   pp->lat = lat;
   pp->lon = lon;
   pp->rlat = rlat;
@@ -166,6 +178,7 @@ static void addport(struct portbase *ports,ub4 port,ub4 lat,ub4 lon,double rlat,
   else if (kind == Rail) pp->rail = 1;
   pp->id = port;
   pp->size = size;
+  return 0;
 }
 
 /* generate artificial network for testing purposes
@@ -178,10 +191,10 @@ static void addport(struct portbase *ports,ub4 port,ub4 lat,ub4 lon,double rlat,
 
 static ub4 heightmap[Zmap * Zmap];
 
-static ub4 getz(ub4 lat,ub4 lon)
+static ub4 getz(ub8 lat,ub8 lon)
 {
-  ub4 y = lat * Zmap / (180 * Latscale);
-  ub4 x = lon * Zmap / (360 * Lonscale);
+  ub8 y = lat * Zmap / (180UL * Latscale);
+  ub8 x = lon * Zmap / (360UL * Lonscale);
 
   error_ge(y,Zmap);
   error_ge(x,Zmap);
@@ -229,13 +242,15 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     rlon = (frnd(3600) - 1800) * 0.1 * M_PI / 180;
     lat = rad2lat(rlat);
     lon = rad2lon(rlon);
-    vrb(0,"port %u: lat %u lon %u rlat %e rlon %e",railcnt,lat,lon,rlat,rlon);
     z = getz(lat,lon);
     if (z < waterlvl) continue;
     if (z - waterlvl < rnd(landrange)) {
-      addport(ports,railcnt++,lat,lon,rlat,rlon,rnd(100),Rail);
+      vrb(0,"port %u: lat %u lon %u rlat %e rlon %e",railcnt,lat,lon,rlat,rlon);
+      if (addport(ports,railcnt,lat,lon,rlat,rlon,rnd(100),Rail)) continue;
+      railcnt++;
     }
   }
+  error_ge(iter,1<<20);
 
   iter = aircnt = 0;
   while (railcnt + aircnt < portcnt && iter++ < (1 << 20)) {
@@ -243,14 +258,15 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     rlon = (frnd(3600) - 1800) * 0.1 * M_PI / 180;
     lat = rad2lat(rlat);
     lon = rad2lon(rlon);
-    vrb(0,"port %u: lat %u lon %u rlat %e rlon %e",railcnt+aircnt,lat,lon,rlat,rlon);
     z = getz(lat,lon);
     if (z < waterlvl) continue;
     if (z - waterlvl < rnd(landrange)) {
-      addport(ports,railcnt + aircnt,lat,lon,rlat,rlon,rnd(100),Air);
+      vrb(0,"port %u: lat %u lon %u rlat %e rlon %e",railcnt+aircnt,lat,lon,rlat,rlon);
+      if (addport(ports,railcnt + aircnt,lat,lon,rlat,rlon,rnd(100),Air)) continue;
       aircnt++;
     }
   }
+  error_ge(iter,1<<20);
   basenet.ports = ports;
 
   curhop = 0;
@@ -289,7 +305,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   basenet.portcnt = portcnt;
   basenet.hopcnt = hopcnt;
 
-//  net2txt(&basenet);
+  net2ext(&basenet);
 
   info0(0,"done generating artificial net");
   return 0;

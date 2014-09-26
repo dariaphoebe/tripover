@@ -17,6 +17,8 @@
 
 #define Stopcnt 16
 
+#define Nvia 16
+
 #define Querycnt 256
 #define Maxquerysize (1024 * 64)
 

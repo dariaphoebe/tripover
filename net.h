@@ -108,6 +108,7 @@ struct network {
   ub4 *conofs[Nstop];  // [port2]
 
   block conlst[Nstop];  // [x]
+  size_t lstlen[Nstop];
 
   ub4 *lodist[Nstop];  // [port2] lowest over-route distance
   ub4 *hidist[Nstop];  // [port2] lowest over-route distance
@@ -120,5 +121,7 @@ struct network {
 };
 
 extern int mknet(netbase *basenet,ub4 maxstop);
+extern struct network *getnet(void);
+extern int trip2ports(ub4 *trip,ub4 triplen,ub4 *ports);
 
 extern void ininet(void);
