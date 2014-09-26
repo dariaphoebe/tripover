@@ -357,8 +357,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                       if (vlen) dst[n++] = '-';
                     }
                     dst[n++] = ']'; dst[n++] = ' ';
-                    n += xcnv(dst + n,(unsigned int)(luval & 0xffffffff));
-                    if (sizeof(puval) > 4) n += xcnv(dst + n,(unsigned int)(luval >> 32));
+//                    n += xcnv(dst + n,(unsigned int)(luval & 0xffffffff));
+//                    if (sizeof(puval) > 4) n += xcnv(dst + n,(unsigned int)(luval >> 32));
                     do_vec = 0;
                   } else {
                     if (len - n <= 10) break;
@@ -471,14 +471,15 @@ void vmsg(enum Msglvl lvl,ub4 fln,const char *fmt,va_list ap)
   msg(lvl,0,fln,0,fmt,ap);
 }
 
-void __attribute__ ((format (printf,4,5))) genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...)
+int __attribute__ ((format (printf,4,5))) genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...)
 {
   va_list ap;
 
-  if (msglvl < lvl) return;
+  if (msglvl < lvl) return 0;
   va_start(ap, fmt);
   msg(lvl, 0, fln, code, fmt, ap);
   va_end(ap);
+  return (lvl < Warn);
 }
 
 void __attribute__ ((format (printf,3,4))) vrbfln(ub4 fln, ub4 code, const char *fmt, ...)

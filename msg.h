@@ -91,7 +91,7 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 
 #define limit_gt(x,lim) (x) = limit_gt_fln((x),(lim),#x,#lim,FLN)
 
-extern void genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...) __attribute__ ((format (printf,4,5)));
+extern int genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 extern void vrbfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int infofln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int warningfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));

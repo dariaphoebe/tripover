@@ -735,7 +735,7 @@ sub src2obj($) {
 
       $fresh = $oinfo->{mtime} >= $hitime;
       vrb("$opath $oinfo->{mtime} hi $hitime");
-    } else { info("no $opath"); $fresh = 0; }
+    } else { vrb("no $opath"); $fresh = 0; }
 
     $fresh = 0 if $unconditional;
     $srclist .= ' ' . $name unless $fresh;
@@ -871,7 +871,7 @@ sub cmd_loop() {
     gen() or redo;
 
     vrb('c ');
-    src2obj('nogen') or redo;
+    src2obj('nogen') or next;
 
     vrb('l ');
     obj2exe('nogen');

@@ -121,7 +121,7 @@ void osmillisleep(ub4 msec)
   nanosleep(&ts,NULL);
 }
 
-static const char namepattern[] = "p_glob_542346b6_5dfa_24057.rcv";
+static const char namepattern[] = "p_glob_542346b6_5dfa.rcv";
 
 // arrange reply to previous query
 int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext)
@@ -252,7 +252,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
 
   if (histamp && hiname[0] != 'p') pname = hiname;
   else if (lostamp != hi32) pname = loname;
-  else return info(0,"no requests found, stamp %u",stamp);
+  else return genmsg(Vrb,0,"no requests found, stamp %u",stamp);
 
   mf->basename = (ub4)strlen(qdir) + 1;
 
