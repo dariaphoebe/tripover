@@ -825,7 +825,9 @@ int mknet(netbase *basenet,ub4 maxstop)
   net.hops = hops;
   net.base = basenet;
 
-  if (mknet0()) return 1;
+  if (globs.nosteps || globs.doinit) {
+    if (mknet0()) return 1;
+  }
 
   limit_gt(maxstop,Nstop);
 
@@ -835,8 +837,8 @@ int mknet(netbase *basenet,ub4 maxstop)
     for (nstop = 1; nstop <= maxstop; nstop++) {
       if (mknetn(nstop)) return 1;
     }
+    info0(0,"static network init done");
   }
-  info0(0,"static network init done");
 
   return 0;
 }

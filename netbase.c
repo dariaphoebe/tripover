@@ -168,6 +168,8 @@ static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rla
     }
   }
   if (lat == 0 && lon == 0) return error(0,"port %u latlon 0",newport);
+  if (lat >= 180 * Latscale) warning(0,"port %u lat %u out of range",newport,lat);
+  if (lon >= 360 * Lonscale) warning(0,"port %u lon %u out of range",newport,lon);
 
   pp = ports + newport;
   pp->lat = lat;
@@ -178,6 +180,8 @@ static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rla
   else if (kind == Rail) pp->rail = 1;
   pp->id = port;
   pp->size = size;
+  memcpy(pp->name,"noname",6);
+  pp->namelen = 6;
   return 0;
 }
 
@@ -204,7 +208,7 @@ static ub4 getz(ub8 lat,ub8 lon)
 int mkrandnet(ub4 portcnt,ub4 hopcnt)
 {
   struct portbase *ports,*pdep,*parr;
-  struct hopbase *hops;
+  struct hopbase *hops,*hp;
   struct range zrange;
   ub1 *net0;
   ub4 hist[Zhist];
@@ -238,8 +242,8 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
 
   iter = railcnt = 0;
   while (railcnt < aimed && iter++ < (1 << 20)) {
-    rlat = (frnd(1600) - 900) * 0.1 * M_PI / 180;
-    rlon = (frnd(3600) - 1800) * 0.1 * M_PI / 180;
+    rlat = (frnd(16000) - 9000) * 0.01 * M_PI / 180;
+    rlon = (frnd(36000) - 18000) * 0.01 * M_PI / 180;
     lat = rad2lat(rlat);
     lon = rad2lon(rlon);
     z = getz(lat,lon);
@@ -254,8 +258,8 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
 
   iter = aircnt = 0;
   while (railcnt + aircnt < portcnt && iter++ < (1 << 20)) {
-    rlat = (frnd(1600) - 900) * 0.1 * M_PI / 180;
-    rlon = (frnd(3600) - 1800) * 0.1 * M_PI / 180;
+    rlat = (frnd(16000) - 9000) * 0.01 * M_PI / 180;
+    rlon = (frnd(36000) - 18000) * 0.01 * M_PI / 180;
     lat = rad2lat(rlat);
     lon = rad2lon(rlon);
     z = getz(lat,lon);
@@ -282,8 +286,13 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     if (rnd(100) > ports[dep].size) continue;
 
     net0[dep * portcnt + arr] = 1;
-    hops[curhop].dep = dep;
-    hops[curhop].arr = arr;
+
+    hp = hops + curhop;
+    hp->dep = dep;
+    hp->arr = arr;
+    hp->id = curhop;
+    memcpy(hp->name,"noname",6);
+    hp->namelen = 6;
     curhop++;
     pdep = ports + dep;
     parr = ports + arr;
@@ -305,7 +314,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   basenet.portcnt = portcnt;
   basenet.hopcnt = hopcnt;
 
-  net2ext(&basenet);
+  if (globs.writext) net2ext(&basenet);
 
   info0(0,"done generating artificial net");
   return 0;

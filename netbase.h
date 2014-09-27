@@ -38,13 +38,16 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-enum txkind { Air, Rail };
+enum txkind { Air,Rail,Bus };
 
 struct portbase {
   ub4 magic;
   ub4 id;      // index in net.ports
   ub4 cid;     // constant at net changes
-  struct gname name;
+
+  char name[128];  // todo: use below structure instead
+  ub4 namelen;
+//  struct gname name;
 
   bool air;
   bool rail;
@@ -63,7 +66,10 @@ struct hopbase {
   ub4 magic;
   ub4 id;       // index in net.hops
   ub4 cid;
-  struct gname name;
+  char name[128];  // todo: use below structure instead
+  ub4 namelen;
+
+//  struct gname name;
 
   enum txkind kind;
 
@@ -144,11 +150,16 @@ struct networkbase {
   struct timetablebase *timetables;  // [routecnt]
 
   struct memblk portmem;
+  struct memblk hopmem;
 
 // access
   ub4 tthops[Hopcnt];   // index in timetables above
   ub4 farehops[Hopcnt];   // index in fares above
+
   ub4 *id2ports;          // [maxid]
+  ub4 *id2hops;          // [maxid]
+  ub4 maxportid;
+
   datetime *gomaps;
   sb2 *faremaps;
 };

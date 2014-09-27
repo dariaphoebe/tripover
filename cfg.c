@@ -36,7 +36,8 @@ void inicfg(void)
 static ub4 linno;
 static const char *cfgname;
 
-enum Cfgvar { Maxhops,Maxports,Maxstops,Querydir,Net2pdf,Cfgcnt };
+enum Cfgvar { Maxhops,Maxports,Maxstops,Querydir,Net2pdf,Net2ext,Cfgcnt };
+
 enum Cfgcnv { String, Uint, Bool,None };
 static struct cfgvar {
   const char *name;
@@ -49,7 +50,8 @@ static struct cfgvar {
   {"maxports",Uint,Maxports,0,Portcnt,1000,"maximum number of maxport"},
   {"maxstops",Uint,Maxstops,0,Stopcnt,3,"maximum number of stops"},
   {"querydir",String,Querydir,0,0,0,"client query queue directory"},
-  {"net.pdf",Bool,Net2pdf,0,0,0,"write network to pdf"}
+  {"net.pdf",Bool,Net2pdf,0,0,0,"write network to pdf"},
+  {"net.ext",Bool,Net2ext,0,0,0,"write network to ext"}
 };
 static int varseen[Cfgcnt];
 
@@ -82,6 +84,7 @@ int writecfg(const char *curname)
     case Maxstops: uval = globs.maxstops; break;
     case Querydir: sval = globs.querydir; break;
     case Net2pdf: break;
+    case Net2ext: uval = globs.writext; break;
     case Cfgcnt: break;
     }
 
@@ -115,7 +118,7 @@ static int limitvals(void)
     case Maxhops: limitval(vp,&globs.maxhops); break;
     case Maxports: limitval(vp,&globs.maxports); break;
     case Maxstops: limitval(vp,&globs.maxstops); break;
-    case Net2pdf: break;
+    case Net2pdf: case Net2ext: break;
     case Querydir: break;
     case Cfgcnt: break;
     }
@@ -159,7 +162,11 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
   case Uint: val[vallen] = 0;
              if (str2ub4(val,&uval)) return error(0,"%s.%u: %s : '%s' needs numerical arg",cfgname,linno,varname,val);
              break;
-  case Bool: break;
+  case Bool: if (vallen) {
+               if (*val == '0' || *val == 'n' || *val == 'f') uval = 0;
+               else if (*val == '1' || *val == 'y' || *val == 't') uval = 1;
+             }
+             break;
   case String: break;
   case None: break;
   }
@@ -168,8 +175,9 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
   case Maxhops: setval(vp,&globs.maxhops,uval); break;
   case Maxports: setval(vp,&globs.maxports,uval); break;
   case Maxstops: setval(vp,&globs.maxstops,uval); break;
-  case Querydir: strcopy(globs.querydir,val); break;
+  case Querydir: memcpy(globs.querydir,val,min(vallen,sizeof(globs.querydir)-1)); break;
   case Net2pdf: break;
+  case Net2ext: globs.writext = uval; info(0,"writext %u",uval); break;
   case Cfgcnt: break;
   }
   return 0;

@@ -298,5 +298,10 @@ int inimath(void)
 
   for (x = 0; x < 16; x++) rndstate[x] = xorshift64star();
 
+  x = (ub8)Latscale / 180;
+  error_gt(x,1<<30);
+  x = (ub8)Lonscale / 360;
+  error_gt(x,1<<30);
+
   return 0;
 }

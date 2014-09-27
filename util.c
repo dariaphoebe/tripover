@@ -260,7 +260,7 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
   char *eq,*valp,*sub,cnv;
   const char *arg,*vp;
   ub4 argno,vlen;
-  struct cmdarg *cap = cmdargs,*ap = allargs;
+  struct cmdarg *plainap,*cap = cmdargs,*ap = allargs;
   struct cmdval cv;
   char msg[256];
   int rv;
@@ -275,6 +275,7 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
     ap->fn = cap->fn;
     cap++; ap++;
   }
+  plainap = cap;
 
   globs.progname = argv[0];
 
@@ -283,52 +284,56 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
     if (!arg || !*arg) continue;
 
     fmtstring(msg,"arg %u '%s' : ", argno,arg);
+    valp = NULL;
     if (*arg == '-') {
       arg++;
       if (*arg == '-') arg++;
       if (*arg == 0) { warning(User,"%signoring empty option after '%s'",msg,argv[argno-1]); continue; }
-    }
 
-    eq = strchr(arg,'=');
-    if (eq == arg) { warning(User,"%signoring malformed arg",msg); continue; }
-    else if (eq) {
-      *eq = 0;
-      valp = eq + 1;
-    } else valp = NULL;
-
-    ap = findarg(arg,allargs);
-    if (!ap->arg) {
-      warning(User,"%signoring unknown argument",msg);
-      continue;
-    }
-    clear(&cv);
-    cv.retval = 1;
-    sub = strchr(ap->arg,'-');
-    if (sub) cv.subarg = sub + 1;
-    else cv.subarg = ap->arg;
-    vp = ap->val;
-    if (vp) {
-      cv.valcnt = 1;
-      vlen = (ub4)strlen(vp);
-      if (vlen > 2 && vp[vlen-2] == '%') {
-        cnv = vp[vlen-1];
-      } else cnv = 's';
-      if (*vp != '[' && !valp) { warning(User,"%smissing value",msg); continue; }
-      if (cnv == 'u') {
-        if (str2ub4(valp,&cv.uval)) {
-        if (*vp != '[' || valp)
-          warning(User,"%signoring non-integer value %s",msg,valp); continue;
-        }
+      eq = strchr(arg,'=');
+      if (eq == arg) { warning(User,"%signoring malformed arg",msg); continue; }
+      else if (eq) {
+        *eq = 0;
+        valp = eq + 1;
       }
-      cv.sval = valp;
+
+      ap = findarg(arg,allargs);
+      if (!ap->arg) {
+        warning(User,"%signoring unknown argument",msg);
+        continue;
+      }
+      clear(&cv);
+      cv.retval = 1;
+      sub = strchr(ap->arg,'-');
+      if (sub) cv.subarg = sub + 1;
+      else cv.subarg = ap->arg;
+      vp = ap->val;
+      if (vp) {
+        cv.valcnt = 1;
+        vlen = (ub4)strlen(vp);
+        if (vlen > 2 && vp[vlen-2] == '%') {
+          cnv = vp[vlen-1];
+        } else cnv = 's';
+        if (*vp != '[' && !valp) { warning(User,"%smissing value",msg); continue; }
+        if (cnv == 'u') {
+          if (str2ub4(valp,&cv.uval)) {
+          if (*vp != '[' || valp)
+            warning(User,"%signoring non-integer value %s",msg,valp); continue;
+          }
+        }
+        cv.sval = valp;
+      } else {
+        if (valp) warning(User,"%signoring value for arg",msg);
+      }
+      cv.args = allargs;
+      cv.argndx = (ub4)(ap - allargs);
+      if (ap->fn) {
+        rv = (*ap->fn)(&cv); 
+        if (rv) return rv;
+      }
     } else {
-      if (valp) warning(User,"%signoring value for arg",msg);
-    }
-    cv.args = allargs;
-    cv.argndx = (ub4)(ap - allargs);
-    if (ap->fn) {
-      rv = (*ap->fn)(&cv); 
-      if (rv) return rv;
+      cv.sval = (char *)arg;
+      (*plainap->fn)(&cv);
     }
   }
   return 0;

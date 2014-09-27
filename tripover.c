@@ -70,12 +70,16 @@ static int getbasenet(void)
 {
   ub4 portcnt = globs.maxports;
   ub4 hopcnt = globs.maxhops;
+  netbase *net = getnetbase();
+  int rv;
 
   error_ovf(portcnt,ub2);
 
-  if (*globs.netfile) {  // todo read compiled net
-    info(0,"TODO read compiled net from %s",globs.netfile);
-    return 1;
+  if (*globs.netdir) {  // todo read compiled net
+    if (globs.nosteps || globs.doreadnet) {
+      rv = readextnet(net,globs.netdir);
+      return rv;
+    } else return 0;
   }
   info(0,"generate random %u port %u hop net", globs.maxports, globs.maxhops);
   if (mkrandnet(portcnt,hopcnt)) return 1;
@@ -117,17 +121,20 @@ static int cmd_cfg(struct cmdval *cv)
 
 static int cmd_run(struct cmdval *cv)
 {
+  ub2 x = 0;
+
   globs.nosteps = 0;
-  if (strstr(cv->sval,"init")) globs.doinit = 1;
-  if (strstr(cv->sval,"server")) globs.doserver = 1;
-  if (strstr(cv->sval,"randnet")) globs.dorandnet = 1;
+  if (strstr(cv->sval,"init")) x = globs.doinit = 1;
+  if (strstr(cv->sval,"server")) x = globs.doserver = 1;
+  if (strstr(cv->sval,"randnet")) x = globs.dorandnet = 1;
+  if (strstr(cv->sval,"readnet")) x = globs.doreadnet = 1;
+  if (x == 0) warning(0,"unrecognised run %s",cv->sval);
   return 0;
 }
 
 static int cmd_arg(struct cmdval *cv) {
-// add plain arg
-  info(0,"add arg %s", cv->sval);
-  strcopy(globs.netfile, cv->sval);
+  vrb(0,"add arg %s", cv->sval);
+  strcopy(globs.netdir, cv->sval);
 
   return 0;
 }
@@ -142,7 +149,7 @@ static struct cmdarg cmdargs[] = {
   { ".test-b", "test%u", "test", cmd_test },
   { ".test-set", "test%u", "tests", cmd_test },
   { "config|c", "file", "specify config file", cmd_cfg },
-  { NULL, "files...", "tripover", cmd_arg }
+  { NULL, "nets...", "tripover", cmd_arg }
 };
 
 int main(int argc, char *argv[])

@@ -52,10 +52,12 @@ extern struct globs {
   char *progname;
   ub2 nosteps;
   ub2 dorandnet;
+  ub2 doreadnet;
   ub2 doinit;
   ub2 doserver;
   char cfgfile[1024];
   char netfile[1024];
+  char netdir[1024];
   char querydir[256];
   ub4 serverid;
   ub4 msglvl;
@@ -63,6 +65,10 @@ extern struct globs {
   ub4 maxports;
   ub4 maxhops;
   ub4 maxstops;
+
+  ub4 writext;
+  ub4 extdec;
+
   ub4 testa,testb;
   ub4 testcnt;
   ub4 testset[16];
