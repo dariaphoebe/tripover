@@ -152,6 +152,9 @@ struct networkbase {
   struct memblk portmem;
   struct memblk hopmem;
 
+  ub4 latrange[2];
+  ub4 lonrange[2];
+
 // access
   ub4 tthops[Hopcnt];   // index in timetables above
   ub4 farehops[Hopcnt];   // index in fares above

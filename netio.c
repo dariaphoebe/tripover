@@ -31,11 +31,11 @@ static ub4 msgfile;
 
 #include "netio.h"
 
-static ub4 pdfscale_lat = 2000;
-static ub4 pdfscale_lon = 2000;
+static ub4 pdfscale_lat = 1200;
+static ub4 pdfscale_lon = 1200;
 
-static ub4 lat2pdf(ub4 lat) { return lat * pdfscale_lat / (180 * Latscale); }
-static ub4 lon2pdf(ub4 lon) { return lon * pdfscale_lon / (360 * Lonscale); }
+static ub4 lat2pdf(ub4 lat,ub4 lolat,ub4 dlat) { return (lat - lolat) * pdfscale_lat / dlat; }
+static ub4 lon2pdf(ub4 lon,ub4 lolon,ub4 dlon) { return (lon - lolon) * pdfscale_lon / dlon; }
 
 /* tripover external format: easy manual editing, typical from single gtfs
 
@@ -130,13 +130,13 @@ static void mkhexmap(void)
   hexmap[0x20] = 0x20;
 }
 
-static int parserr(const char *fname,ub4 linno,const char *fmt, ...)
+static int __attribute__ ((format (printf,4,5))) parserr(const char *fname,ub4 linno,ub4 colno,const char *fmt, ...)
 {
   va_list ap;
   char buf[1024];
   ub4 pos,len = sizeof(buf);
 
-  pos = fmtstring(buf,"%s.%u: parse error: ",fname,linno);
+  pos = fmtstring(buf,"%s.%u.%u: parse error: ",fname,linno,colno);
   if (fmt) {
     va_start(ap,fmt);
     pos += myvsnprintf(buf,pos,len,fmt,ap);
@@ -145,13 +145,13 @@ static int parserr(const char *fname,ub4 linno,const char *fmt, ...)
   return error(0,"%s",buf);
 }
 
-static int parsewarn(const char *fname,ub4 linno,const char *fmt, ...)
+static int __attribute__ ((format (printf,4,5))) parsewarn(const char *fname,ub4 linno,ub4 colno,const char *fmt, ...)
 {
   va_list ap;
   char buf[1024];
   ub4 pos,len = sizeof(buf);
 
-  pos = fmtstring(buf,"%s.%u: ",fname,linno);
+  pos = fmtstring(buf,"%s.%u.%u: ",fname,linno,colno);
   if (fmt) {
     va_start(ap,fmt);
     pos += myvsnprintf(buf,pos,len,fmt,ap);
@@ -175,7 +175,8 @@ static int rdextports(netbase *net,const char *dir)
   enum states state;
   int rv,newport;
   char *buf,*p,*end,c,tab,nl;
-  ub4 len,pos,linno,x,namelen,lat,lon,id,idhi,maxid,cc;
+  ub4 len,pos,linno,colno,x,namelen,lat,lon,id,idhi,maxid,cc;
+  ub4 lolon,lolat,hilon,hilat;
   char name[Maxname];
   ub4 namemax = min(Maxname,sizeof(ports->name)) - 1;
 
@@ -195,8 +196,11 @@ static int rdextports(netbase *net,const char *dir)
 
   state = Out;
   namelen = lat = lon = id = idhi = maxid = 0;
+  lolat = lolon = hi32;
+  hilat = hilon = 0;
+
   newport = 0;
-  pos = 0;
+  pos = colno = 0;
   linno = 1;
   tab = '\t'; nl = '\n';
 
@@ -207,7 +211,8 @@ static int rdextports(netbase *net,const char *dir)
 
     c = *p++;
     cc = c;
-    if (c == nl) linno++;
+    if (c == nl) { linno++; colno = 1; }
+    else colno++;
 
 //    info(0,"state %u c %c",state,c);
 
@@ -225,7 +230,7 @@ static int rdextports(netbase *net,const char *dir)
           break;
         case 's': info0(0,"scale todo"); state = Fls; break;
         case '\n': break;
-        default: warning(0,"unexpected char %c",c); state = Fls;
+        default: parsewarn(fname,linno,colno,"unexpected char %c",c); state = Fls;
       }
       break;
 
@@ -233,11 +238,11 @@ static int rdextports(netbase *net,const char *dir)
       x = hexmap[cc];
       if (x < 16) id = (id << 4) | x;
       else if (x == 0x20) state = Name0;
-      else return parserr(fname,linno,"expected whitespace after ID, found %c",c);
+      else return parserr(fname,linno,colno,"expected whitespace after ID, found %c",c);
       break;
 
     case Iddec0:
-      if (c < '0' || c > '9') return parserr(fname,linno,"expected decimal digit for ID, found %c",c);
+      if (c < '0' || c > '9') return parserr(fname,linno,colno,"expected decimal digit for ID, found %c",c);
       id = c - '0';
       state = Iddec1;
       break;
@@ -245,7 +250,7 @@ static int rdextports(netbase *net,const char *dir)
     case Iddec1:
       if (c == tab) state = Name0;
       else if (c >= '0' && c <= '9') id = (id * 10) + (c - '0');
-      else return parserr(fname,linno,"expected decimal digit for ID, found %c",c);
+      else return parserr(fname,linno,colno,"expected decimal digit for ID, found %c",c);
       break;
 
     case Name0:
@@ -258,7 +263,7 @@ static int rdextports(netbase *net,const char *dir)
       if (c == tab) state = Lat0;
       else if (namelen + 2 < namemax) name[namelen++] = c;
       else if (name[namemax] != '!') {
-        parsewarn(fname,linno,"name exceeds %u",namemax);
+        parsewarn(fname,linno,colno,"name exceeds %u",namemax);
         name[namemax] = '!';
       }
       break;
@@ -268,14 +273,14 @@ static int rdextports(netbase *net,const char *dir)
       else if (hexmap[cc] < 16) {
         lat = hexmap[cc];
         state = Lathex1;
-      } else return parserr(fname,linno,"expected digit for lat, found %c",c);
+      } else return parserr(fname,linno,colno,"expected digit for lat, found %c",c);
       break;
 
     case Lathex1:
       x = hexmap[cc];
       if (x < 16) lat = (lat << 4) | x;
       else if (x == 0x20) state = Lonhex0;
-      else return parserr(fname,linno,"expected wdigit for lat, found %c",c);
+      else return parserr(fname,linno,colno,"expected wdigit for lat, found %c",c);
       break;
 
     case Lonhex0:
@@ -283,7 +288,7 @@ static int rdextports(netbase *net,const char *dir)
         lon = hexmap[cc];
         state = Lonhex1;
       }
-      else return parserr(fname,linno,"expected digit for lon, found %c",c);
+      else return parserr(fname,linno,colno,"expected digit for lon, found %c",c);
       break;
 
     case Lonhex1:
@@ -291,11 +296,11 @@ static int rdextports(netbase *net,const char *dir)
       if (x < 16) lon = (lon << 4) | x;
       else if (x == 0x20) { newport = 1; state = Fls; }
       else if (x == 0xfe) { newport = 1; state = Out; }
-      else return parserr(fname,linno,"expected digit for lon, found %c",c);
+      else return parserr(fname,linno,colno,"expected digit for lon, found %c",c);
       break;
 
     case Latdec0:
-      if (c < '0' || c > '9') return parserr(fname,linno,"expected decimal digit for lon, found %c",c);
+      if (c < '0' || c > '9') return parserr(fname,linno,colno,"expected decimal digit for lon, found %c",c);
       lat = c - '0';
       state = Latdec1;
       break;
@@ -303,11 +308,11 @@ static int rdextports(netbase *net,const char *dir)
     case Latdec1:
       if (c == tab) state = Londec0;
       else if (c >= '0' && c <= '9') lat = (lat * 10) + (c - '0');
-      else return parserr(fname,linno,"expected decimal digit for lon, found %c",c);
+      else return parserr(fname,linno,colno,"expected decimal digit for lon, found %c",c);
       break;
 
     case Londec0:
-      if (c < '0' || c > '9') return parserr(fname,linno,"expected decimal digit for lon, found %c",c);
+      if (c < '0' || c > '9') return parserr(fname,linno,colno,"expected decimal digit for lon, found %c",c);
       lon = c - '0';
       state = Londec1;
       break;
@@ -316,7 +321,7 @@ static int rdextports(netbase *net,const char *dir)
       if (c == tab) { newport = 1; state = Fls; }
       else if (c == nl) { newport = 1; state = Out; }
       else if (c >= '0' && c <= '9') lon = (lon * 10) + (c - '0');
-      else return parserr(fname,linno,"expected decimal digit for lon, found %c",c);
+      else return parserr(fname,linno,colno,"expected decimal digit for lon, found %c",c);
       break;
 
     case Fls:
@@ -328,10 +333,14 @@ static int rdextports(netbase *net,const char *dir)
       vrb(0,"port %u id %u",portcnt,id);
       if (id > idhi) idhi = id;
       pp->id = id;
-      if (lat >= 180 * Latscale) { parsewarn(fname,linno,"port %u lat %u out of range",id,lat); lat = 0; }
-      if (lon >= 360 * Lonscale) { parsewarn(fname,linno,"port %u lon %u out of range",id,lon); lon = 0; }
+      if (lat >= 180 * Latscale) { parsewarn(fname,linno,colno,"port %u lat %u out of range",id,lat); lat = 0; }
+      if (lon >= 360 * Lonscale) { parsewarn(fname,linno,colno,"port %u lon %u out of range",id,lon); lon = 0; }
       pp->lat = lat;
       pp->lon = lon;
+      lolat = min(lolat,lat);
+      hilat = max(hilat,lat);
+      lolon = min(lolon,lon);
+      hilon = max(hilon,lon);
       pp->rlat = lat2rad(lat);
       pp->rlon = lon2rad(lon);
 //    info(0,"latlon %u %u r %e %e",lat,lon,pp->rlat,pp->rlon);
@@ -352,10 +361,15 @@ static int rdextports(netbase *net,const char *dir)
     else id2ports[id] = port;
   }
   info(0,"read %u ports from %s", portcnt, fname);
+  info(0,"bbox lat %u - %u = %u  lon %u - %u = %u",lolat,hilat,hilat-lolat,lolon,hilon,hilon-lolon);
   net->portcnt = portcnt;
   net->ports = ports;
   net->id2ports = id2ports;
   net->maxportid = idhi;
+  net->latrange[0] = lolat;
+  net->latrange[1] = hilat;
+  net->lonrange[0] = lolon;
+  net->lonrange[1] = hilon;
   return 0;
 }
 
@@ -370,13 +384,14 @@ static int rdexthops(netbase *net,const char *dir)
   ub4 portcnt;
   ub4 maxportid;
   struct hopbase *hops,*hp;
+  struct portbase *ports = net->ports;
   ub4 *id2hops;
   ub4 *id2ports;
   enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
   enum states state;
   int rv,newhop;
   char *buf,*p,*end,c,tab,nl;
-  ub4 len,pos,linno,x,val,namelen,valndx,id,idhi,maxid;
+  ub4 len,pos,linno,colno,x,val,namelen,valndx,id,idhi,maxid;
   ub4 depid,arrid,dep,arr;
   char name[Maxname];
   ub4 vals[Maxval];
@@ -404,7 +419,7 @@ static int rdexthops(netbase *net,const char *dir)
   namelen = val = valndx = id = idhi = maxid = 0;
   newhop = 0;
 
-  pos = 0;
+  pos = colno = 0;
   linno = 1;
   tab = '\t'; nl = '\n';
 
@@ -415,6 +430,9 @@ static int rdexthops(netbase *net,const char *dir)
 
     c = *p++;
 
+    if (c == '\n') { linno++; colno = 1; }
+    else colno++;
+
 //    info(0,"state %u %c",state,c);
 
     switch(state) {
@@ -423,7 +441,7 @@ static int rdexthops(netbase *net,const char *dir)
       switch (c) {
         case '#': state = Fls; break;
         case '\t': state = Cmd0; break;
-        case '\n': linno++; break;
+        case '\n': break;
         case ' ': break;
         default: name[0] = c; namelen = 1; state = Name;
       }
@@ -431,26 +449,30 @@ static int rdexthops(netbase *net,const char *dir)
 
     case Name:
       if (c == tab) { valndx = 0; aclear(vals); state = Num0; }
-      else if (c == nl) return parserr(fname,linno,"missing dep arr");
+      else if (c == nl) return parserr(fname,linno,colno,"missing dep arr");
       else if (namelen + 2 < namemax) name[namelen++] = c;
       else if (name[namemax] != '!') {
-        parsewarn(fname,linno,"name exceeds %u",namemax);
+        parsewarn(fname,linno,colno,"name exceeds %u",namemax);
         name[namemax] = '!';
       }
       break;
 
     case Num0:
       switch(c) {
+        case '#': if (valndx > 2) newhop = 1; state = Fls; break;
+        case '\t': case ' ': break;
         case 'D': state = Dec0; break;
         case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
         case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
           val = hexmap[(ub4)c];
           state = Hex1;
           break;
+        default: return parserr(fname,linno,colno,"expected digit, found '%c'",c);
       }
       break;
+
     case Hex1:
-      if (valndx >= Maxval) return parserr(fname,linno,"exceeding %u values",valndx);
+      if (valndx >= Maxval) return parserr(fname,linno,colno,"exceeding %u values",valndx);
       x = hexmap[(ub4)c];
       if (x < 16) val = (val << 4) | x;
       else if (x == 0x20) {
@@ -459,29 +481,27 @@ static int rdexthops(netbase *net,const char *dir)
       } else if (x == 0xfe) { // newline
         vals[valndx++] = val;
         newhop = 1;
-        linno++;
         state = Out;
-      } else return parserr(fname,linno,"expected whitespace after ID, found %c",c);
+      } else return parserr(fname,linno,colno,"expected whitespace after number, found %c",c);
       break;
 
     case Dec0:
-      if (c < '0' || c > '9') return parserr(fname,linno,"expected decimal digit for ID, found %c",c);
+      if (c < '0' || c > '9') return parserr(fname,linno,colno,"expected decimal digit, found '%c'",c);
       val = c - '0';
       state = Dec1;
       break;
 
     case Dec1:
-      if (c == tab) {
-        if (valndx >= Maxval) return parserr(fname,linno,"exceeding %u values",valndx);
+      if (c == tab || c == ' ') {
+        if (valndx >= Maxval) return parserr(fname,linno,colno,"exceeding %u values",valndx);
         vals[valndx++] = val;
         state = Num0;
       } else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
       else if (c == nl) {
         vals[valndx++] = val;
         newhop = 1;
-        linno++;
         state = Out;
-      } else return parserr(fname,linno,"expected decimal digit for ID, found %c",c);
+      } else return parserr(fname,linno,colno,"expected decimal digit, found '%c'",c);
       break;
 
     case Cmd0:
@@ -490,28 +510,30 @@ static int rdexthops(netbase *net,const char *dir)
       break;
 
     case Fls:
-      if (c == nl) { linno++; state = Out; } break;
+      if (c == nl) { state = Out; } break;
 
     }
 
     if (newhop) {
       newhop = 0;
       error_gt(hopcnt+1,rawhopcnt);
-      if (valndx < 3) return parserr(fname,linno,"missing dep,arr args, only %u",valndx);
+      if (valndx < 3) return parserr(fname,linno,colno,"missing dep,arr args, only %u",valndx);
       id = vals[0];
       depid = vals[1];
       arrid = vals[2];
-//    info(0,"vals %u %u %u",vals[0],depid,arrid);
-      error_eq(depid,arrid);
-      if (depid > maxportid) return parserr(fname,linno,"dep id %u above highest port id %u",depid,maxportid);
-      else if (arrid > maxportid) return parserr(fname,linno,"arr id %u above highest port id %u",arrid,maxportid);
+//      info(0,"vals %u %u %u",vals[0],depid,arrid);
+      if (depid == arrid) return parserr(fname,linno,colno,"dep id %u equal to arr id",depid);
+      if (depid > maxportid) return parserr(fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
+      else if (arrid > maxportid) return parserr(fname,linno,colno,"arr id %u above highest port id %u",arrid,maxportid);
       dep = id2ports[depid];
       arr = id2ports[arrid];
-      if (dep >= portcnt) return parserr(fname,linno,"dep %u above highest port %u",dep,portcnt);
-      else if (arr >= portcnt) return parserr(fname,linno,"arr %u above highest port %u",arr,portcnt);
+      if (dep >= portcnt) return parserr(fname,linno,colno,"dep %u above highest port %u",dep,portcnt);
+      else if (arr >= portcnt) return parserr(fname,linno,colno,"arr %u above highest port %u",arr,portcnt);
       hp->id  = id;
       hp->dep = dep;
       hp->arr = arr;
+      ports[dep].deps++;
+      ports[arr].arrs++;
       hp->namelen = namelen;
       if (namelen) memcpy(hp->name,name,namelen);
       hp++;
@@ -548,6 +570,7 @@ int readextnet(netbase *net,const char *dir)
   rv = rdexthops(net,dir);
   if (rv) return rv;
   if (globs.writext) rv = net2ext(net);
+  if (globs.writpdf) net2pdf(net);
   return rv;
 }
 
@@ -614,40 +637,49 @@ static ub4 addnetpdf(netbase *net, char *buf, ub4 len)
   ub4 port,portcnt = net->portcnt;
   ub4 hop,hopcnt = net->hopcnt;
   ub4 x,y,x0,y0,x1,y1,arr,dep;
+  ub4 lolon,lolat,hilon,hilat,dlon,dlat;
   ub4 pos,n;
 
-  pos = mysnprintf(buf,0,len,"BT /F1 18 Tf 25 25 Td (title Tj ET\n");
+  pos = mysnprintf(buf,0,len,"BT /F1 18 Tf 25 25 Td (title) Tj ET\n");
 
-  pos += mysnprintf(buf,pos,len,"BT /F1 20 Tf\n");
+  pos += mysnprintf(buf,pos,len,"BT /F1 16 Tf\n");
+
+  lolon = net->lonrange[0];
+  hilon = net->lonrange[1];
+  lolat = net->latrange[0];
+  hilat = net->latrange[1];
+  dlon = max(1,hilon - lolon);
+  dlat = max(1,hilat - lolat);
 
   // temporary: port as number
-  for (port = 0; port < portcnt; port++) {
+  for (port = 0; port < min(portcnt,10); port++) {
     pp = ports + port;
-    y = lat2pdf(pp->lat);
-    x = lon2pdf(pp->lon);
+    y = lat2pdf(pp->lat,lolat,dlat);
+    x = lon2pdf(pp->lon,lolon,dlon);
     n = mysnprintf(buf,pos,len,"1 0 0 1 %u %u Tm (%u) Tj ", x,y,port);
     if (n == 0) break;
     pos += n;
   }
   pos += mysnprintf(buf,pos,len,"ET\n");
 
-  pos += mysnprintf(buf,pos,len,"3 w\n");
+  pos += mysnprintf(buf,pos,len,"1 w\n");
 
   // draw direct connection as straight line
-  for (hop = 0; hop < hopcnt; hop++) {
+  for (hop = 0; hop < min(hopcnt,300); hop++) {
     hp = hops + hop;
     dep = hp->dep;
     arr = hp->arr;
     pdep = ports + dep;
     parr = ports + arr;
-    y0 = lat2pdf(pdep->lat);
-    x0 = lon2pdf(pdep->lon);
-    y1 = lat2pdf(parr->lat);
-    x1 = lon2pdf(parr->lon);
+    y0 = lat2pdf(pdep->lat,lolat,dlat);
+    x0 = lon2pdf(pdep->lon,lolon,dlon);
+    y1 = lat2pdf(parr->lat,lolat,dlat);
+    x1 = lon2pdf(parr->lon,lolon,dlon);
     n = mysnprintf(buf,pos,len,"%u %u m %u %u l s\n",x0,y0,x1,y1);
     if (n == 0) break;
     pos += n;
   }
+  error_gt(pos,len);
   if (pos == len) warning(0,"pdf output buffer limit \ah%u reached: truncated", len);
   return pos;
 }
@@ -680,7 +712,7 @@ static char pagebuf[64 * 1024];
 
   xref[pdfnode] = pos;
   pos += mysnprintf(pagebuf,pos,plen,"%u 0 obj\n << /Type /Page /Parent %u 0 R "
-    "/MediaBox [ 0 0 %u %u ] /Contents %u 0 R /Resources"
+    "/MediaBox [0 0 %u %u] /Contents %u 0 R /Resources"
     " << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\n"
     "endobj\n", pdfnode,pdftree,pdfscale_lon, pdfscale_lat,pdfcontent);
 

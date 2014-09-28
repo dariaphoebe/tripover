@@ -80,9 +80,10 @@ static int mknet0(void)
   ub4 dist,*dist0,*hopdist;
   ub4 geohist[Geohist];
   double fdist;
-  ub4 dep,arr,port2,da,depcnt,needconn,watch;
+  ub4 dep,arr,port2,da,depcnt,arrcnt,needconn,watch;
   ub2 iv;
   ub4 depstats[16];
+  ub4 arrstats[16];
   struct eta eta;
 
   if (portcnt == 0 || hopcnt == 0) return 1;
@@ -116,12 +117,17 @@ static int mknet0(void)
       if (dep == arr) continue;
       da = dep * portcnt + arr;
       aport = bports + arr;
-      fdist = geodist(dport->rlat,dport->rlon,aport->rlat,aport->rlon);
-      if (fdist < 1.0) return error(0,"port %u-%u distance %e for latlon %u %u-%u %u",dep,arr,fdist,dport->lat,dport->lon,aport->lat,aport->lon);
-      else if (fdist > 1.0e+8) warning(0,"port %u-%u distance %e for latlon %u %u-%u %u",dep,arr,fdist,dport->lat,dport->lon,aport->lat,aport->lon);
-      dist = (ub4)fdist;
-      error_ovf(dist,ub4);
-      error_z(dist,arr);
+      if (dport->lat == aport->lat && dport->lon == aport->lon) {
+        warning(0,"port %u-%u distance 0 for latlon %u %u",dep,arr,dport->lat,dport->lon);
+        dist = 0;
+      } else {
+        fdist = geodist(dport->rlat,dport->rlon,aport->rlat,aport->rlon);
+        if (fdist < 0.001) warning(0,"port %u-%u distance %e for latlon %u %u-%u %u",dep,arr,fdist,dport->lat,dport->lon,aport->lat,aport->lon);
+        else if (fdist > 1.0e+8) warning(0,"port %u-%u distance %e for latlon %u %u-%u %u",dep,arr,fdist,dport->lat,dport->lon,aport->lat,aport->lon);
+        dist = (ub4)fdist;
+         error_ovf(dist,ub4);
+      }
+//      error_z(dist,arr);
       dist0[da] = dist;
     }
   }
@@ -144,7 +150,7 @@ static int mknet0(void)
     if (concnt == hi16-1) ovfcnt++;
     else con0cnt[da] = (ub2)(concnt+1);
     dist = dist0[da];
-    error_z(dist,hop);
+//    error_z(dist,hop);
     hp->dist = dist;
     hopdist[hop] = dist;
   }
@@ -200,9 +206,24 @@ static int mknet0(void)
       error_ovf(depcnt,ub2);
     }
     ports[dep].depcnt = (ub2)depcnt;
+    error_ne(depcnt,bports[dep].deps);
     depstats[min(Elemcnt(depstats),depcnt)]++;
   }
   for (iv = 0; iv < Elemcnt(depstats); iv++) info(0,"%u ports with %u departures", depstats[iv], iv);
+
+  aclear(arrstats);
+  for (arr = 0; arr < portcnt; arr++) {
+    arrcnt = 0;
+    for (dep = 0; dep < portcnt; dep++) {
+      if (dep == arr) continue;
+      arrcnt += con0cnt[dep * portcnt + arr];
+      error_ovf(arrcnt,ub2);
+    }
+    ports[arr].arrcnt = (ub2)arrcnt;
+    error_ne(arrcnt,bports[arr].arrs);
+    arrstats[min(Elemcnt(arrstats),arrcnt)]++;
+  }
+  for (iv = 0; iv < Elemcnt(arrstats); iv++) info(0,"%u ports with %u arrivals", arrstats[iv], iv);
 
   net.dist0 = dist0;
   net.hopdist = hopdist;
@@ -401,7 +422,7 @@ static int mknetn(ub4 nstop)
         outcnt++;
         lodists[deparr] = lodist;
         hidists[deparr] = hidist;
-        error_zz(lodist,hidist);
+//        error_zz(lodist,hidist);
         error_gt(lodist,hidist);
         distrange = max(hidist - lodist,1);
       } else {
@@ -553,9 +574,12 @@ static int mknetn(ub4 nstop)
 
   for (iv = 0; iv < Elemcnt(dupstats); iv++) info(0,"dup %u: %u",iv,dupstats[iv]);
 
-  info(0,"pass 1 done, tentative \ah%lu triplets",lstlen);
+  info(0,"%u-stop pass 1 done, tentative \ah%lu triplets",nstop,lstlen);
 
-  error_z(lstlen,0);
+  if (lstlen == 0) {
+    warning(0,"no connections at %u-stop",nstop);
+    return 0;
+  }
 
   struct range portdr;
   ub4 ivportdst[32];
@@ -772,6 +796,8 @@ static int mknetn(ub4 nstop)
   net.lodist[nstop] = lodists;
   net.hidist[nstop] = hidists;
 
+  net.lstlen[nstop] = lstlen;
+
   unsigned long doneconn,leftperc,needconn = net.needconn;
 
   doneconn = 0;
@@ -836,6 +862,10 @@ int mknet(netbase *basenet,ub4 maxstop)
   if (globs.nosteps || globs.doinit) {
     for (nstop = 1; nstop <= maxstop; nstop++) {
       if (mknetn(nstop)) return 1;
+      if (net.lstlen[nstop] == 0) {
+        net.maxstop = nstop;
+        break;
+      }
     }
     info0(0,"static network init done");
   }

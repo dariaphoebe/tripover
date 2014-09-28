@@ -213,6 +213,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   ub1 *net0;
   ub4 hist[Zhist];
   ub4 iv,cnt,waterlvl,z,lat,lon,railcnt,iter,aircnt,aimed,landrange;
+  ub4 lolon,lolat,hilon,hilat;
   double rlat,rlon;
   ub4 dep,arr,curhop,depcnt;
   ub4 depstats[16];
@@ -228,6 +229,9 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   // fractal land to create net on
   mkheightmap(heightmap,Zmap);
   mkhist(heightmap,Zmap,&zrange,Zhist,hist,"randnet",Vrb);
+
+  lolat = lolon = hi32;
+  hilat = hilon = 0;
 
   iv = 0; cnt = 0;
   while (iv < Zhist && cnt < Zmap * 70 / 100) {
@@ -246,6 +250,10 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     rlon = (frnd(36000) - 18000) * 0.01 * M_PI / 180;
     lat = rad2lat(rlat);
     lon = rad2lon(rlon);
+    lolat = min(lolat,lat);
+    hilat = max(hilat,lat);
+    lolon = min(lolon,lon);
+    hilon = max(hilon,lon);
     z = getz(lat,lon);
     if (z < waterlvl) continue;
     if (z - waterlvl < rnd(landrange)) {
@@ -262,6 +270,10 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     rlon = (frnd(36000) - 18000) * 0.01 * M_PI / 180;
     lat = rad2lat(rlat);
     lon = rad2lon(rlon);
+    lolat = min(lolat,lat);
+    hilat = max(hilat,lat);
+    lolon = min(lolon,lon);
+    hilon = max(hilon,lon);
     z = getz(lat,lon);
     if (z < waterlvl) continue;
     if (z - waterlvl < rnd(landrange)) {
@@ -314,7 +326,13 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   basenet.portcnt = portcnt;
   basenet.hopcnt = hopcnt;
 
+  basenet.latrange[0] = lolat;
+  basenet.latrange[1] = hilat;
+  basenet.lonrange[0] = lolon;
+  basenet.lonrange[1] = hilon;
+
   if (globs.writext) net2ext(&basenet);
+  if (globs.writpdf) net2pdf(&basenet);
 
   info0(0,"done generating artificial net");
   return 0;
