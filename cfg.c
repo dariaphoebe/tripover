@@ -83,7 +83,7 @@ int writecfg(const char *curname)
     case Maxports: uval = globs.maxports; break;
     case Maxstops: uval = globs.maxstops; break;
     case Querydir: sval = globs.querydir; break;
-    case Net2pdf: break;
+    case Net2pdf: uval = globs.writpdf; break;
     case Net2ext: uval = globs.writext; break;
     case Cfgcnt: break;
     }
@@ -176,7 +176,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
   case Maxports: setval(vp,&globs.maxports,uval); break;
   case Maxstops: setval(vp,&globs.maxstops,uval); break;
   case Querydir: memcpy(globs.querydir,val,min(vallen,sizeof(globs.querydir)-1)); break;
-  case Net2pdf: break;
+  case Net2pdf: globs.writpdf = uval; info(0,"writpdf %u",uval); break;
   case Net2ext: globs.writext = uval; info(0,"writext %u",uval); break;
   case Cfgcnt: break;
   }

@@ -67,6 +67,7 @@ extern struct globs {
   ub4 maxstops;
 
   ub4 writext;
+  ub4 writpdf;
   ub4 extdec;
 
   ub4 testa,testb;

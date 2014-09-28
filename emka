@@ -43,7 +43,7 @@
 
 # author: Joris van der Geer
 
-# last changed:  16 sep 2014 07:30+10
+# last changed:  28 sep 2014
 
 use 5.008;
 use integer;
@@ -69,6 +69,8 @@ sub cmd_help() {
   print("loop                Continuous build\n");
   print("build               Build ( default)\n");
 }
+
+local $SIG{__WARN__} = sub { print $_[0]; exit 1;  };
 
 my $cfgname = 'config';
 
@@ -914,10 +916,11 @@ foreach $arg (@ARGV) {
     $opt = $arg;
     $opt =~ s/^-+//;
     if ($opt eq 'v') { info('verbose'); $verbose = 1; }
-    if ($opt eq 'n') { info('dryrun'); $dryrun = 1; }
-    if ($opt eq 's') { info('+static'); $do_sca = 1; }
-    if ($opt eq 'u') { info('unconditional build except generated sources'); $unconditional = 1; }
+    elsif ($opt eq 'n') { info('dryrun'); $dryrun = 1; }
+    elsif ($opt eq 's') { info('+static'); $do_sca = 1; }
+    elsif ($opt eq 'u') { info('unconditional build except generated sources'); $unconditional = 1; }
     elsif (index($opt,'t') == 0) { $endtime = int(substr($opt,2)); }
+    else { info("ignring unknown option -$opt"); }
   } else {
     if ($arg eq 'static') { $cmd = 'static'; }
     elsif ($arg eq 'clean') { $cmd = 'clean'; }
