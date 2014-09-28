@@ -444,8 +444,10 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   if (*fmt == '\n') {
     msgbuf[pos++] = '\n';
   }
-  if (opts & Msg_type) pos += mysnprintf(msgbuf, pos, maxlen, "%c%u ",lvlnam,sublvl);
-  else if (lvl <= Warn) pos += mysnprintf(msgbuf, pos, maxlen, "%s ",msgnames_long[lvl]);
+  if (opts & Msg_type) {
+    if (lvl >= Vrb) pos += mysnprintf(msgbuf, pos, maxlen, "%c%u ",lvlnam,sublvl);
+    else pos += mysnprintf(msgbuf, pos, maxlen, "%c  ",lvlnam);
+  } else if (lvl <= Warn) pos += mysnprintf(msgbuf, pos, maxlen, "%s ",msgnames_long[lvl]);
 
   if (opts & Msg_stamp) pos += mysnprintf(msgbuf, pos, maxlen, "%03u.%04u  ",(ub4)dsec,(ub4)d100usec);
   if (opts & Msg_pos) {
@@ -631,7 +633,7 @@ void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4
     dt = dt * 100 / perc;
     est = (dt * (100UL - perc)) / 100;
   }
-  pos += mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
+  if (cur) pos += mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
   infofln(fln,0,"%s",buf);
 }
 

@@ -615,7 +615,7 @@ sub readstoptimes($)
       }
       $route_id = $triproutes{$trip_id};
 
-      $tripseq{$trip_id} .= join(' ',$stop_seq,$stop_id,'');
+      $tripseq{$trip_id} .= join(' ',$stop_seq,$stop_id) . ' ';
     }
     push(@stentries,join("\t",$route_id,$trip_id,$stop_id,$stop_seq,$dep_time,$arr_time));
 
@@ -637,7 +637,7 @@ sub readstoptimes($)
 
     while (($trip,$troute) = each %triproutes) {
       next if $troute ne $route;
-      @seqs = split(' ',$tripseq{$trip});
+      @seqs = split(' ',trimws($tripseq{$trip}));
       $seqlen = scalar @seqs;
       for ($i = 2; $i < $seqlen; $i += 2) {
         $seq = $seqs[$i]; $dep = $seqs[$i+1];
@@ -665,10 +665,6 @@ sub readstoptimes($)
 sub import($)
 {
   my ($dir) = @_;
-
-  my $x = getdate();
-  info("$x");
-  return 0;
 
   readstops($dir) or return 0;
   readroutes($dir) or return 0;
@@ -721,7 +717,7 @@ sub writext($)
   info("writing $fstopcnt ports");
   open($portfile,'>','ports.txt') or error_exit("cannot create ports.txt:$!");
   print($portfile "# ports.txt - tripover external port aka stops file\n\n");
-  printf($portfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,gmtime($^T));
+  printf($portfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($portfile "# %u ports from %s/stops.txt\n\n",$fstopcnt,$dir);
 
   str2latlon();
@@ -729,7 +725,7 @@ sub writext($)
     $dep = $stop_rids[$stop];
     if ($stopdeps[$dep] > 0) {
       printf($portfile "%x\t%s\t%x\t%x # id %s code %s\n",$dep,$stop_names[$stop],$lats[$stop],$lons[$stop],$stop_ids[$stop],$stop_codes[$stop]);
-    }
+    } else { info("$stop_names[$stop] has no connection"); }
   }
   close($portfile);
 
@@ -737,6 +733,7 @@ sub writext($)
 
   open($hopfile,'>','hops.txt') or error_exit("cannot create ports.txt:$!");
   print($hopfile "# hops.txt - tripover external hops aka trips file\n\n");
+  printf($hopfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($hopfile "# %u hops from %s/stoptimes.txt\n\n",$hopcnt,$dir);
 
   foreach $hop (@hops) {

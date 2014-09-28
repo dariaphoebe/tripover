@@ -24,7 +24,7 @@ struct port {
   ub4 gid;   // global port, index in net.gports, in full connectivity matrix
   ub4 lid;   // local port, index in net.lports, local connections only
 
-  ub2 depcnt;
+  ub2 depcnt,arrcnt;
 
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
 
