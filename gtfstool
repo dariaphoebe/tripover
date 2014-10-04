@@ -17,11 +17,12 @@ use 5.008;
 use strict;
 use integer;
 
-local $SIG{__WARN__} = sub { print $_[0]; exit 1;  };
+my $ccmsg = '';
+local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
 my $version_min = 1;
-my $lastchanged = "28 sep 2014";
+my $lastchanged = "4 oct 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -32,12 +33,20 @@ my $license = "This work is licensed under the Creative Commons\n" .
 my $verbose = 0;
 my $dryrun = 0;
 
-sub vrb($)     { print("$_[0]\n") if $verbose; return 1; }
+my $warningcnt = 0;
+my $errorcnt = 0;
+
 sub info($)    { print("$_[0]\n"); return 1; }
-sub warning($) { print("warning: $_[0]\n"); return 1; }
-sub error($)   { print("error: $_[0]\n"); return 0; }
+sub warning($) { print("warning: $_[0]\n"); $warningcnt++; return 1; }
+sub error($)   { print("error: $_[0]\n"); $errorcnt++; return 0; }
 
 sub error_exit($) { print ("error: $_[0]\n"); exit 1; }
+
+sub vrb($) {
+  $ccmsg = $_[0] . "\n";
+  print("$_[0]\n") if $verbose;
+  return 1;
+}
 
 sub trimws($) {
   my ($s) = @_;
@@ -74,53 +83,45 @@ sub init()
 }
 
 # use integer codes for fields
-my $stopid    = 1;
-my $stopcode  = 2;
-my $stopname  = 3;
-my $stopdesc  = 4;
-my $stoplat   = 5;
-my $stoplon   = 6;
-my $zoneid    = 7;
-my $stopurl   = 8;
-my $loctype   = 9;
-my $parentsta = 10;
-my $platformc = 11;
+my $col_enum = 1;
+my $col_stopid    = $col_enum++;
+my $col_stopcode  = $col_enum++;
+my $col_stopname  = $col_enum++;
+my $col_stopdesc  = $col_enum++;
+my $col_stoplat   = $col_enum++;
+my $col_stoplon   = $col_enum++;
+my $col_zoneid    = $col_enum++;
+my $col_stopurl   = $col_enum++;
+my $col_loctype   = $col_enum++;
+my $col_parentsta = $col_enum++;
+my $col_platformc = $col_enum++;
 
-my $tripid = 12;
-my $arrtime = 13;
-my $deptime = 14;
-my $stopseq = 15;
-my $picktype = 16;
-my $droptype = 17;
+my $col_tripid = $col_enum++;
+my $col_arrtime = $col_enum++;
+my $col_deptime = $col_enum++;
+my $col_stopseq = $col_enum++;
+my $col_picktype = $col_enum++;
+my $col_droptype = $col_enum++;
 
-my $routeid = 18;
-my $routesname = 19;
-my $routelname = 20;
-my $routedesc = 21;
-my $routetype = 22;
+my $col_routeid = $col_enum++;
+my $col_routesname = $col_enum++;
+my $col_routelname = $col_enum++;
+my $col_routedesc = $col_enum++;
+my $col_routetype = $col_enum++;
 
-my $serviceid = 23;
+my $col_serviceid = $col_enum++;
+
+my $col_unknown = $col_enum++;
 
 # store field results here
 my %stopids;
 
+my %stopnames;
+
+my @stops;
+
 my @stopdeps;
-
-my @stop_ids;
-my @stop_rids;
-my @stop_codes;
-my @stop_names;
-my @stop_descs;
-my @stop_lats;
-my @stop_lons;
-my @zone_ids;
-my @stop_urls;
-my @loc_types;
-my @parent_stas;
-my @platform_cs;
-
-my @lats;
-my @lons;
+my @stoparrs;
 
 my %tripids;
 my %tripseq;
@@ -132,6 +133,7 @@ my @hops;
 
 my @routes;
 my %routeids;
+my %norouteids;
 
 my @stentries;
 
@@ -147,6 +149,8 @@ my $routecnt = 0;
 
 my $nondigits = qr'[^0-9]';
 
+my $unquoter = qr'/""/"/g';
+
 sub inarray($@) {
   my ($a,@arr) = @_;
 
@@ -158,9 +162,9 @@ sub readstops($)
 {
   my ($dir) = @_;
 
-  my ($stops,$stopsname);
-  my ($col,$colname,$line,$comma,$endq,$c,$req);
-  my ($stop_id,$stop_code,$stop_name,$stop_desc,$stop_lat,$stop_lon,$zone_id,$stop_url,$location_type,$parent_station,$platform_code);
+  my ($stopfile,$stopsname);
+  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
+  my ($id,$stopid,$code,$name,$desc,$lat,$lon,$zone_id,$url,$location_type,$parent_station,$platform_code);
 
   return error("missing dir arg for import") unless defined $dir and length($dir);
 
@@ -169,8 +173,8 @@ sub readstops($)
   info("reading $stopsname");
   return info("dryrun") if $dryrun;
 
-  open($stops,'<',$stopsname) or return error("cannot open stops.txt:$!");
-  my $headline = readline($stops);
+  open($stopfile,'<',$stopsname) or return error("cannot open stops.txt:$!");
+  my $headline = readline($stopfile);
   error_exit("stops.txt is empty") unless defined $headline and length($headline);
   $c = chop $headline;
   $headline .= $c if $c ne "\n"; 
@@ -183,17 +187,19 @@ sub readstops($)
   my @cols;
 
   foreach $colname (@colnames) {
-    push(@cols,$stopid) if ($colname eq 'stop_id');
-    push(@cols,$stopcode) if ($colname eq 'stop_code');
-    push(@cols,$stopname) if ($colname eq 'stop_name');
-    push(@cols,$stopdesc) if ($colname eq 'stop_desc');
-    push(@cols,$stoplat) if ($colname eq 'stop_lat');
-    push(@cols,$stoplon) if ($colname eq 'stop_lon');
-    push(@cols,$zoneid) if ($colname eq 'zone_id');
-    push(@cols,$stopurl) if ($colname eq 'stop_url');
-    push(@cols,$loctype) if ($colname eq 'location_type');
-    push(@cols,$parentsta) if ($colname eq 'parent_station');
-    push(@cols,$platformc) if ($colname eq 'platform_code');
+    $colid = $col_unknown;
+    $colid = $col_stopid if ($colname eq 'stop_id');
+    $colid = $col_stopcode if ($colname eq 'stop_code');
+    $colid = $col_stopname if ($colname eq 'stop_name');
+    $colid = $col_stopdesc if ($colname eq 'stop_desc');
+    $colid = $col_stoplat if ($colname eq 'stop_lat');
+    $colid = $col_stoplon if ($colname eq 'stop_lon');
+    $colid = $col_zoneid if ($colname eq 'zone_id');
+    $colid = $col_stopurl if ($colname eq 'stop_url');
+    $colid = $col_loctype if ($colname eq 'location_type');
+    $colid = $col_parentsta if ($colname eq 'parent_station');
+    $colid = $col_platformc if ($colname eq 'platform_code');
+    push(@cols,$colid);
   }
   printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
   error_exit("unknown fields") if (@cols < @colnames);
@@ -202,16 +208,14 @@ sub readstops($)
     error_exit("missing required $req") unless inarray($req,@colnames);
   }
 
-  my @lines = readline($stops);
-  close($stops);
+  my @lines = readline($stopfile);
+  close($stopfile);
   error_exit("stops.txt is empty") unless (@lines > 0);
   my $linno = 0;
 
   my $linecnt = scalar(@lines);
 
   info("$linecnt lines");
-
-  my $unquoter = qr'/""/"/g';
 
   $linno = 0;
   foreach $line (@lines) {
@@ -225,81 +229,102 @@ sub readstops($)
     $linno++;
 #    last if ($linno > 10);
 
+    $id = ''; $code = ''; $name = ''; $lat = ''; $lon = '';
+
     foreach $col (@cols) {
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
 
-      if ($col == $stopid) {
-        $stop_id = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
+      if ($col == $col_stopid) {
+        $id = substr($line,0,$comma);
         # may be integer or string. must be unique in set
         # tripover needs an integer : use line number as derived id
 
-        if (exists($stopids{$stop_id})) {
-          warning("$linno: stop id $stop_id already defined on line $stopids{$stop_id}");
+        if (exists($stopids{$id})) {
+          warning("$linno: stop id $id already defined on line $stopids{$id}");
         } else {
-          $stopids{$stop_id} = $linno;
-          $stopdeps[$linno] = 0;
+          $stopid = $linno;
+          $stopids{$id} = $stopid;
+          $stopdeps[$stopid] = 0;
+          $stoparrs[$stopid] = 0;
         }
-        push(@stop_rids,$linno);
-        push(@stop_ids,$stop_id);
 
-      } elsif ($col == $stopcode) {
-        $stop_code = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
-        push(@stop_codes,$stop_code);
+      } elsif ($col == $col_stopcode) {
+        $code = substr($line,0,$comma);
 
-      } elsif ($col == $stopname) {
+      } elsif ($col == $col_stopname) {
         if (substr($line,0,1) eq '"') { # quoted
           $line = substr($line,1);
           $endq = index($line,'"');
           error_exit("line $linno: missing endquote") if $endq < 0;
-          $stop_name = substr($line,0,$endq);
-          $stop_name =~ $unquoter;
+          $name = substr($line,0,$endq);
+          $name =~ $unquoter;
           $line = substr($line,$endq+1);
-          $line = substr($line,1) if substr($line,0,1) eq ',';
-        } else { # unquoted
-          $stop_name = substr($line,0,$comma);
-          $line = substr($line,$comma+1);
-        }
-        push(@stop_names,$stop_name);
 
-      } elsif ($col == $stopdesc) {
+          $comma = index($line,',');
+          error_exit("line $linno: missing ,") if $comma < 0;
+
+        } else { # unquoted
+          $name = substr($line,0,$comma);
+        }
+
+      } elsif ($col == $col_stopdesc) {
         if (substr($line,0,1) eq '"') {
           $line = substr($line,1);
           $endq = index($line,'"');
           error_exit("line $linno: missing endquote") if $endq < 0;
-          $stop_desc = substr($line,0,$endq);
-          $stop_desc =~ $unquoter;
+          $desc = substr($line,0,$endq);
+          $desc =~ $unquoter;
           $line = substr($line,$endq+1);
-          $line = substr($line,1) if substr($line,0,1) eq ',';
+          $comma = index($line,',');
+          error_exit("line $linno: missing ,") if $comma < 0;
+
         } else {
-          $stop_desc = substr($line,0,$comma);
-          $line = substr($line,$comma+1);
+          $desc = substr($line,0,$comma);
         }
-        push(@stop_descs,$stop_desc);
 
-      } elsif ($col == $stoplat) {
-        $stop_lat = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
-        push(@stop_lats,$stop_lat);
+      } elsif ($col == $col_stoplat) {
+        $lat = substr($line,0,$comma);
 
-      } elsif ($col == $stoplon) {
-        $stop_lon = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
-        push(@stop_lons,$stop_lon);
+      } elsif ($col == $col_stoplon) {
+        $lon = substr($line,0,$comma);
       }
+
+      $line = substr($line,$comma+1);
 
     }
 
-    warning("$stop_id has empty lon") if length($stop_lon) < 1;
-    warning("$stop_id has empty lat") if length($stop_lat) < 1;
+    warning("$id has empty lon") if length($lon) < 1;
+    warning("$id has empty lat") if length($lat) < 1;
+
+    $stopnames{$stopid} = $name;
+
+    push(@stops,join("\t",$id,$name,$code,$desc,$lat,$lon));
+
   }
 
-  $stopcnt = scalar(@stop_ids);
+  $stopcnt = scalar(@stops);
   info("$stopcnt stops");
 
+#  for $name (values %stopnames) { info($name); }
+
   return 1;
+}
+
+my $include_tram = 1;
+my $include_metro = 1;
+my $include_rail = 1;
+my $include_bus = 0;
+
+sub filtermode($)
+{
+  my ($type) = @_;
+
+  return 1 if ($type == 0 and $include_tram == 1);
+  return 1 if ($type == 1 and $include_metro == 1);
+  return 1 if ($type == 2 and $include_rail == 1);
+  return 1 if ($type == 3 and $include_bus == 1);
+  return 0;
 }
 
 sub readroutes($)
@@ -307,8 +332,8 @@ sub readroutes($)
   my ($dir) = @_;
 
   my ($routefile,$routefname);
-  my ($col,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$name,$rtype);
+  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
+  my ($route_id,$name,$slname,$rtype);
 
   $routefname = $dir . '/' . 'routes.txt';
 
@@ -329,11 +354,13 @@ sub readroutes($)
   my @cols;
 
   foreach $colname (@colnames) {
-    push(@cols,$routeid) if ($colname eq 'route_id');
-    push(@cols,$routesname) if ($colname eq 'route_short_name');
-    push(@cols,$routelname) if ($colname eq 'route_long_name');
-    push(@cols,$routedesc) if ($colname eq 'route_desc');
-    push(@cols,$routetype) if ($colname eq 'route_type');
+    $colid = $col_unknown;
+    $colid = $col_routeid if ($colname eq 'route_id');
+    $colid = $col_routesname if ($colname eq 'route_short_name');
+    $colid = $col_routelname if ($colname eq 'route_long_name');
+    $colid = $col_routedesc if ($colname eq 'route_desc');
+    $colid = $col_routetype if ($colname eq 'route_type');
+    push(@cols,$colid);
   }
   printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
   warning("unknown fields") if (@cols < @colnames);
@@ -346,7 +373,7 @@ sub readroutes($)
 
   my @lines = readline($routefile);
   close($routefile);
-  error_exit("stop_times.txt is empty") unless (@lines > 0);
+  error_exit("routes.txt is empty") unless (@lines > 0);
   my $linno = 0;
 
   my $linecnt = scalar(@lines);
@@ -363,38 +390,50 @@ sub readroutes($)
     $linno++;
 
     $line .= ',';
-    $name = '';
-
+    $name = ''; $slname = ''; $route_id = ''; $rtype = '';
     foreach $col (@cols) {
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
 
-      if ($col == $routeid) {
+      if ($col == $col_routeid) {
         $route_id = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
 
-      } elsif ($col == $routesname) {
-        $name .= substr($line,0,$comma) . ' ';
-        $line = substr($line,$comma+1);
+      } elsif ($col == $col_routesname or $col == $col_routelname) {
+        if (substr($line,0,1) eq '"') { # quoted
+          $line = substr($line,1);
+          $endq = index($line,'"');
+          error_exit("line $linno: missing endquote") if $endq < 0;
+          $name = substr($line,0,$endq);
+          $name =~ $unquoter;
+          $line = substr($line,$endq+1);
 
-      } elsif ($col == $routelname) {
-        $name .= substr($line,0,$comma) . ' ';
-        $line = substr($line,$comma+1);
+          $comma = index($line,',');
+          error_exit("line $linno: missing ,") if $comma < 0;
 
-      } elsif ($col == $routetype) {
+        } else { # unquoted
+          $name = substr($line,0,$comma);
+        }
+        $slname = $name if length($name);
+
+      } elsif ($col == $col_routetype) {
         $rtype = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
       }
+
+      $line = substr($line,$comma+1);
 
     } # each col
 
+    info("$linno $route_id '$slname' $rtype");
+
     if (exists($routeids{$route_id})) {
       warning("$linno: route id $route_id already defined on line $routeids{$route_id}");
+    } elsif (filtermode($rtype)) {
+      $routeids{$route_id} = $linno;
+      push(@routes,join("\t",$route_id,$slname,$rtype));
     } else {
       $routeids{$route_id} = $linno;
+      $norouteids{$route_id} = $linno;
     }
-
-    push(@routes,join("\t",$route_id,$name,$rtype));
 
   } # each line
 
@@ -409,7 +448,7 @@ sub readtrips($)
   my ($dir) = @_;
 
   my ($tripfile,$tripfname);
-  my ($col,$colname,$line,$comma,$endq,$c,$req);
+  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
   my ($route_id,$trip_id,$service_id);
 
   $tripfname = $dir . '/' . 'trips.txt';
@@ -431,9 +470,11 @@ sub readtrips($)
   my @cols;
 
   foreach $colname (@colnames) {
-    push(@cols,$routeid) if ($colname eq 'route_id');
-    push(@cols,$serviceid) if ($colname eq 'service_id');
-    push(@cols,$tripid) if ($colname eq 'trip_id');
+    $colid = $col_unknown;
+    $colid = $col_routeid if ($colname eq 'route_id');
+    $colid = $col_serviceid if ($colname eq 'service_id');
+    $colid = $col_tripid if ($colname eq 'trip_id');
+    push(@cols,$colid);
   }
   printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
   warning("unknown fields") if (@cols < @colnames);
@@ -462,21 +503,20 @@ sub readtrips($)
 
     $line .= ',';
 
-    $trip_id = '';
+    $trip_id = ''; $route_id = ''; $service_id = '';
     foreach $col (@cols) {
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
 
-      if ($col == $routeid) {
+      if ($col == $col_routeid) {
         $route_id = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
-      } elsif ($col == $serviceid) {
+      } elsif ($col == $col_serviceid) {
         $service_id = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
-      } elsif ($col == $tripid) {
+      } elsif ($col == $col_tripid) {
         $trip_id = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
       }
+
+      $line = substr($line,$comma+1);
 
     } # each col
 
@@ -487,13 +527,13 @@ sub readtrips($)
     if (exists($tripids{$trip_id})) {
       warning("$linno: trip id $trip_id previously defined on line $tripids{$trip_id}");
       next;
-    } else {
+    } elsif (exists($norouteids{$route_id})) {  # filtered
       $tripids{$trip_id} = $linno;
-      $tripseq{$trip_id} = '';
       $triproutes{$trip_id} = $route_id;
-    }
-
-    if (exists($routeids{$route_id})) {
+    } elsif (exists($routeids{$route_id})) {
+      $tripids{$trip_id} = $linno;
+      $triproutes{$trip_id} = $route_id;
+      $tripseq{$trip_id} = '';
       push(@trips,join("\t",$route_id,$service_id,$trip_id));
     } else {
       warning("$linno: undefined route id $route_id");
@@ -512,9 +552,10 @@ sub readstoptimes($)
   my ($dir) = @_;
 
   my ($stoptimes,$stoptimesname);
-  my ($col,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$rid,$trip_id,$arr_time,$dep_time,$stop_id,$stop_seq,$dep);
+  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
+  my ($route_id,$rid,$trip_id,$arr_time,$dep_time,$stop_id,$stopid,$stop_seq,$dep);
   my ($route,$trip,$seq,$prvseq,$hop,$dep_id,$arr_id,$prvstop_id);
+  my ($concnt,$depcnt,$arrcnt);
 
   return error("missing dir arg for import") unless defined $dir and length($dir);
 
@@ -537,13 +578,15 @@ sub readstoptimes($)
   my @cols;
 
   foreach $colname (@colnames) {
-    push(@cols,$tripid) if ($colname eq 'trip_id');
-    push(@cols,$arrtime) if ($colname eq 'arrival_time');
-    push(@cols,$deptime) if ($colname eq 'departure_time');
-    push(@cols,$stopid) if ($colname eq 'stop_id');
-    push(@cols,$stopseq) if ($colname eq 'stop_sequence');
-    push(@cols,$picktype) if ($colname eq 'pickup_type');
-    push(@cols,$droptype) if ($colname eq 'drop_off_type');
+    $colid = $col_unknown;
+    $colid = $col_tripid if ($colname eq 'trip_id');
+    $colid = $col_arrtime if ($colname eq 'arrival_time');
+    $colid = $col_deptime if ($colname eq 'departure_time');
+    $colid = $col_stopid if ($colname eq 'stop_id');
+    $colid = $col_stopseq if ($colname eq 'stop_sequence');
+    $colid = $col_picktype if ($colname eq 'pickup_type');
+    $colid = $col_droptype if ($colname eq 'drop_off_type');
+    push(@cols,$colid);
   }
   printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
   error_exit("unknown fields") if (@cols < @colnames);
@@ -572,32 +615,29 @@ sub readstoptimes($)
 #    last if ($linno > 10000);
 
     $line .= ',';
-
+    $trip_id = ''; $stop_id = ''; $stop_seq = ''; $dep_time = ''; $arr_time = '';
     foreach $col (@cols) {
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
 
-      if ($col == $tripid) {
+      if ($col == $col_tripid) {
         $trip_id = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
 
-      } elsif ($col == $stopid) {
+      } elsif ($col == $col_stopid) {
         $stop_id = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
         warning("$linno: undefined stop id $stop_id") unless exists $stopids{$stop_id};
 
-      } elsif ($col == $stopseq) {
+      } elsif ($col == $col_stopseq) {
         $stop_seq = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
 
-      } elsif ($col == $deptime) {
+      } elsif ($col == $col_deptime) {
         $dep_time = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
 
-      } elsif ($col == $arrtime) {
+      } elsif ($col == $col_arrtime) {
         $arr_time = substr($line,0,$comma);
-        $line = substr($line,$comma+1);
       }
+
+      $line = substr($line,$comma+1);
 
     } # each col
 
@@ -606,17 +646,20 @@ sub readstoptimes($)
       next;
     }
 
-    if (length($stop_seq) == 0) { warning("$linno: empy stop_seq for $stop_id"); $stop_id = 0; }
-    elsif ($stop_seq =~ $nondigits) { warning("$linno: stop_seq '$stop_seq' not numerical for $stop_id"); $stop_id = 0; }
-    else {
-      unless (exists($triproutes{$trip_id})) {
-        warning("$linno: undefined route for trip id $trip_id");
-        next;
-      }
-      $route_id = $triproutes{$trip_id};
+    if (length($stop_seq) == 0) { warning("$linno: empty stop_seq for $stop_id"); next; }
+    elsif ($stop_seq =~ $nondigits) { warning("$linno: stop_seq '$stop_seq' not numerical for $stop_id"); next; }
 
-      $tripseq{$trip_id} .= join(' ',$stop_seq,$stop_id) . ' ';
+    unless (exists($triproutes{$trip_id})) {
+      warning("$linno: undefined route for trip id $trip_id");
+      next;
     }
+    $route_id = $triproutes{$trip_id};
+    next if exists $norouteids{$route_id};
+
+    $stopid = $stopids{$stop_id};
+
+    $tripseq{$trip_id} .= $stopid . ' ';
+
     push(@stentries,join("\t",$route_id,$trip_id,$stop_id,$stop_seq,$dep_time,$arr_time));
 
     info("line $linno of $linecnt") if ($linno % 100000) == 0;
@@ -627,37 +670,71 @@ sub readstoptimes($)
   info("$ttcnt time entries");
 
   my @das;
-  my @seqs;
-  my ($troute,$seqlen,$i,$seq2,$deparr,$arr);
+  my @tripstops;
+  my ($id,$troute,$seqlen,$i,$seq2,$deparr,$arr,$depid,$arrid,$routeno,$name);
 
+  $routeno = 0;
   while (($route,$rid) = each %routeids) {
 #    next if ($rid > 100);
+    next if exists $norouteids{$route};
+
+    info("processing route $routeno of $routecnt") if ($routeno++ % 100) == 0;
 
     my %routeseqs;
 
     while (($trip,$troute) = each %triproutes) {
       next if $troute ne $route;
-      @seqs = split(' ',trimws($tripseq{$trip}));
-      $seqlen = scalar @seqs;
-      for ($i = 2; $i < $seqlen; $i += 2) {
-        $seq = $seqs[$i]; $dep = $seqs[$i+1];
-        $seq2 = $seqs[$i-2] . ' ' . $seq;
-        $routeseqs{$seq2} = $seqs[$i-1] . ' ' . $dep;
+      @tripstops = split(' ',trimws($tripseq{$trip}));
+
+      $seqlen = scalar @tripstops;
+      next unless $seqlen > 1;
+
+      $dep = $tripstops[0];
+      for ($i = 1; $i < $seqlen; $i++) {
+        $arr = $tripstops[$i];
+        next if $dep == $arr;
+        $deparr = $dep . '_' . $arr;
+        $routeseqs{$deparr} = $i;
+        $dep = $arr;
       }
     }
 
-    while (($seq2,$deparr) = each %routeseqs) {
-      @das = split(' ',$deparr);
+    for $deparr (keys %routeseqs) {
+      @das = split('_',$deparr);
       $dep = $das[0]; $arr = $das[1];
+
       push (@hops, join("\t",$dep,$arr,$route,$hopcnt));
-      $stopdeps[$stopids{$dep}] = 1;
-      $stopdeps[$stopids{$arr}] = 1;
+
+      $stopdeps[$dep]++;
+      $stoparrs[$arr]++;
+
       $hopcnt++;
     }
 
     info("$hopcnt hops") if ($hopcnt % 1000) == 0;
   }
   info("$hopcnt hops");
+
+  while (($id,$stopid) = each %stopids) {
+    $name = $stopnames{$stopid};
+    if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
+      warning("stop $id $name is unconnected");
+    } elsif ($stopdeps[$stopid] == 0) {
+      info("stop $id $name has no departures");
+    } elsif ($stoparrs[$stopid] == 0) {
+      info("stop $id $name has no arrivals");
+    }
+  }
+
+  foreach $concnt (0 .. 6) {
+    $depcnt = 0; $arrcnt = 0;
+    for $stopid (values %stopids) {
+      $depcnt++ if $stopdeps[$stopid] == $concnt;
+      $arrcnt++ if $stoparrs[$stopid] == $concnt;
+    }
+    info("stops with $concnt departures : $depcnt");
+    info("stops with $concnt arrivals   : $arrcnt");
+  }
 
   return 1;
 }
@@ -674,21 +751,30 @@ sub import($)
 }
 
 # todo autoscale on bbox and have tripover read bbox+scale
-sub str2latlon()
+sub str2lat($)
 {
+  my ($inlat) = @_;
+
   no integer;
 
-  my ($inlat,$inlon,$lat,$lon);
+  my $lat;
   my $scale = 100000;
 
-  foreach $inlat (@stop_lats) {
-    $lat = ($inlat + 90.0) * $scale;
-    push(@lats,int($lat));
-  }
-  foreach $inlon (@stop_lons) {
-    $lon = ($inlon + 180.0) * $scale;
-    push(@lons,int($lon));
-  }
+  $lat = ($inlat + 90.0) * $scale;
+  return $lat;
+}
+
+sub str2lon($)
+{
+  my ($inlon) = @_;
+
+  no integer;
+
+  my $lon;
+  my $scale = 100000;
+
+  $lon = ($inlon + 180.0) * $scale;
+  return $lon;
 }
 
 sub getdate()
@@ -702,34 +788,56 @@ sub writext($)
 {
   my ($dir) = @_;
 
-  my ($name,$portfile,$hopfile,$stop,$hop,@hopln,$route,$hopid);
-  my ($dep_id,$arr_id,$dep,$arr,$fstopcnt);
+  my ($name,$portfile,$hopfile,$stop,@stopln,$stopid,$hop,@hopln,$route,$hopid);
+  my ($dep_id,$arr_id,$dep,$arr,$fstopcnt,$depname,$arrname);
 
   info("writing tripover external format");
   return info("dryrun") if $dryrun;
 
   $fstopcnt = 0;
-  for ($stop = 0; $stop < $stopcnt; $stop++) {
-    $dep = $stop_rids[$stop];
-    $fstopcnt++ if ($stopdeps[$dep] > 0);
+  for $stopid (values %stopids) {
+    $fstopcnt++ if ($stopdeps[$stopid] > 0 or $stoparrs[$stopid] > 0);
   }
 
-  info("writing $fstopcnt ports");
+  info("writing $fstopcnt of $stopcnt ports");
+
+  my $portname = 'ports.txt';
+  my $oldportname = $portname . '.bak';
+  unlink($oldportname) if -f $oldportname;
+  rename($oldportname,$portname)if -f $portname;
+
   open($portfile,'>','ports.txt') or error_exit("cannot create ports.txt:$!");
+
   print($portfile "# ports.txt - tripover external port aka stops file\n\n");
   printf($portfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($portfile "# %u ports from %s/stops.txt\n\n",$fstopcnt,$dir);
 
-  str2latlon();
-  for ($stop = 0; $stop < $stopcnt; $stop++) {
-    $dep = $stop_rids[$stop];
-    if ($stopdeps[$dep] > 0) {
-      printf($portfile "%x\t%s\t%x\t%x # id %s code %s\n",$dep,$stop_names[$stop],$lats[$stop],$lons[$stop],$stop_ids[$stop],$stop_codes[$stop]);
-    } else { info("$stop_names[$stop] has no connection"); }
+  my ($stop_id,$stop_name,$stop_code,$stop_lat,$stop_lon,$lat,$lon);
+
+  foreach $stop (@stops) {
+    @stopln = split("\t",$stop);  #  $id,$name,$code,$desc,$lat,$lon));
+
+    $stop_id = $stopln[0];
+    $stopid = $stopids{$stop_id};
+    next if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+
+    $stop_name = $stopln[1];
+    $stop_code = $stopln[2];
+    $stop_lat = $stopln[4];
+    $stop_lon = $stopln[5];
+    $lat = str2lat($stop_lat);
+    $lon = str2lon($stop_lon);
+
+    printf($portfile "%x\t%s\t%x\t%x # id %s code %s\n",$stopid,$stop_name,$lat,$lon,$stop_id,$stop_code);
   }
   close($portfile);
 
   info("writing $hopcnt hops");
+
+  my $hopname = 'hops.txt';
+  my $oldhopname = $hopname . '.bak';
+  unlink($oldhopname) if -f $oldhopname;
+  rename($oldhopname,$hopname)if -f $hopname;
 
   open($hopfile,'>','hops.txt') or error_exit("cannot create ports.txt:$!");
   print($hopfile "# hops.txt - tripover external hops aka trips file\n\n");
@@ -738,17 +846,16 @@ sub writext($)
 
   foreach $hop (@hops) {
     @hopln = split("\t",$hop);
-    $dep_id = $hopln[0];
-    $arr_id = $hopln[1];
+    $dep = $hopln[0];
+    $arr = $hopln[1];
     $route = $hopln[2];
     $hopid = $hopln[3];
 
-    $dep = $stopids{$dep_id};
-    $arr = $stopids{$arr_id};
-
-    printf($hopfile "%s\t%x\tD%u\tD%u # %u %u\n",$route,$hopid,$dep,$arr,$dep_id,$arr_id);
+    $depname = $stopnames{$dep};
+    $arrname = $stopnames{$arr};
+    printf($hopfile "%s\t%x\tD%u\tD%u # %s %s\n",$route,$hopid,$dep,$arr,$depname,$arrname);
   }
-
+  return 1;
 }
 
 my ($arg,$opt,$cmd);
@@ -785,3 +892,6 @@ if (@args > 0) {
   if ($cmd eq 'import') { import($args[1]); writext($args[1]); }
   else { info("unknown command"); }
 }
+
+info("$warningcnt warnings") if $warningcnt > 0;
+info("$errorcnt errors") if $errorcnt > 0;
