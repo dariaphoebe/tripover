@@ -9,7 +9,7 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-#define MFLN __LINE__|msgfile
+#define MFLN (__LINE__|msgfile)
 
 struct strpool {
   char *pool;

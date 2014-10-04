@@ -247,7 +247,7 @@ double lon2rad(ub4 lon) { return ((double)lon / Lonscale - 180.0) * 2 * M_PI / 3
 ub4 rad2lat(double rlat) { return (ub4)(( (rlat * 180 / M_PI) + 90) * Latscale); }
 ub4 rad2lon(double rlon) { return (ub4)(( (rlon * 180 / M_PI) + 180) * Lonscale); }
 
-static double geolow = M_PI * 0.00001;
+static double geolow = M_PI * 0.0001;
 
 // great circle lat/lon to Km.
 double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
@@ -269,7 +269,7 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
   dphi = phi2 - phi1;
 
   if (dlam > -geolow && dlam < geolow && dphi > -geolow && dphi < geolow) { // approx trivial case
-    vrb(0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
+//    info(0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
     dlat = dlam * mean_earth_radius / 4 * M_PI;
     dlon = dphi * mean_earth_radius / 4 * M_PI;
     fdist = sqrt(dlat * dlat + dlon * dlon);

@@ -56,6 +56,15 @@ int hex2ub4(const char *s, ub4 *pv)
   return 0;
 }
 
+void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln)
+{
+  vrbfln(fln,0,"");
+  if (len == 0) vrbfln(fln,0,"zero copy");
+  else if (src < dst && src + len > dst) errorfln(fln,Exit,"overlapping copy: %p %p %u",src,dst,len);
+  else if (src > dst && dst + len > src) errorfln(fln,Exit,"overlapping copy: %p %p %u",src,dst,len);
+  else memcpy(dst,src,len);
+}
+
 int readfile(struct myfile *mf,const char *name, int mustexist)
 {
   int fd = osopen(name);

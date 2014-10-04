@@ -26,6 +26,8 @@ enum Msgcode {
   GT   = 0x1000,
   GE   = 0x2000,
 
+  Iter = 0x4000,
+
   V0   = 0x10000, V1 = 0x20000, V3 = 0x30000
 };
 
@@ -37,7 +39,7 @@ struct eta {
 };
 
 // arrange file coords
-#define FLN __LINE__|msgfile
+#define FLN (__LINE__|msgfile)
 
 #define genmsg(lvl,code,fmt,...) genmsgfln(FLN,(lvl),(code),(fmt),__VA_ARGS__)
 #define vrb(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)

@@ -37,6 +37,10 @@ static ub4 msgfile;
 #include "os.h"
 #include "util.h"
 
+// copy at tentative messages
+static char msginfo[1024];
+static ub4 msginfolen;
+
 int oscreate(const char *name)
 {
   int fd = creat(name,0644);
@@ -84,6 +88,8 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
   char buf[1024];
   ub4 pos;
   size_t adr,nearby;
+
+  if (msginfolen) oswrite(2,msginfo,msginfolen);
 
   switch(sig) {
   case SIGSEGV:
@@ -325,6 +331,12 @@ int oslimits(void)
   rv = rlimit(RLIMIT_AS,Maxmem,"virtual memory");
   rv |= rlimit(RLIMIT_CORE,1024 * 1024,"core size");
   return rv;
+}
+
+void setmsginfo(char *buf,ub4 len)
+{
+  memcpy(msginfo,buf,min(len,sizeof(msginfo)));
+  msginfolen = len;
 }
 
 void inios(void)

@@ -25,4 +25,6 @@ extern int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext);
 
 extern void osmillisleep(ub4 msec);
 
+extern void setmsginfo(char *buf,ub4 len);
+
 extern void inios(void);

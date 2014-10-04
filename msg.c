@@ -406,6 +406,31 @@ ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid)
   return mysnprintf(dst,pos,len, "*%7x*%-4u ",fileno,line);
 }
 
+static void msginfo(ub4 fln)
+{
+  char buf[1024];
+  char xfile[32];
+  ub4 len;
+
+  ub4 line = fln & 0xffff;
+  ub4 fileno = fln >> 16;
+  ub8 now_usec,dusec,dsec,d100usec;
+  char *filename;
+
+  now_usec = gettime_usec();
+  dusec = now_usec - progstart;
+  dsec = dusec / (1000 * 1000);
+  d100usec = (dusec % (1000 * 1000)) / 100;
+
+  if (fileno >= Elemcnt(filenames)) {
+    fmtstring(xfile,"*%x",fileno);
+    filename = xfile;
+  } else filename = filenames[fileno].name;
+
+  len = fmtstring(buf,"X  %03u.%04u %9s %4u\n",(ub4)dsec,(ub4)d100usec,filename,line);
+  setmsginfo(buf,len);
+}
+
 // main message printer. supports decorated and undecorated style
 static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fline, ub4 code, const char *fmt, va_list ap)
 {
@@ -414,11 +439,25 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   sb4 n = 0;
   ub8 now_usec,dusec,dsec,d100usec;
   char lvlnam;
+  ub4 iterndx,itercnt;
+  static ub4 itercnts[65536];
 
   if (code & User) {
     code &= ~User;
     opts = 0;
   } else opts = msgopts;
+
+  iterndx = fline & 0xffff;
+  itercnt = itercnts[iterndx];
+  if (code & Iter) {
+    if (itercnt < 65535) itercnts[iterndx] = itercnt + 1;
+    if (itercnt > 100) return;
+  } else {
+    if (itercnt > 100) {
+      pos += mysnprintf(msgbuf,pos,maxlen, "  message at line %u repeated %u times\n",iterndx,itercnt);
+      itercnts[iterndx] = 0;
+    }
+  }
 
   if (opts & Msg_stamp) {
     now_usec = gettime_usec();
@@ -477,6 +516,8 @@ int __attribute__ ((format (printf,4,5))) genmsgfln(ub4 fln,enum Msglvl lvl,ub4 
 {
   va_list ap;
 
+  msginfo(fln);
+
   if (msglvl < lvl) return 0;
   va_start(ap, fmt);
   msg(lvl, 0, fln, code, fmt, ap);
@@ -489,6 +530,8 @@ void __attribute__ ((format (printf,3,4))) vrbfln(ub4 fln, ub4 code, const char 
   va_list ap;
   va_list ap1;
   ub4 lvl;
+
+  msginfo(fln);
 
   if (code & CC) {
     code &= ~CC;
@@ -510,6 +553,7 @@ int __attribute__ ((format (printf,3,4))) infofln(ub4 line, ub4 code, const char
 {
   va_list ap;
 
+  msginfo(line);
   if (msglvl < Info) return 0;
   va_start(ap, fmt);
   msg(Info, 0, line, code, fmt, ap);
@@ -521,6 +565,7 @@ int __attribute__ ((format (printf,3,4))) warningfln(ub4 line, ub4 code, const c
 {
   va_list ap;
 
+  msginfo(line);
   if (msglvl < Warn) return 0;
   va_start(ap, fmt);
   msg(Warn, 0, line, code, fmt, ap);
@@ -555,6 +600,9 @@ int __attribute__ ((format (printf,3,4))) oswarningfln(ub4 line,ub4 code,const c
   va_list ap;
   char *errstr = getoserr();
   char buf[MSGLEN];
+
+  msginfo(line);
+  if (msglvl < Warn) return 0;
 
   va_start(ap, fmt);
   vsnprint(buf,0,sizeof(buf),fmt,ap);
