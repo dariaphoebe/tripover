@@ -40,8 +40,8 @@ static ub4 msgfile;
 
 #include "util.h"
 #include "bitfields.h"
-#include "netbase.h"
 #include "net.h"
+#include "condense.h"
 
 #undef hdrstop
 
@@ -62,16 +62,15 @@ static ub4 watches = 0;
 static ub4 watch_dep[Watches];
 static ub4 watch_arr[Watches];
 
-// create 0-stop connectivity matrix and derived info. must be done first
+// create 0-stop connectivity matrix and derived info.
+// n-stop builds on this
 static int mknet0(void)
 {
-  netbase *basenet = net.base;
   ub4 portcnt = net.portcnt;
   ub4 hopcnt = net.hopcnt;
 
-  struct portbase *bports,*dport,*aport;
-  struct port *ports;
-  struct hopbase *hp,*bhops;
+  struct port *ports,*dport,*aport;
+  struct hop *hops,*hp;
   struct range distrange;
   ub4 *portsbyhop;
   ub2 concnt,gen,*con0cnt;
@@ -86,15 +85,15 @@ static int mknet0(void)
   ub4 arrstats[16];
   struct eta eta;
 
-  if (portcnt == 0 || hopcnt == 0) return 1;
+  if (portcnt == 0) return error(0,"no ports for %u hops net",hopcnt);
+  if (hopcnt == 0) return error(0,"no hops for %u port net",portcnt);
 
   info(0,"0-stop connections for %u port %u hop network",portcnt,hopcnt);
 
   port2 = portcnt * portcnt;
-  bports = basenet->ports;
-  bhops = basenet->hops;
 
   ports = net.ports;
+  hops = net.hops;
 
   con0cnt = alloc(port2, ub2,0,"con0cnt",portcnt);
   con0ofs = alloc(port2, ub4,0xff,"con0ofs",portcnt);
@@ -103,20 +102,17 @@ static int mknet0(void)
 
   portsbyhop = alloc(hopcnt * 2, ub4,0xff,"con0ofs",portcnt);
 
-//  nearblock((size_t)con0lst - 10);
-//  return 1;
-
   // geographical direct-line distance
   dist0 = alloc(port2, ub4,0,"geodist0",portcnt);
   hopdist = alloc(hopcnt,ub4,0,"hopdist",hopcnt);
 
   info(0,"calculating \ah%u distance pairs", port2);
   for (dep = 0; dep < portcnt; dep++) {
-    dport = bports + dep;
+    dport = ports + dep;
     for (arr = 0; arr < portcnt; arr++) {
       if (dep == arr) continue;
       da = dep * portcnt + arr;
-      aport = bports + arr;
+      aport = ports + arr;
       if (dport->lat == aport->lat && dport->lon == aport->lon) {
         warning(0,"port %u-%u distance 0 for latlon %u %u",dep,arr,dport->lat,dport->lon);
         dist = 0;
@@ -138,7 +134,7 @@ static int mknet0(void)
   // support multiple hops per port pair
   ub4 ovfcnt = 0;
   for (hop = 0; hop < hopcnt; hop++) {
-    hp = bhops + hop;
+    hp = hops + hop;
     dep = hp->dep;
     arr = hp->arr;
     error_ge(dep,portcnt);
@@ -162,13 +158,13 @@ static int mknet0(void)
 
     progress(&eta,"port %u of %u in pass 2 0-stop %u hop net",dep,portcnt,hopcnt);
 
-    dport = bports + dep;
-    if (dport->deps == 0) continue;
+    dport = ports + dep;
+    if (dport->ndep == 0) continue;
 
     for (arr = 0; arr < portcnt; arr++) {
       if (dep == arr) continue;
-      aport = bports + arr;
-      if (aport->arrs == 0) continue;
+      aport = ports + arr;
+      if (aport->narr == 0) continue;
 
       needconn++;
 
@@ -179,7 +175,7 @@ static int mknet0(void)
       con0ofs[da] = ofs;
       gen = 0;
       for (hop = 0; hop < hopcnt; hop++) {
-        hp = bhops + hop;
+        hp = hops + hop;
         if (hp->dep != dep || hp->arr != arr) continue;
         error_ge(ofs,hopcnt);
         error_ge(gen,concnt);
@@ -205,8 +201,7 @@ static int mknet0(void)
       depcnt += con0cnt[dep * portcnt + arr];
       error_ovf(depcnt,ub2);
     }
-    ports[dep].depcnt = (ub2)depcnt;
-    error_ne(depcnt,bports[dep].deps);
+    error_ne(depcnt,ports[dep].ndep);
     depstats[min(Elemcnt(depstats),depcnt)]++;
   }
   for (iv = 0; iv < Elemcnt(depstats); iv++) info(0,"%u ports with %u departures", depstats[iv], iv);
@@ -219,8 +214,7 @@ static int mknet0(void)
       arrcnt += con0cnt[dep * portcnt + arr];
       error_ovf(arrcnt,ub2);
     }
-    ports[arr].arrcnt = (ub2)arrcnt;
-    error_ne(arrcnt,bports[arr].arrs);
+    error_ne(arrcnt,ports[arr].narr);
     arrstats[min(Elemcnt(arrstats),arrcnt)]++;
   }
   for (iv = 0; iv < Elemcnt(arrstats); iv++) info(0,"%u ports with %u arrivals", arrstats[iv], iv);
@@ -249,13 +243,10 @@ static ub4 distbins[Distbins];
 // create n-stop connectivity matrix and derived info
 static int mknetn(ub4 nstop)
 {
-  netbase *basenet = net.base;
   ub4 portcnt = net.portcnt;
   ub4 hopcnt = net.hopcnt;
 
-  struct portbase *bports,*pdep,*parr,*pmid;
-  struct port *ports;
-  struct hopbase *bhops;
+  struct port *ports,*pmid,*pdep,*parr;
   block *lstblk,*lstblk1,*lstblk2;
   ub4 *portsbyhop;
   ub2 *concnt,*cnts1,*cnts2;
@@ -290,8 +281,6 @@ static int mknetn(ub4 nstop)
   info(0,"init %u-stop connections for %u port %u hop network",nstop,portcnt,hopcnt);
 
   port2 = portcnt * portcnt;
-  bports = basenet->ports;
-  bhops = basenet->hops;
 
   ports = net.ports;
 
@@ -346,7 +335,7 @@ static int mknetn(ub4 nstop)
 
     progress(&eta,"port %u of %u in pass 1 %u-stop net",dep,portcnt,nstop);
 
-    pdep = bports + dep;
+    pdep = ports + dep;
     if (pdep->deps == 0) continue;
 
     outcnt = 0;
@@ -355,7 +344,7 @@ static int mknetn(ub4 nstop)
     for (arr = 0; arr < portcnt; arr++) {
       if (arr == dep) continue;
 
-      parr = bports + arr;
+      parr = ports + arr;
       if (parr->arrs == 0) continue;
 
       deparr = dep * portcnt + arr;
@@ -380,8 +369,8 @@ static int mknetn(ub4 nstop)
         // first obtain distance range
         for (mid = 0; mid < portcnt; mid++) {
           if (mid == dep || mid == arr) continue;
-          pmid = bports + mid;
-          if (pmid->deps == 0 || pmid->arrs == 0) continue;
+          pmid = ports + mid;
+          if (pmid->ndep == 0 || pmid->narr == 0) continue;
 
           depmid = dep * portcnt + mid;
 
@@ -817,39 +806,26 @@ static int mknetn(ub4 nstop)
   return 0;
 }
 
-// initialize basic network, and conectivity for each number of stops
+// initialize basic network, and connectivity for each number of stops
 // the number of stops need to be determined such that all port pairs are reachable
-int mknet(netbase *basenet,ub4 maxstop)
+int mknet(ub4 maxstop)
 {
-  ub4 port,portcnt = basenet->portcnt;
-  ub4 hop,hopcnt = basenet->hopcnt;
-  struct port *pp,*ports;
-  struct hop *hp,*hops;
-  struct portbase *portbase = basenet->ports;
-  struct hopbase *hopbase = basenet->hops;
+  ub4 allportcnt = net.allportcnt;
+  ub4 allhopcnt = net.allhopcnt;
+  struct port *allports;
+  struct hop *allhops;
   ub4 nstop;
+  int rv;
 
-  if (portcnt == 0 || hopcnt == 0) return 1;
+  allportcnt = net.allportcnt;
+  allhopcnt = net.allhopcnt;
+  if (allportcnt == 0 || allhopcnt == 0) return 1;
 
-  ports = alloc(portcnt,struct port,0,"ports",portcnt);
-  hops = alloc(hopcnt,struct hop,0,"hops",hopcnt);
+  allports = net.allports;
+  allhops = net.allhops;
 
-  for (port = 0; port < portcnt; port++) {
-    pp = ports + port;
-    pp->id = port;
-    pp->base = portbase + port;
-  }
-  for (hop = 0; hop < hopcnt; hop++) {
-    hp = hops + hop;
-    hp->id = hop;
-    hp->base = hopbase + hop;
-  }
-
-  net.portcnt = portcnt;
-  net.hopcnt = hopcnt;
-  net.ports = ports;
-  net.hops = hops;
-  net.base = basenet;
+  rv = condense(&net);
+  if (rv) return 1;
 
   if (globs.nosteps || globs.doinit) {
     if (mknet0()) return 1;
@@ -868,9 +844,77 @@ int mknet(netbase *basenet,ub4 maxstop)
       }
     }
     info0(0,"static network init done");
-  }
+  } else info0(0,"skipped static network init");
 
   return 0;
+}
+
+// check whether a triplet passes thru the given ports
+void checktrip_fln(ub4 *legs, ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln)
+{
+  ub4 legno,legno2,leg,leg2,arr0,cdist,hopcnt = net.hopcnt;
+  struct hop *hp,*hp2,*hops = net.hops;
+
+  error_eq_fln(arr,dep,"arr","dep",fln);
+
+  for (legno = 0; legno < nleg; legno++) {
+    leg = legs[legno];
+    error_ge_fln(leg,hopcnt,"hop","hopcnt",fln);
+  }
+  if (nleg > 2) {
+    for (legno = 0; legno < nleg; legno++) {
+      leg = legs[legno];
+      hp = hops + leg;
+      for (legno2 = legno+1; legno2 < nleg; legno2++) {
+        leg2 = legs[legno2];
+        hp2 = hops + leg2;
+        error_eq_fln(leg,leg2,"leg1","leg2",fln);
+        error_eq_fln(hp->dep,hp2->dep,"dep1","dep2",fln);
+        error_eq_fln(hp->dep,hp2->arr,"dep1","arr2",fln);
+        if (legno2 != legno + 1) error_eq_fln(hp->arr,hp2->dep,"arr1","dep2",fln);
+        error_eq_fln(hp->arr,hp2->arr,"arr1","arr2",fln);
+      }
+    }
+  }
+
+  leg = legs[0];
+  hp = hops + leg;
+  error_ne_fln(hp->dep,dep,"hop.dep","dep",fln);
+  arr0 = hp->arr;
+  cdist = hp->dist;
+
+  leg = legs[nleg-1];
+  hp = hops + leg;
+  error_ne_fln(hp->arr,arr,"hop.arr","arr",fln);
+
+  for (legno = 1; legno < nleg; legno++) {
+    leg = legs[legno];
+    hp = hops + leg;
+    error_ne_fln(arr0,hp->dep,"prv.arr","dep",fln);
+    arr0 = hp->arr;
+    cdist += hp->dist;
+  }
+  error_ne_fln(dist,cdist,"dist","cdist",fln);
+}
+
+// check whether a triplet passes thru the given ports
+void checktrip3_fln(ub4 *legs, ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln)
+{
+  ub4 legno,leg;
+  struct hop *hp,*hops = net.hops;
+  int hasvia = 0;
+
+  error_lt_fln(nleg,2,"nleg","2",fln);
+  checktrip_fln(legs,nleg,dep,arr,dist,fln);
+  error_eq_fln(via,dep,"via","dep",fln);
+  error_eq_fln(via,arr,"via","arr",fln);
+
+  for (legno = 1; legno < nleg; legno++) {
+    leg = legs[legno];
+    hp = hops + leg;
+    if (hp->dep == via) hasvia = 1;
+  }
+  error_z_fln(hasvia,0,"via","0",fln);
 }
 
 int trip2ports(ub4 *trip,ub4 triplen,ub4 *ports)

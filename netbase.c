@@ -62,8 +62,6 @@ int portintrip(ub4 *legs,ub4 nleg,ub4 dep,ub4 mid,ub4 arr)
   if (hp->arr == dep) return 8;
   if (hp->arr == mid) return 9;
 
-//  if (hp->arr == arr) return 10;
-
   for (legno = 1; legno < nleg-1; legno++) {
     leg = legs[legno];
     if (leg >= hopcnt) return 1;
@@ -78,81 +76,12 @@ int portintrip(ub4 *legs,ub4 nleg,ub4 dep,ub4 mid,ub4 arr)
   leg = legs[nleg-1];
   if (leg >= hopcnt) return 1;
   hp = hops + leg;
-//  if (hp->dep == dep) return 17;
   if (hp->dep == mid) return 18;
   if (hp->dep == arr) return 19;
   if (hp->arr == dep) return 20;
   if (hp->arr == mid) return 21;
 
   return 0;
-}
-
-// check whether a triplet passes thru the given ports
-void checktrip_fln(ub4 *legs, ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln)
-{
-  ub4 legno,legno2,leg,leg2,arr0,cdist,hopcnt = basenet.hopcnt;
-  struct hopbase *hp,*hp2,*hops = basenet.hops;
-
-  error_eq_fln(arr,dep,"arr","dep",fln);
-
-  for (legno = 0; legno < nleg; legno++) {
-    leg = legs[legno];
-    error_ge_fln(leg,hopcnt,"hop","hopcnt",fln);
-  }
-  if (nleg > 2) {
-    for (legno = 0; legno < nleg; legno++) {
-      leg = legs[legno];
-      hp = hops + leg;
-      for (legno2 = legno+1; legno2 < nleg; legno2++) {
-        leg2 = legs[legno2];
-        hp2 = hops + leg2;
-        error_eq_fln(leg,leg2,"leg1","leg2",fln);
-        error_eq_fln(hp->dep,hp2->dep,"dep1","dep2",fln);
-        error_eq_fln(hp->dep,hp2->arr,"dep1","arr2",fln);
-        if (legno2 != legno + 1) error_eq_fln(hp->arr,hp2->dep,"arr1","dep2",fln);
-        error_eq_fln(hp->arr,hp2->arr,"arr1","arr2",fln);
-      }
-    }
-  }
-
-  leg = legs[0];
-  hp = hops + leg;
-  error_ne_fln(hp->dep,dep,"hop.dep","dep",fln);
-  arr0 = hp->arr;
-  cdist = hp->dist;
-
-  leg = legs[nleg-1];
-  hp = hops + leg;
-  error_ne_fln(hp->arr,arr,"hop.arr","arr",fln);
-
-  for (legno = 1; legno < nleg; legno++) {
-    leg = legs[legno];
-    hp = hops + leg;
-    error_ne_fln(arr0,hp->dep,"prv.arr","dep",fln);
-    arr0 = hp->arr;
-    cdist += hp->dist;
-  }
-  error_ne_fln(dist,cdist,"dist","cdist",fln);
-}
-
-// check whether a triplet passes thru the given ports
-void checktrip3_fln(ub4 *legs, ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln)
-{
-  ub4 legno,leg;
-  struct hopbase *hp,*hops = basenet.hops;
-  int hasvia = 0;
-
-  error_lt_fln(nleg,2,"nleg","2",fln);
-  checktrip_fln(legs,nleg,dep,arr,dist,fln);
-  error_eq_fln(via,dep,"via","dep",fln);
-  error_eq_fln(via,arr,"via","arr",fln);
-
-  for (legno = 1; legno < nleg; legno++) {
-    leg = legs[legno];
-    hp = hops + leg;
-    if (hp->dep == via) hasvia = 1;
-  }
-  error_z_fln(hasvia,0,"via","0",fln);
 }
 
 static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rlat,double rlon,ub4 size,enum txkind kind)
@@ -209,6 +138,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
 {
   struct portbase *ports,*pdep,*parr;
   struct hopbase *hops,*hp;
+  ub4 *portwrk;
   struct range zrange;
   ub1 *net0;
   ub4 hist[Zhist];
@@ -225,6 +155,8 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   ports = alloc(portcnt,struct portbase,0,"baseports",portcnt);
   hops = alloc(hopcnt,struct hopbase,0,"basehops",hopcnt);
   net0 = alloc(portcnt * portcnt, ub1,0,"net0",portcnt);
+
+  portwrk = alloc(portcnt,ub4,0,"portwrk",portcnt);
 
   // fractal land to create net on
   mkheightmap(heightmap,Zmap);
@@ -303,13 +235,11 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     hp->dep = dep;
     hp->arr = arr;
     hp->id = curhop;
-    memcpy(hp->name,"noname",6);
+    memcopy(hp->name,"noname",6);
     hp->namelen = 6;
     curhop++;
     pdep = ports + dep;
     parr = ports + arr;
-    pdep->deps++;
-    parr->arrs++;
   }
 
   aclear(depstats);
@@ -331,9 +261,34 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   basenet.lonrange[0] = lolon;
   basenet.lonrange[1] = hilon;
 
+  prepbasenet();
+
   if (globs.writext) net2ext(&basenet);
   if (globs.writpdf) net2pdf(&basenet);
 
   info0(0,"done generating artificial net");
+  return 0;
+}
+
+int prepbasenet(void)
+{
+  struct portbase *ports;
+  struct hopbase *hops,*hp;
+  ub4 portcnt,hopcnt,dep,arr;
+  ub4 hop;
+
+  hops = basenet.hops;
+  hopcnt = basenet.hopcnt;
+  portcnt = basenet.portcnt;
+  ports = basenet.ports;
+
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    dep = hp->dep;
+    arr = hp->arr;
+    error_ge(dep,portcnt);
+    error_ge(arr,portcnt);
+  }
+
   return 0;
 }

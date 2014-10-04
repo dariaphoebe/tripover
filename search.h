@@ -17,6 +17,7 @@ struct srcctx {
   ub4 dist;
   ub4 lodist;
   ub4 dep,arr;
+  ub4 mdep,marr;
   ub4 vias[Nvia];
   ub4 viacnt;
   ub4 lostop,histop;

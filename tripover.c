@@ -33,6 +33,8 @@ static ub4 msgfile;
 #include "netbase.h"
 #include "net.h"
 #include "netio.h"
+#include "netprep.h"
+#include "condense.h"
 #include "search.h"
 
 struct globs globs;
@@ -60,6 +62,8 @@ static int init0(char *progname)
   ininetbase();
   ininet();
   ininetio();
+  ininetprep();
+  inicondense();
   inisearch();
 
   return 0;
@@ -70,21 +74,25 @@ static int getbasenet(void)
 {
   ub4 portcnt = globs.maxports;
   ub4 hopcnt = globs.maxhops;
-  netbase *net = getnetbase();
+  netbase *basenet = getnetbase();
   int rv;
 
   error_ovf(portcnt,ub2);
 
   if (*globs.netdir) {  // todo read compiled net
     if (globs.nosteps || globs.doreadnet) {
-      rv = readextnet(net,globs.netdir);
+      rv = readextnet(basenet,globs.netdir);
+      if (rv) return rv;
+      rv = prepnet(basenet);
       return rv;
     } else return 0;
   }
   info(0,"generate random %u port %u hop net", globs.maxports, globs.maxhops);
-  if (mkrandnet(portcnt,hopcnt)) return 1;
+  rv = mkrandnet(portcnt,hopcnt);
+  if (rv) return rv;
+  rv = prepnet(basenet);
 //  net2pdf(net);
-  return 0;
+  return rv;
 }
 
 static int cmd_vrb(struct cmdval *cv) {
@@ -174,7 +182,7 @@ int main(int argc, char *argv[])
 
   if (getbasenet()) return 1;
   base = getnetbase();
-  if (mknet(base,globs.maxstops)) return 1;
+  if (mknet(globs.maxstops)) return 1;
 
   if (globs.testcnt > 1) {
     ub4 dep,arr,lostop = 0, histop = 3;

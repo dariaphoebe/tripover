@@ -27,7 +27,6 @@ static ub4 msgfile;
 #include "msg.h"
 
 #include "bitfields.h"
-#include "netbase.h"
 #include "net.h"
 
 #include "search.h"
@@ -46,8 +45,8 @@ static int srcgeo(struct network *net,ub4 stop,search *src)
   block *lstblk = &net->conlst[stop];
   ub4 *lodists = net->lodist[stop];
   ub4 portcnt = net->portcnt;
-  ub4 dep = src->dep;
-  ub4 arr = src->arr;
+  ub4 dep = src->mdep;
+  ub4 arr = src->marr;
   ub4 nleg = stop + 1;
 
   ub4 cnt,cost,dist,lodist,leg,l,ofs;
@@ -95,11 +94,15 @@ static int srcgeo(struct network *net,ub4 stop,search *src)
 // no time or cost
 int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 {
+  ub4 mdep,marr;
   ub4 stop,nleg;
   int rv;
   struct network *net = getnet();
-  ub4 portcnt = net->portcnt;
+  ub4 portcnt = net->allportcnt;
   ub4 maxstop = net->maxstop;
+  ub4 *mac2port = net->mac2port;
+  struct port *parr,*pdep,*allports = net->allports;
+  struct port *ports = net->ports;
 
   if (dep >= portcnt) return error(0,"departure %u not in %u portlist",dep,portcnt);
   if (arr >= portcnt) return error(0,"arrival %u not in %u portlist",arr,portcnt);
@@ -113,6 +116,21 @@ int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 
   src->dep = dep;
   src->arr = arr;
+
+  pdep = allports + dep;
+  parr = allports + arr;
+
+  // find macro port in case of mini
+  if (pdep->mini) {
+    mdep = mac2port[pdep->macid];
+  } else mdep = dep;
+  src->mdep = mdep;
+
+  if (parr->mini) {
+    marr = mac2port[parr->macid];
+  } else marr = arr;
+  src->marr = marr;
+
   src->costlim = 0;
   src->lodist = hi32;
 
@@ -125,6 +143,8 @@ int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   nleg = src->lostop + 1;
 
   trip2ports(src->trip,nleg,src->tripports);
+
+  // todo: if dep != mdep or arr != marr add distance difference and allport to result
 
   return 0;
 }

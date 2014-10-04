@@ -40,6 +40,8 @@
 
 enum txkind { Air,Rail,Bus };
 
+#define Portlinks 2
+
 struct portbase {
   ub4 magic;
   ub4 id;      // index in net.ports
@@ -54,8 +56,6 @@ struct portbase {
 
   ub4 lat,lon;
   double rlat,rlon;
-
-  ub4 deps,arrs;
 
   ub4 utcofs;
 
@@ -155,6 +155,9 @@ struct networkbase {
   ub4 latrange[2];
   ub4 lonrange[2];
 
+// workspace
+  ub4 *portwrk;   // [portcnt]
+
 // access
   ub4 tthops[Hopcnt];   // index in timetables above
   ub4 farehops[Hopcnt];   // index in fares above
@@ -168,12 +171,10 @@ struct networkbase {
 };
 typedef struct networkbase netbase;
 
-#define checktrip(legs,nleg,dep,arr,dist) checktrip_fln((legs),(nleg),(dep),(arr),(dist),FLN)
-#define checktrip3(legs,nleg,dep,arr,via,dist) checktrip3_fln((legs),(nleg),(dep),(arr),(via),(dist),FLN)
-extern void checktrip_fln(ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln);
-extern void checktrip3_fln(ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln);
 extern int portintrip(ub4 *legs,ub4 nleg,ub4 dep,ub4 mid,ub4 arr);
 
 extern netbase *getnetbase(void);
 extern int mkrandnet(ub4 portcnt,ub4 hopcnt);
+extern int prepbasenet(void);
+
 extern void ininetbase(void);

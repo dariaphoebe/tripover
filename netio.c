@@ -380,12 +380,10 @@ static int rdexthops(netbase *net,const char *dir)
 {
   char fname[512];
   struct myfile mf;
-  ub4 rawhopcnt,hopcnt,hop;
+  ub4 rawhopcnt,hopcnt;
   ub4 portcnt;
   ub4 maxportid;
   struct hopbase *hops,*hp;
-  struct portbase *ports = net->ports;
-  ub4 *id2hops;
   ub4 *id2ports;
   enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
   enum states state;
@@ -532,10 +530,9 @@ static int rdexthops(netbase *net,const char *dir)
       hp->id  = id;
       hp->dep = dep;
       hp->arr = arr;
-      ports[dep].deps++;
-      ports[arr].arrs++;
+
       hp->namelen = namelen;
-      if (namelen) memcpy(hp->name,name,namelen);
+      memcopy(hp->name,name,namelen);
       hp++;
       hopcnt++;
     }
@@ -564,9 +561,14 @@ static int rdexthops(netbase *net,const char *dir)
 int readextnet(netbase *net,const char *dir)
 {
   int rv;
+  ub4 portcnt;
 
   rv = rdextports(net,dir);
   if (rv) return rv;
+
+  portcnt = net->portcnt;
+  if (portcnt) net->portwrk = alloc(portcnt,ub4,0,"portwrk",portcnt);
+
   rv = rdexthops(net,dir);
   if (rv) return rv;
   if (globs.writext) rv = net2ext(net);
@@ -583,8 +585,6 @@ int net2ext(netbase *net)
   char buf[1024];
   ub4 pos,x,y;
   ub4 dec = globs.extdec;
-
-//  dec = 1;
 
   struct hopbase *hp,*hops = net->hops;
   struct portbase *pp,*ports = net->ports;
