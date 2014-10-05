@@ -47,6 +47,7 @@ struct port {
   ub4 macbox[4]; // latlon of mimi members
 
   ub4 ndep,narr,nudep,nuarr;   // generic connectivity info
+  ub4 nwalkdep,nwalkarr;
 
   ub4 deps[2];     // store small net locally
   ub4 arrs[2];
@@ -64,6 +65,8 @@ struct hop {
   char name[128];  // todo: use below structure instead
   ub4 namelen;
 //  struct gname name;
+
+  ub2 walk,rail,bus,air;
 
   ub4 dep,arr;
 

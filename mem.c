@@ -39,7 +39,8 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   vrbfln(fln,V0|CC,"alloc %s:\ah%u * %s:\ah%u for %s-%u",slen,elems,sel,elsize,desc,arg);
 
   // check for zero and overflow
-  error_zz(elems,elsize);
+  error_z_fln(elems,arg,"elems","",fln);
+  error_z_fln(elsize,arg,"elsize","",fln);
 
   n = (size_t)n8;
   nm = (ub4)(n8 >> 20);

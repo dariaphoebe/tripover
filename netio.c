@@ -37,6 +37,8 @@ static ub4 pdfscale_lon = 1200;
 static ub4 lat2pdf(ub4 lat,ub4 lolat,ub4 dlat) { return (lat - lolat) * pdfscale_lat / dlat; }
 static ub4 lon2pdf(ub4 lon,ub4 lolon,ub4 dlon) { return (lon - lolon) * pdfscale_lon / dlon; }
 
+#define Rtype_walk 1699
+
 /* tripover external format: easy manual editing, typical from single gtfs
 
 files contain tab-separated columns
@@ -390,7 +392,7 @@ static int rdexthops(netbase *net,const char *dir)
   int rv,newhop;
   char *buf,*p,*end,c,tab,nl;
   ub4 len,pos,linno,colno,x,val,namelen,valndx,id,idhi,maxid;
-  ub4 depid,arrid,dep,arr;
+  ub4 depid,arrid,dep,arr,rtype;
   char name[Maxname];
   ub4 vals[Maxval];
   ub4 namemax = min(Maxname,sizeof(hops->name)) - 1;
@@ -515,10 +517,11 @@ static int rdexthops(netbase *net,const char *dir)
     if (newhop) {
       newhop = 0;
       error_gt(hopcnt+1,rawhopcnt);
-      if (valndx < 3) return parserr(fname,linno,colno,"missing dep,arr args, only %u",valndx);
+      if (valndx < 4) return parserr(fname,linno,colno,"missing dep,arr,type args, only %u",valndx);
       id = vals[0];
       depid = vals[1];
       arrid = vals[2];
+      rtype = vals[3];
 //      info(0,"vals %u %u %u",vals[0],depid,arrid);
       if (depid == arrid) return parserr(fname,linno,colno,"dep id %u equal to arr id",depid);
       if (depid > maxportid) return parserr(fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
@@ -530,7 +533,12 @@ static int rdexthops(netbase *net,const char *dir)
       hp->id  = id;
       hp->dep = dep;
       hp->arr = arr;
-
+      switch(rtype) {
+      case Rtype_walk: hp->kind = Walk;break;
+      case 0:case 1:case 2: hp->kind = Rail; break;
+      case 3: hp->kind = Bus; break;
+      default: hp->kind = Unknown;
+      }
       hp->namelen = namelen;
       memcopy(hp->name,name,namelen);
       hp++;

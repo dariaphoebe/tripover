@@ -40,7 +40,8 @@ int prepnet(netbase *basenet)
   struct port *ports,*pdep,*parr,*pp;
   struct hop *hops,*hp;
   ub4 portcnt,hopcnt,dep,arr,ndep,narr,nodep,noarr,nodeparr,nudep,nuarr;
-  ub4 nloc,nlen;
+  ub4 nloc,nlen,n;
+  enum txkind kind;
   ub4 hop,port;
 
   hopcnt = basenet->hopcnt;
@@ -78,8 +79,22 @@ int prepnet(netbase *basenet)
       memcpy(hp->name,bhp->name,nlen);
       hp->namelen = nlen;
     }
-    hp->dep = bhp->dep;
-    hp->arr = bhp->arr;
+    dep = bhp->dep;
+    arr = bhp->arr;
+    hp->dep = dep;
+    hp->arr = arr;
+    pdep = ports + dep;
+    parr = ports + arr;
+
+    kind = bhp->kind;
+    switch(kind) {
+    case Walk: hp->walk = 1; pdep->nwalkdep++; parr->nwalkarr++; break;
+    case Air: hp->air = 1; break;
+    case Rail: hp->rail = 1; break;
+    case Bus: hp->bus = 1; break;
+    case Unknown: info(0,"hop %s has unknown transport mode", hp->name); break;
+    }
+
   }
 
   net->allportcnt = portcnt;
@@ -93,6 +108,7 @@ int prepnet(netbase *basenet)
 
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
+
     dep = hp->dep;
     arr = hp->arr;
     error_ge(dep,portcnt);
@@ -101,6 +117,12 @@ int prepnet(netbase *basenet)
     parr = ports + arr;
     ndep = pdep->ndep;
     narr = parr->narr;
+
+    pdep->ndep = ndep+1;
+    parr->narr = narr+1;
+
+    if (hp->walk) continue;
+
     nudep = pdep->nudep;
     nuarr = parr->nuarr;
     switch(nudep) {
@@ -115,20 +137,28 @@ int prepnet(netbase *basenet)
     case 2: if (parr->arrs[0] != dep && parr->arrs[1] != dep) parr->nuarr = 3; break;
     default: parr->nuarr = nuarr + 1; break; // tentative
     }
-
-    pdep->ndep = ndep+1;
-    parr->narr = narr+1;
   }
   nodep = noarr = nodeparr = 0;
+
+  ub4 constats[256];
+  aclear(constats);
+
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
-    if (pp->ndep == 0 && pp->narr == 0) { info(0,"port %u has no connections - %s",port,pp->name); nodeparr++; }
-    else if (pp->ndep == 0) { info(0,"port %u has no deps - %s",port,pp->name); nodep++; }
-    else if (pp->narr == 0) { info(0,"port %u has no arrs - %s",port,pp->name); noarr++; }
+    ndep = pp->ndep; narr = pp->narr;
+    if (ndep == 0 && narr == 0) { info(0,"port %u has no connections - %s",port,pp->name); nodeparr++; }
+    else if (ndep == 0) { info(0,"port %u has no deps - %s",port,pp->name); nodep++; }
+    else if (narr == 0) { info(0,"port %u has no arrs - %s",port,pp->name); noarr++; }
+    if (ndep < 16 && narr < 16) constats[(ndep << 4) | narr]++;
   }
   info(0,"%u of %u ports without departures",nodep,portcnt);
   info(0,"%u of %u ports without arrivals",noarr,portcnt);
   info(0,"%u of %u ports without connection",nodeparr,portcnt);
-
+  for (ndep = 0; ndep < 4; ndep++) {
+    for (narr = 0; narr < 4; narr++) {
+      n = constats[(ndep << 4) | narr];
+      if (n || ndep < 2 || narr < 2) info(0,"%u ports with %u deps + %u arrs", n,ndep,narr);
+    }
+  }
   return 0;
 }

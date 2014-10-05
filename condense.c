@@ -118,7 +118,7 @@ int condense(struct network *net)
 
   if (allportcnt == 0 || allhopcnt == 0) return 1;
 
-  if (allportcnt < 2000) { // todo heuristic
+  if (allportcnt < 200) { // todo heuristic
 
     net->portcnt = allportcnt;
     net->hopcnt = allhopcnt;
@@ -139,16 +139,34 @@ int condense(struct network *net)
 // condense into mini, full and macro ports
   minicnt = 0;
 
-  nloc = Elemcnt(pp->deps);
-
   ub4 nominis[8];
   aclear(nominis);
 
-// first part : a-b-c-d where b and c only connect to each other and a or d
+// part 1: cluster on inferred walk links
+// gtfs feeds group platform stops into parent stations 
   for (port = 0; port < allportcnt; port++) {
-    if (allportcnt - minicnt < 1000) break; // todo heuristic
 
     pp = allports + port;
+
+    if (pp->nwalkdep != 0 && pp->nwalkarr != 0) {
+      vrb(0,"port %s mini on walk deps %u arrs %u", pp->name,pp->nwalkdep,pp->nwalkarr);
+      pp->mini = 1;
+      pp->macid = hi32;
+      minicnt++;
+    }
+  }
+  info(0,"pass 1: %u of %u miniports",minicnt,allportcnt);
+
+  aclear(nominis);
+
+  nloc = Elemcnt(pp->deps);
+
+// part 2 : a-b-c-d where b and c only connect to each other and a or d
+  for (port = 0; port < allportcnt; port++) {
+    if (allportcnt - minicnt < 50) break; // todo heuristic
+
+    pp = allports + port;
+    if (pp->mini) continue;
 
     ndep = pp->nudep;
     narr = pp->nuarr;
@@ -217,7 +235,7 @@ int condense(struct network *net)
     pp->macid = hi32;
     minicnt++;
   }
-  info(0,"%u of %u miniports",minicnt,allportcnt);
+  info(0,"pass 2: %u of %u miniports",minicnt,allportcnt);
   for (iv = 0; iv < Elemcnt(nominis); iv++) info(0,"nomini on %u: %u",iv,nominis[iv]);
 
   ub4 diffminis[4];
@@ -236,8 +254,51 @@ int condense(struct network *net)
       pp = allports + port;
 
       if (pp->mini == 0) continue;
-      if (pp->macid != hi32) continue;
+      if (pp->macid != hi32) continue;   // already assigned
+
       macid = hi32;
+
+      if (pp->nwalkdep) {
+        for (hop = 0; hop < allhopcnt; hop++) {
+          hp = allhops + hop;
+          if (hp->walk == 1 && hp->dep == port) {
+            arr = hp->arr;
+            pparr = allports + arr;
+            if (pparr->mini) {
+              macid = pparr->macid;
+              if (macid == hi32) {
+                macid = macseq++;
+                pparr->macid = macid;
+              }
+              pp->macid = macid;
+              change = 1;
+              break;
+            }
+          }
+        }
+      }
+
+      if (macid == hi32 && pp->nwalkarr) {
+        for (hop = 0; hop < allhopcnt; hop++) {
+          hp = allhops + hop;
+          if (hp->walk == 1 && hp->arr == port) {
+            dep = hp->dep;
+            ppdep = allports + dep;
+            if (ppdep->mini) {
+              macid = ppdep->macid;
+              if (macid == hi32) {
+                macid = macseq++;
+                ppdep->macid = macid;
+              }
+              pp->macid = macid;
+              change = 1;
+              break;
+            }
+          }
+        }
+      }
+
+      if (change) continue;
 
       ndep = pp->nudep;
       narr = pp->nuarr;
@@ -322,6 +383,7 @@ int condense(struct network *net)
     info(0,"miniport merge iteration %u merged %u",mergeiter,merged);
 
   } while (change && mergeiter < 1000);
+  for (iv = 0; iv < Elemcnt(diffminis); iv++) info(0,"diffmini on %u: %u",iv,diffminis[iv]);
 
   // cancel single minis
   minicnt = 0;
@@ -363,7 +425,8 @@ int condense(struct network *net)
     if (macsize) nmac++;
   }
   info(0,"%u macro ports", nmac);
-  mkhist(macports,allportcnt,&macrange,Elemcnt(macivs),macivs,"macro ports",Info);
+
+  if (nmac) mkhist(macports,allportcnt,&macrange,Elemcnt(macivs),macivs,"macro ports",Info);
 
   for (port = 0; port < allportcnt; port++) {
     pp = allports + port;
@@ -401,7 +464,8 @@ int condense(struct network *net)
 
   all2full = alloc(allportcnt,ub4,0xff,"all2full",allportcnt);
 
-  minilst = alloc(minicnt,ub4,0,"minilst",minicnt);
+  if (minicnt) minilst = alloc(minicnt,ub4,0,"minilst",minicnt);
+  else minilst = NULL;
 
   info(0,"assigning %u+%u=%u ports",fullportcnt,nmac,portcnt);
 

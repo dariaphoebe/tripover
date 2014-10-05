@@ -38,7 +38,7 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-enum txkind { Air,Rail,Bus };
+enum txkind { Unknown, Air,Rail,Bus,Walk };
 
 #define Portlinks 2
 

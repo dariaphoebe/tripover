@@ -22,7 +22,7 @@ local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
 my $version_min = 1;
-my $lastchanged = "4 oct 2014";
+my $lastchanged = "5 oct 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -82,6 +82,8 @@ sub init()
 {
 }
 
+my $rtype_walk = 1699;
+
 # use integer codes for fields
 my $col_enum = 1;
 my $col_stopid    = $col_enum++;
@@ -93,8 +95,8 @@ my $col_stoplon   = $col_enum++;
 my $col_zoneid    = $col_enum++;
 my $col_stopurl   = $col_enum++;
 my $col_loctype   = $col_enum++;
-my $col_parentsta = $col_enum++;
-my $col_platformc = $col_enum++;
+my $col_parent    = $col_enum++;
+my $col_platform  = $col_enum++;
 
 my $col_tripid = $col_enum++;
 my $col_arrtime = $col_enum++;
@@ -123,9 +125,12 @@ my @stops;
 my @stopdeps;
 my @stoparrs;
 
+my %parents;
+
 my %tripids;
 my %tripseq;
 my %triproutes;
+my $walkroute;
 
 my @trips;
 
@@ -134,6 +139,7 @@ my @hops;
 my @routes;
 my %routeids;
 my %norouteids;
+my %rtypes;
 
 my @stentries;
 
@@ -146,6 +152,7 @@ my $ttcnt = 0;
 my $hopcnt = 0;
 my $tripcnt = 0;
 my $routecnt = 0;
+my $noroutecnt = 0;
 
 my $nondigits = qr'[^0-9]';
 
@@ -163,8 +170,8 @@ sub readstops($)
   my ($dir) = @_;
 
   my ($stopfile,$stopsname);
-  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($id,$stopid,$code,$name,$desc,$lat,$lon,$zone_id,$url,$location_type,$parent_station,$platform_code);
+  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req,$val);
+  my ($id,$stopid,$code,$name,$desc,$lat,$lon,$zone_id,$url,$loctype,$parent,$platform);
 
   return error("missing dir arg for import") unless defined $dir and length($dir);
 
@@ -197,8 +204,8 @@ sub readstops($)
     $colid = $col_zoneid if ($colname eq 'zone_id');
     $colid = $col_stopurl if ($colname eq 'stop_url');
     $colid = $col_loctype if ($colname eq 'location_type');
-    $colid = $col_parentsta if ($colname eq 'parent_station');
-    $colid = $col_platformc if ($colname eq 'platform_code');
+    $colid = $col_parent if ($colname eq 'parent_station');
+    $colid = $col_platform if ($colname eq 'platform_code');
     push(@cols,$colid);
   }
   printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
@@ -230,10 +237,11 @@ sub readstops($)
 #    last if ($linno > 10);
 
     $id = ''; $code = ''; $name = ''; $lat = ''; $lon = '';
-
+    $loctype = ''; $parent = ''; $platform = '';
     foreach $col (@cols) {
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
+      $val = substr($line,0,$comma);
 
       if ($col == $col_stopid) {
         $id = substr($line,0,$comma);
@@ -284,21 +292,36 @@ sub readstops($)
         }
 
       } elsif ($col == $col_stoplat) {
-        $lat = substr($line,0,$comma);
+        $lat = $val;
 
       } elsif ($col == $col_stoplon) {
-        $lon = substr($line,0,$comma);
+        $lon = $val;
+
+      } elsif ($col == $col_parent) {
+        $parent = $val;
+
+      } elsif ($col == $col_platform) {
+        $platform = $val;
+
+      } elsif ($col == $col_loctype) {
+        $loctype = $val;
       }
 
       $line = substr($line,$comma+1);
 
-    }
+    } # each col
 
     warning("$id has empty lon") if length($lon) < 1;
     warning("$id has empty lat") if length($lat) < 1;
 
     $stopnames{$stopid} = $name;
 
+    if (length($parent) > 0) {
+      $parents{$parent} .= $stopid . ' ';
+      if (length($loctype) > 0 and $loctype == 1) {
+        info("$name is a station");
+      }
+    }
     push(@stops,join("\t",$id,$name,$code,$desc,$lat,$lon));
 
   }
@@ -311,10 +334,11 @@ sub readstops($)
   return 1;
 }
 
+# todo from config or cmdline
 my $include_tram = 1;
 my $include_metro = 1;
 my $include_rail = 1;
-my $include_bus = 0;
+my $include_bus = 1;
 
 sub filtermode($)
 {
@@ -333,7 +357,7 @@ sub readroutes($)
 
   my ($routefile,$routefname);
   my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$name,$slname,$rtype);
+  my ($route_id,$routeid,$name,$slname,$rtype);
 
   $routefname = $dir . '/' . 'routes.txt';
 
@@ -423,22 +447,35 @@ sub readroutes($)
 
     } # each col
 
-    info("$linno $route_id '$slname' $rtype");
+    vrb("$linno $route_id '$slname' $rtype");
+    $routeid = $linno;
 
     if (exists($routeids{$route_id})) {
       warning("$linno: route id $route_id already defined on line $routeids{$route_id}");
     } elsif (filtermode($rtype)) {
-      $routeids{$route_id} = $linno;
+      $routeids{$route_id} = $routeid;
+      $rtypes{$routeid} = $rtype;
       push(@routes,join("\t",$route_id,$slname,$rtype));
     } else {
-      $routeids{$route_id} = $linno;
-      $norouteids{$route_id} = $linno;
+      $rtypes{$routeid} = $rtype;
+      $noroutecnt++;
+      $routeids{$route_id} = $routeid;
+      $norouteids{$route_id} = $routeid;
     }
 
   } # each line
 
+  $route_id = 'walk';
+  $walkroute = $linno + 1;
+  $rtype = $rtype_walk;
+  $slname = 'walk inferred from parent station';
+  $routeids{$route_id} = $walkroute;
+  $rtypes{$walkroute} = $rtype;
+  push(@routes,join("\t",$route_id,$slname,$rtype));
+
+  info("add inferred walk route $walkroute as type $rtype");
   $routecnt = scalar(@routes);
-  info("$routecnt routes");
+  info("$routecnt routes, $noroutecnt filtered out");
 
   return 1;
 }
@@ -715,14 +752,48 @@ sub readstoptimes($)
   }
   info("$hopcnt hops");
 
-  while (($id,$stopid) = each %stopids) {
-    $name = $stopnames{$stopid};
-    if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
-      warning("stop $id $name is unconnected");
-    } elsif ($stopdeps[$stopid] == 0) {
-      info("stop $id $name has no departures");
-    } elsif ($stoparrs[$stopid] == 0) {
-      info("stop $id $name has no arrivals");
+  if ($noroutecnt == 0) {
+    while (($id,$stopid) = each %stopids) {
+      $name = $stopnames{$stopid};
+      if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
+        warning("stop $id $name is unconnected");
+      } elsif ($stopdeps[$stopid] == 0) {
+        info("stop $id $name has no departures");
+      } elsif ($stoparrs[$stopid] == 0) {
+        info("stop $id $name has no arrivals");
+      }
+    }
+  }
+
+  foreach $concnt (0 .. 6) {
+    $depcnt = 0; $arrcnt = 0;
+    for $stopid (values %stopids) {
+      $depcnt++ if $stopdeps[$stopid] == $concnt;
+      $arrcnt++ if $stoparrs[$stopid] == $concnt;
+    }
+    info("stops with $concnt departures : $depcnt");
+    info("stops with $concnt arrivals   : $arrcnt");
+  }
+
+  my ($parent,$stoplst,@sibstop);
+
+  # add walk connection to sibling stops
+  while (($parent,$stoplst) = each %parents) {
+    @sibstop = split(' ',trimws($stoplst));
+    for $dep (@sibstop) {
+      for $arr (@sibstop) {
+        next if $dep == $arr;
+
+        next if $stopdeps[$dep] == 0 and $stoparrs[$dep] == 0;
+        next if $stopdeps[$arr] == 0 and $stoparrs[$arr] == 0;
+        push (@hops, join("\t",$dep,$arr,'walk',$hopcnt++));
+        push (@hops, join("\t",$arr,$dep,'walk',$hopcnt++));
+
+        $stopdeps[$dep]++;
+        $stoparrs[$arr]++;
+        $stopdeps[$arr]++;
+        $stoparrs[$dep]++;
+      }
     }
   }
 
@@ -790,6 +861,7 @@ sub writext($)
 
   my ($name,$portfile,$hopfile,$stop,@stopln,$stopid,$hop,@hopln,$route,$hopid);
   my ($dep_id,$arr_id,$dep,$arr,$fstopcnt,$depname,$arrname);
+  my ($routeid,$rtype);
 
   info("writing tripover external format");
   return info("dryrun") if $dryrun;
@@ -853,7 +925,15 @@ sub writext($)
 
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
-    printf($hopfile "%s\t%x\tD%u\tD%u # %s %s\n",$route,$hopid,$dep,$arr,$depname,$arrname);
+
+    warning("route $route not found") unless exists $routeids{$route};
+    $routeid = $routeids{$route};
+    warning("$route type found") unless exists $rtypes{$routeid};
+#    info("$dep $arr $route");
+    $rtype = $rtypes{$routeid};
+    if ($routeid eq $walkroute) {
+    }
+    printf($hopfile "%s\t%x\tD%u\tD%u\t%x # %s to %s\n",$route,$hopid,$dep,$arr,$rtype,$depname,$arrname);
   }
   return 1;
 }
