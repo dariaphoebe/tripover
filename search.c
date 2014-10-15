@@ -102,7 +102,6 @@ int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   ub4 maxstop = net->maxstop;
   ub4 *mac2port = net->mac2port;
   struct port *parr,*pdep,*allports = net->allports;
-  struct port *ports = net->ports;
 
   if (dep >= portcnt) return error(0,"departure %u not in %u portlist",dep,portcnt);
   if (arr >= portcnt) return error(0,"arrival %u not in %u portlist",arr,portcnt);

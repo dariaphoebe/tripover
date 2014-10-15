@@ -21,7 +21,7 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 1
+#define Version_min 10
 #define Version_phase "initial"
 
 // handful of useful macros
@@ -47,14 +47,16 @@ typedef int sb4;
 
 #define strcopy(dst,src) strncpy((dst),(src),sizeof (dst) )
 
+enum Runlvl { Runread,Runprep,Runmknet,Runcondense,Runnet0,Runnetn,Runserver,Runcnt };
+
 // program-wide global vars go here
 extern struct globs {
   char *progname;
-  ub2 nosteps;
-  ub2 dorandnet;
-  ub2 doreadnet;
-  ub2 doinit;
-  ub2 doserver;
+
+  ub1 doruns[Runcnt];
+  enum Runlvl stopat,stopatcl;
+  char stopatstr[64];
+
   char cfgfile[1024];
   char netfile[1024];
   char netdir[1024];
@@ -62,6 +64,7 @@ extern struct globs {
   ub4 serverid;
   ub4 msglvl;
   ub4 vrblvl;
+
   ub4 maxports;
   ub4 maxhops;
   ub4 maxstops;

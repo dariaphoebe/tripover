@@ -21,6 +21,8 @@
 static ub4 msgfile;
 #include "msg.h"
 
+#include "os.h"
+
 void initime(void)
 {
   msgfile = setmsgfile(__FILE__);
@@ -32,4 +34,10 @@ void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen)
   time_t t = (time_t)secs;
   struct tm *tp = gmtime(&t);
   mysnprintf(dst,0,dstlen,"%04u-%02u-%02u %02u:%02u", tp->tm_year+1900, tp->tm_mon+1,tp->tm_mday,tp->tm_hour,tp->tm_min);
+}
+
+ub4 gettime_sec(void)
+{
+  ub8 usec = gettime_usec();
+  return (ub4)(usec / (1000 * 1000));
 }

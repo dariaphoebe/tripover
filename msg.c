@@ -348,7 +348,6 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   if (len - n <= 10) break;
                   if (do_vec) {
                     n += ucnv(dst + n,vlen,0,0);
-                    luval = (unsigned long)puval;
                     dst[n++] = '.'; dst[n++] = '[';
                     while (vlen--) {
                       uval = *puval++;
@@ -357,8 +356,6 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                       if (vlen) dst[n++] = '-';
                     }
                     dst[n++] = ']'; dst[n++] = ' ';
-//                    n += xcnv(dst + n,(unsigned int)(luval & 0xffffffff));
-//                    if (sizeof(puval) > 4) n += xcnv(dst + n,(unsigned int)(luval >> 32));
                     do_vec = 0;
                   } else {
                     if (len - n <= 10) break;
@@ -390,6 +387,7 @@ ub4 __attribute__ ((format (printf,4,5))) mysnprintf(char *dst, ub4 pos, ub4 len
   va_list ap;
   ub4 n;
 
+  if (pos > len) return warningfln(0,0,"snprintf: pos %u > len %u",pos,len);
   va_start(ap, fmt);
   n = vsnprint(dst,pos,len,fmt,ap);
   va_end(ap);
@@ -561,6 +559,14 @@ int __attribute__ ((format (printf,3,4))) infofln(ub4 line, ub4 code, const char
   return 0;
 }
 
+int info0fln(ub4 line, ub4 code, const char *s)
+{
+  msginfo(line);
+  if (msglvl < Info) return 0;
+  infofln(line, code, "%s", s);
+  return 0;
+}
+
 int __attribute__ ((format (printf,3,4))) warningfln(ub4 line, ub4 code, const char *fmt, ...)
 {
   va_list ap;
@@ -681,7 +687,7 @@ void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4
     dt = dt * 100 / perc;
     est = (dt * (100UL - perc)) / 100;
   }
-  if (cur) pos += mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
+  if (cur) mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
   infofln(fln,0,"%s",buf);
 }
 

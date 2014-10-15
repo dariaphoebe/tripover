@@ -49,7 +49,7 @@ struct eta {
 #define oserror(code,fmt,...) oserrorfln(FLN,(code),(fmt),__VA_ARGS__)
 #define oswarning(code,fmt,...) oswarningfln(FLN,(code),(fmt),__VA_ARGS__)
 
-#define info0(code,s) infofln(FLN,(code),(s))
+#define info0(code,s) info0fln(FLN,(code),(s))
 
 // no misprint: access first two format args
 #define progress(eta,fmt,cur,end,...) progress2((eta),FLN,(cur),(end),(fmt),(cur),(end),__VA_ARGS__)
@@ -101,6 +101,8 @@ extern int errorfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((for
 extern int oserrorfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int oswarningfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
+
+extern int info0fln(ub4 fln, ub4 code, const char *s);
 
 extern int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim,ub4 fln);
 

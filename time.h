@@ -9,5 +9,6 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
+extern ub4 gettime_sec(void);
 extern void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen);
 extern void initime(void);

@@ -189,7 +189,6 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
   char newname[512];
   char *pname,*p,*q,*extpos;
   ub4 stamp,histamp,lostamp;
-  ino_t inolo,inohi;
   struct stat ino;
 
   clear(mf);
@@ -244,12 +243,10 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
     vrb(0,"%s stamp %u",name,stamp);
     if (stamp > histamp) {
       histamp = stamp;
-      inohi = de->d_ino;
       strcopy(hiname,name);
     }
     if (stamp < lostamp) {
       lostamp = stamp;
-      inolo = de->d_ino;
       strcopy(loname,name);
     }
   } while (1);

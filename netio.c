@@ -21,7 +21,6 @@
 #include "mem.h"
 #include "math.h"
 #include "util.h"
-#include "os.h"
 
 static ub4 msgfile;
 #include "msg.h"
@@ -38,6 +37,9 @@ static ub4 lat2pdf(ub4 lat,ub4 lolat,ub4 dlat) { return (lat - lolat) * pdfscale
 static ub4 lon2pdf(ub4 lon,ub4 lolon,ub4 dlon) { return (lon - lolon) * pdfscale_lon / dlon; }
 
 #define Rtype_walk 1699
+
+static const ub4 pdfmaxports = 1000;
+static const ub4 pdfmaxhops = 1000;
 
 /* tripover external format: easy manual editing, typical from single gtfs
 
@@ -141,7 +143,7 @@ static int __attribute__ ((format (printf,4,5))) parserr(const char *fname,ub4 l
   pos = fmtstring(buf,"%s.%u.%u: parse error: ",fname,linno,colno);
   if (fmt) {
     va_start(ap,fmt);
-    pos += myvsnprintf(buf,pos,len,fmt,ap);
+    myvsnprintf(buf,pos,len,fmt,ap);
     va_end(ap);
   }
   return error(0,"%s",buf);
@@ -156,7 +158,7 @@ static int __attribute__ ((format (printf,4,5))) parsewarn(const char *fname,ub4
   pos = fmtstring(buf,"%s.%u.%u: ",fname,linno,colno);
   if (fmt) {
     va_start(ap,fmt);
-    pos += myvsnprintf(buf,pos,len,fmt,ap);
+    myvsnprintf(buf,pos,len,fmt,ap);
     va_end(ap);
   }
   return warning(0,"%s",buf);
@@ -177,11 +179,12 @@ static int rdextports(netbase *net,const char *dir)
   enum states state;
   int rv,newport;
   char *buf,*p,*end,c,tab,nl;
-  ub4 len,pos,linno,colno,x,namelen,lat,lon,id,idhi,maxid,cc;
+  ub4 len,linno,colno,x,namelen,lat,lon,id,idhi,maxid,cc;
   ub4 lolon,lolat,hilon,hilat;
   char name[Maxname];
-  ub4 namemax = min(Maxname,sizeof(ports->name)) - 1;
+  ub4 namemax = min(Maxname,sizeof(ports->name)) - 2;
 
+  aclear(name);
   fmtstring(fname,"%s/ports.txt",dir);
 
   rv = readfile(&mf,fname,1);
@@ -202,7 +205,7 @@ static int rdextports(netbase *net,const char *dir)
   hilat = hilon = 0;
 
   newport = 0;
-  pos = colno = 0;
+  colno = 0;
   linno = 1;
   tab = '\t'; nl = '\n';
 
@@ -263,7 +266,7 @@ static int rdextports(netbase *net,const char *dir)
 
     case Name1:
       if (c == tab) state = Lat0;
-      else if (namelen + 2 < namemax) name[namelen++] = c;
+      else if (namelen + 1 < namemax) name[namelen++] = c;
       else if (name[namemax] != '!') {
         parsewarn(fname,linno,colno,"name exceeds %u",namemax);
         name[namemax] = '!';
@@ -363,7 +366,8 @@ static int rdextports(netbase *net,const char *dir)
     else id2ports[id] = port;
   }
   info(0,"read %u ports from %s", portcnt, fname);
-  info(0,"bbox lat %u - %u = %u  lon %u - %u = %u",lolat,hilat,hilat-lolat,lolon,hilon,hilon-lolon);
+  info(0,"bbox lat %u - %u = %u scale %u",lolat,hilat,hilat-lolat,Latscale);
+  info(0,"bbox lon %u - %u = %u scale %u",lolon,hilon,hilon-lolon,Lonscale);
   net->portcnt = portcnt;
   net->ports = ports;
   net->id2ports = id2ports;
@@ -391,7 +395,7 @@ static int rdexthops(netbase *net,const char *dir)
   enum states state;
   int rv,newhop;
   char *buf,*p,*end,c,tab,nl;
-  ub4 len,pos,linno,colno,x,val,namelen,valndx,id,idhi,maxid;
+  ub4 len,linno,colno,x,val,namelen,valndx,id,idhi,maxid;
   ub4 depid,arrid,dep,arr,rtype;
   char name[Maxname];
   ub4 vals[Maxval];
@@ -419,7 +423,7 @@ static int rdexthops(netbase *net,const char *dir)
   namelen = val = valndx = id = idhi = maxid = 0;
   newhop = 0;
 
-  pos = colno = 0;
+  colno = 0;
   linno = 1;
   tab = '\t'; nl = '\n';
 
@@ -438,6 +442,7 @@ static int rdexthops(netbase *net,const char *dir)
     switch(state) {
 
     case Out:
+      valndx = 0;
       switch (c) {
         case '#': state = Fls; break;
         case '\t': state = Cmd0; break;
@@ -571,6 +576,7 @@ int readextnet(netbase *net,const char *dir)
   int rv;
   ub4 portcnt;
 
+  info(0,"reading base net in tripover external format from dir %s",dir);
   rv = rdextports(net,dir);
   if (rv) return rv;
 
@@ -578,7 +584,9 @@ int readextnet(netbase *net,const char *dir)
   if (portcnt) net->portwrk = alloc(portcnt,ub4,0,"portwrk",portcnt);
 
   rv = rdexthops(net,dir);
+  info(0,"done reading base net in external format, status %d",rv);
   if (rv) return rv;
+
   if (globs.writext) rv = net2ext(net);
   if (globs.writpdf) net2pdf(net);
   return rv;
@@ -599,14 +607,16 @@ int net2ext(netbase *net)
 
   ub4 hop,hopcnt = net->hopcnt;
   ub4 port,portcnt = net->portcnt;
+  const char *portsname = "ports.txt";
+  const char *hopsname = "hops.txt";
 
-  info(0,"write %u port %u hops basenet to ext",portcnt,hopcnt);
+  info(0,"writing %u-ports %u-hops base net to dir '.' in external format",portcnt,hopcnt);
 
-  fd = oscreate("ports.txt");
+  fd = filecreate(portsname);
   if (fd == -1) return 1;
 
   pos = fmtstring(buf,"# hops %u ports %u\n# id name lat lon\n",hopcnt,portcnt);
-  oswrite(fd,buf,pos);
+  if (filewrite(fd,buf,pos,portsname)) return 1;
 
   // temporary: port as number
   for (port = 0; port < portcnt; port++) {
@@ -615,23 +625,27 @@ int net2ext(netbase *net)
     x = lon2ext(pp->lon);
     if (dec) pos = fmtstring(buf,"D%u\t%s\tD%u\t%u\n", pp->id,pp->name,y,x);
     else pos = fmtstring(buf,"%x\t%s\t%x\t%x\n", pp->id,pp->name,y,x);
-    oswrite(fd,buf,pos);
+    if (filewrite(fd,buf,pos,portsname)) return 1;
   }
-  osclose(fd);
+  fileclose(fd,portsname);
+  info(0,"wrote %u ports to %s",portcnt,portsname);
 
-  fd = oscreate("hops.txt");
+  fd = filecreate(hopsname);
   if (fd == -1) return 1;
 
   pos = fmtstring(buf,"# hops %u ports %u\n# id dep arr\n",hopcnt,portcnt);
-  oswrite(fd,buf,pos);
+  if (filewrite(fd,buf,pos,hopsname)) return 1;
 
   for(hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     if (dec) pos = fmtstring(buf,"%s\tD%u\tD%u\tD%u\n",hp->name,hop,hp->dep,hp->arr);
     else pos = fmtstring(buf,"%s\t%x\t%x\t%x\n",hp->name,hop,hp->dep,hp->arr);
-    oswrite(fd,buf,pos);
+    if (filewrite(fd,buf,pos,hopsname)) return 1;
   }
-  osclose(fd);
+  fileclose(fd,hopsname);
+  info(0,"wrote %u hops to %s",hopcnt,hopsname);
+
+  info(0,"done writing %u-ports %u-hops base net to dir '.' in external format",portcnt,hopcnt);
 
   return 0;
 }
@@ -659,8 +673,17 @@ static ub4 addnetpdf(netbase *net, char *buf, ub4 len)
   dlon = max(1,hilon - lolon);
   dlat = max(1,hilat - lolat);
 
+  if (portcnt > pdfmaxports) {
+    info(0,"limiting %u ports to %u for pdf",portcnt,pdfmaxports);
+    portcnt = pdfmaxports;
+  }
+  if (hopcnt > pdfmaxhops) {
+    info(0,"limiting %u hops to %u for pdf",hopcnt,pdfmaxhops);
+   hopcnt = pdfmaxhops;
+  }
+
   // temporary: port as number
-  for (port = 0; port < min(portcnt,10); port++) {
+  for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     y = lat2pdf(pp->lat,lolat,dlat);
     x = lon2pdf(pp->lon,lolon,dlon);
@@ -673,7 +696,7 @@ static ub4 addnetpdf(netbase *net, char *buf, ub4 len)
   pos += mysnprintf(buf,pos,len,"1 w\n");
 
   // draw direct connection as straight line
-  for (hop = 0; hop < min(hopcnt,300); hop++) {
+  for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     dep = hp->dep;
     arr = hp->arr;
@@ -706,8 +729,12 @@ static char pagebuf[64 * 1024];
   ub4 plen = sizeof pagebuf;
   ub4 xref[16];
   enum objnos { pdfnil, pdfcat, pdftree,pdfnode,pdfcontent, pdflast };
+  const char *name = "net.pdf";
 
-  fd = oscreate("net.pdf");
+  info(0,"writing %u-ports %u-hops base net to %s in pdf format",net->portcnt,net->hopcnt,name);
+
+  fd = filecreate("net.pdf");
+  if (fd == -1) return 1;
 
   pos = mysnprintf(pagebuf,0,plen,"%%PDF-1.4\n");
 
@@ -727,15 +754,15 @@ static char pagebuf[64 * 1024];
   xref[pdfcontent] = pos;
 
   xpos = pos;
-  oswrite(fd,pagebuf,pos);
+  if (filewrite(fd,pagebuf,pos,name)) return 1;
 
   cpos = addnetpdf(net,content,sizeof content);
 
   pos = mysnprintf(pagebuf,0, plen,"%u 0 obj\n << /Length %u >>\nstream\n", pdfcontent, cpos);
-  oswrite(fd,pagebuf,pos);
+  if (filewrite(fd,pagebuf,pos,name)) return 1;
   xpos += pos + cpos;
 
-  oswrite(fd,content,cpos);
+  if (filewrite(fd,content,cpos,name)) return 1;
 
   pos = mysnprintf(pagebuf,0,plen,"endstream\nendobj\n");
 
@@ -749,8 +776,11 @@ static char pagebuf[64 * 1024];
 
   pos += mysnprintf(pagebuf,pos,plen,"startxref\n%u\n%s\n", xrefpos,"%%EOF");
 
-  oswrite(fd,pagebuf,pos);
-  osclose(fd);
+  if (filewrite(fd,pagebuf,pos,name)) return 1;
+
+  fileclose(fd,name);
+
+  info(0,"done writing base net to %s in pdf format: \ah%u bytes",name,xrefpos + pos);
 
   return 0;
 }

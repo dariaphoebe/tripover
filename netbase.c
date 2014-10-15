@@ -138,7 +138,6 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
 {
   struct portbase *ports,*pdep,*parr;
   struct hopbase *hops,*hp;
-  ub4 *portwrk;
   struct range zrange;
   ub1 *net0;
   ub4 hist[Zhist];
@@ -155,8 +154,6 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   ports = alloc(portcnt,struct portbase,0,"baseports",portcnt);
   hops = alloc(hopcnt,struct hopbase,0,"basehops",hopcnt);
   net0 = alloc(portcnt * portcnt, ub1,0,"net0",portcnt);
-
-  portwrk = alloc(portcnt,ub4,0,"portwrk",portcnt);
 
   // fractal land to create net on
   mkheightmap(heightmap,Zmap);
@@ -243,14 +240,15 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   }
 
   aclear(depstats);
+  ub4 depivs = Elemcnt(depstats) - 1;
   for (dep = 0; dep < portcnt; dep++) {
     depcnt = 0;
     for (arr = 0; arr < portcnt; arr++) {
       depcnt += net0[dep * portcnt + arr];
     }
-    depstats[min(Elemcnt(depstats),depcnt)]++;
+    depstats[min(depivs,depcnt)]++;
   }
-  for (iv = 0; iv < Elemcnt(depstats); iv++) vrb(0,"%u ports with %u departures", depstats[iv], iv);
+  for (iv = 0; iv <= depivs; iv++) vrb(0,"%u ports with %u departures", depstats[iv], iv);
 
   basenet.hops = hops;
   basenet.portcnt = portcnt;

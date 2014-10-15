@@ -75,7 +75,8 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
 
   // prepare reply
   rep->buf = rep->localbuf;
-  len = fmtstring(rep->localbuf,"reply plan %u-%u = \av%u%p distance %u\n",dep,arr,src.lostop+1,src.trip,src.lodist);
+  if (rv) len = fmtstring(rep->localbuf,"reply plan %u-%u error code %d\n",dep,arr,rv);
+  else len = fmtstring(rep->localbuf,"reply plan %u-%u = \av%u%p distance %u\n",dep,arr,src.lostop+1,src.trip,src.lodist);
   info(0,"reply len %u",len);
   rep->len = len;
   osmillisleep(500);
@@ -110,6 +111,7 @@ int serverloop(void)
       if (cmd == Cmd_plan) {
         oclear(rep);
         rv = cmd_plan(&req,&rep);
+        if (rv) info(0,"plan returned %d",rv);
         if (req.alloced) afree(req.buf,"client request");
         setqentry(&req,&rep,".rep");
         rv = 0;

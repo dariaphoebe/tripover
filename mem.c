@@ -116,7 +116,7 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   if (totalMB + nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm + totalMB);
 
   p = malloc(n);
-  if (!p) error(Exit,"cannot allocate %u MB",nm);
+  if (!p) { error(0,"cannot allocate %u MB",nm); exit(1); }
 
   blk->base = p;
   blk->elems = elems;

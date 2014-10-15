@@ -40,7 +40,7 @@ int prepnet(netbase *basenet)
   struct port *ports,*pdep,*parr,*pp;
   struct hop *hops,*hp;
   ub4 portcnt,hopcnt,dep,arr,ndep,narr,nodep,noarr,nodeparr,nudep,nuarr;
-  ub4 nloc,nlen,n;
+  ub4 nlen,n;
   enum txkind kind;
   ub4 hop,port;
 
@@ -103,8 +103,6 @@ int prepnet(netbase *basenet)
   net->allhops = hops;
 
 // mark local links
-
-  nloc = Elemcnt(pdep->deps);
 
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
