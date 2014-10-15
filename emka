@@ -43,7 +43,7 @@
 
 # author: Joris van der Geer
 
-# last changed:  28 sep 2014
+# last changed:  15 oct 2014
 
 use 5.008;
 use integer;
@@ -52,7 +52,7 @@ use strict;
 use Fcntl ':mode';
 
 my $progname = 'emka';
-my $verstr = '0.6';
+my $verstr = '0.61';
 
 sub cmd_help() {
   print("Usage: $progname [options] [command] [dir]\n");
@@ -64,7 +64,7 @@ sub cmd_help() {
   print("-v, -verbose        Verbose mode\n");
   print("-V, -version        Show version and quit\n\n");
   print("Commands:\n");
-  print("clean               Delete all intermediates\n");
+  print("clean               Delete intermediates\n");
   print("config, setup       Configure\n");
   print("loop                Continuous build\n");
   print("build               Build ( default)\n");
@@ -853,9 +853,18 @@ sub cmd_version() {
   print("$progname version $verstr\n");
 }
 
-# TODO : get list of files from config
 sub cmd_clean() {
-  print("clean not yet implemented\n");
+  my ($path,$info);
+
+  $itertime = time();
+  read_dir($prjroot) or return 0;
+
+  foreach $path (sort keys %files) {
+    $info = $files{$path};
+    next unless $info->{role} eq 'obj';
+    next unless -f $path;
+    unlink($path);
+  }
 }
 
 # continuous build

@@ -546,15 +546,16 @@ static int rdexthops(netbase *net,const char *dir)
       }
       hp->namelen = namelen;
       memcopy(hp->name,name,namelen);
+      maxid = max(maxid,id);
       hp++;
       hopcnt++;
     }
   }
 
-#if 0
-// later
+  ub4 hop,*id2hops;
+
   if (maxid > 100 * 1000 * 1000) warning(0,"max port id %u",maxid);
-  id2hops = alloc(maxid+1,ub4,0,"id2port",maxid);
+  id2hops = alloc(maxid+1,ub4,0xff,"id2port",maxid);
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     id = hp->id;
@@ -562,7 +563,6 @@ static int rdexthops(netbase *net,const char *dir)
     else id2hops[id] = hop;
   }
   net->id2hops = id2hops;
-#endif
 
   info(0,"read %u hops from %s", hopcnt, fname);
   net->hopcnt = hopcnt;

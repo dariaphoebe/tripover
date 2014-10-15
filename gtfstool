@@ -11,7 +11,7 @@
 
 # primary use is to import gtfs feeds into tripover format.
 # feeds can be merged, filtered, or verified
-# export from tripover format to gtfs
+# optional export from tripover format to gtfs
 
 use 5.008;
 use strict;
@@ -21,8 +21,8 @@ my $ccmsg = '';
 local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
-my $version_min = 1;
-my $lastchanged = "5 oct 2014";
+my $version_min = 10;
+my $lastchanged = "15 oct 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -66,7 +66,7 @@ sub usage()
   info('-V -version        show version and quit');
   info('-L -license        show license and quit\n');
   info("commands:");
-  info("import             import gtfs into tripover");
+  info("import <indir> [outdir] import gtfs into tripover");
 }
 
 sub showvers($)
@@ -855,9 +855,9 @@ sub getdate()
   return sprintf("%u-%02u-%02u %u:%02u utc",$year+1900,$mon+1,$mday,$hour,$min);
 }
 
-sub writext($)
+sub writext($$)
 {
-  my ($dir) = @_;
+  my ($indir,$outdir) = @_;
 
   my ($name,$portfile,$hopfile,$stop,@stopln,$stopid,$hop,@hopln,$route,$hopid);
   my ($dep_id,$arr_id,$dep,$arr,$fstopcnt,$depname,$arrname);
@@ -871,18 +871,18 @@ sub writext($)
     $fstopcnt++ if ($stopdeps[$stopid] > 0 or $stoparrs[$stopid] > 0);
   }
 
-  info("writing $fstopcnt of $stopcnt ports");
+  info("writing $fstopcnt of $stopcnt ports in $outdir");
 
-  my $portname = 'ports.txt';
+  my $portname = $outdir . '/ports.txt';
   my $oldportname = $portname . '.bak';
   unlink($oldportname) if -f $oldportname;
   rename($oldportname,$portname)if -f $portname;
 
-  open($portfile,'>','ports.txt') or error_exit("cannot create ports.txt:$!");
+  open($portfile,'>',$portname) or error_exit("cannot create $portname:$!");
 
   print($portfile "# ports.txt - tripover external port aka stops file\n\n");
   printf($portfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
-  printf($portfile "# %u ports from %s/stops.txt\n\n",$fstopcnt,$dir);
+  printf($portfile "# %u ports from %s/stops.txt\n\n",$fstopcnt,$indir);
 
   my ($stop_id,$stop_name,$stop_code,$stop_lat,$stop_lon,$lat,$lon);
 
@@ -906,15 +906,15 @@ sub writext($)
 
   info("writing $hopcnt hops");
 
-  my $hopname = 'hops.txt';
+  my $hopname = $outdir . '/hops.txt';
   my $oldhopname = $hopname . '.bak';
   unlink($oldhopname) if -f $oldhopname;
   rename($oldhopname,$hopname)if -f $hopname;
 
-  open($hopfile,'>','hops.txt') or error_exit("cannot create ports.txt:$!");
+  open($hopfile,'>',$hopname) or error_exit("cannot create ports.txt:$!");
   print($hopfile "# hops.txt - tripover external hops aka trips file\n\n");
   printf($hopfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
-  printf($hopfile "# %u hops from %s/stoptimes.txt\n\n",$hopcnt,$dir);
+  printf($hopfile "# %u hops from %s/stoptimes.txt\n\n",$hopcnt,$indir);
 
   foreach $hop (@hops) {
     @hopln = split("\t",$hop);
@@ -938,7 +938,7 @@ sub writext($)
   return 1;
 }
 
-my ($arg,$opt,$cmd);
+my ($arg,$opt,$cmd,$indir,$outdir);
 my @args;
 
 if (@ARGV == 0) { usage(); exit 1; }
@@ -969,7 +969,12 @@ foreach $arg (@ARGV) {
 if (@args > 0) {
   init();
   $cmd = $args[0];
-  if ($cmd eq 'import') { import($args[1]); writext($args[1]); }
+  if ($cmd eq 'import') {
+    error_exit("missing arg 'dir' for import") unless (@args > 1);
+    $indir = $args[1];
+    $outdir = (@args > 2) ? $args[2] : '.';
+    import($indir) and writext($indir,$outdir);
+  }
   else { info("unknown command"); }
 }
 
