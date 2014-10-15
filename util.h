@@ -36,7 +36,13 @@ struct gname {
   ub4 descr;
 };
 
+extern int filecreate(const char *name);
+extern int filewrite(int fd, const void *buf,ub4 len,const char *name);
+extern int fileread(int fd,void *buf,ub4 len,const char *name);
+extern int fileclose(int fd,const char *name);
+
 extern int readfile(struct myfile *mf,const char *name, int mustexist);
+
 extern int cmdline(int argc, char *argv[], struct cmdarg *cap);
 
 #define memcopy(d,s,n) memcopyfln((d),(s),(n),FLN);
@@ -44,6 +50,8 @@ extern void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln);
 
 extern int str2ub4(const char *s, ub4 *pv);
 extern int hex2ub4(const char *s, ub4 *pv);
+
+extern int dorun(enum Runlvl stage);
 
 extern int writeppm(const char *name,ub4 *data,ub4 nx,ub4 ny);
 

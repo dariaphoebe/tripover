@@ -25,7 +25,8 @@
 // end of limits
 
 #define Cfgcl (1U << 31)
+#define Cfgdef (1U << 30)
 
 extern int readcfg(const char *name);
-extern int writecfg(const char *name);
-extern void inicfg(void);
+extern int inicfg(void);
+extern int inicfgcl(void);

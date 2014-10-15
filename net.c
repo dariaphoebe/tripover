@@ -194,6 +194,7 @@ static int mknet0(void)
 
   // get connectivity stats
   aclear(depstats);
+  ub4 depivs = Elemcnt(depstats) - 1;
   for (dep = 0; dep < portcnt; dep++) {
     depcnt = 0;
     for (arr = 0; arr < portcnt; arr++) {
@@ -202,11 +203,12 @@ static int mknet0(void)
       error_ovf(depcnt,ub2);
     }
     error_ne(depcnt,ports[dep].ndep);
-    depstats[min(Elemcnt(depstats),depcnt)]++;
+    depstats[min(depivs,depcnt)]++;
   }
-  for (iv = 0; iv < Elemcnt(depstats); iv++) info(0,"%u ports with %u departures", depstats[iv], iv);
+  for (iv = 0; iv <= depivs; iv++) info(0,"%u ports with %u departures", depstats[iv], iv);
 
   aclear(arrstats);
+  ub4 arrivs = Elemcnt(arrstats) - 1;
   for (arr = 0; arr < portcnt; arr++) {
     arrcnt = 0;
     for (dep = 0; dep < portcnt; dep++) {
@@ -215,9 +217,9 @@ static int mknet0(void)
       error_ovf(arrcnt,ub2);
     }
     error_ne(arrcnt,ports[arr].narr);
-    arrstats[min(Elemcnt(arrstats),arrcnt)]++;
+    arrstats[min(arrivs,arrcnt)]++;
   }
-  for (iv = 0; iv < Elemcnt(arrstats); iv++) info(0,"%u ports with %u arrivals", arrstats[iv], iv);
+  for (iv = 0; iv <= arrivs; iv++) info(0,"%u ports with %u arrivals", arrstats[iv], iv);
 
   net.dist0 = dist0;
   net.hopdist = hopdist;
@@ -257,7 +259,7 @@ static int mknetn(ub4 nstop)
   ub4 dep,mid,arr,port2,depcnt,depmid,midarr,deparr,iport1,iport2;
   ub4 iv,watch;
   ub4 depstats[4];
-  ub4 cnt,nstop1,n1,n2,n12,n12lim,nleg1,nleg2,v1,v2,leg,leg1,leg2,nleg;
+  ub4 cnt,nstop1,n1,n2,n12,nleg1,nleg2,v1,v2,leg,leg1,leg2,nleg;
   size_t lstlen;
   ub4 midstop1,midstop2;
   ub4 lodist,lodist1,lodist2,lodist12,*lodists,*lodist1s,*lodist2s;
@@ -645,7 +647,6 @@ static int mknetn(ub4 nstop)
           if (n2 == 0) { mid++; continue; }
 
           n12 = n1 * n2;
-          n12lim = min(n12,var12limit);
 
           conofs1 = net.conofs[midstop1];
           conofs2 = net.conofs[midstop2];
@@ -764,15 +765,16 @@ static int mknetn(ub4 nstop)
 
   // get connectivity stats
   aclear(depstats);
+  ub4 depivs = Elemcnt(depstats) - 1;
   for (dep = 0; dep < portcnt; dep++) {
     depcnt = 0;
     for (arr = 0; arr < portcnt; arr++) {
       depcnt++;
     }
     ports[dep].depcnts[nstop] = (ub2)depcnt;
-    depstats[min(Elemcnt(depstats),depcnt)]++;
+    depstats[min(depivs,depcnt)]++;
   }
-  for (iv = 0; iv < Elemcnt(depstats); iv++) info(0,"%u ports with %u departures", depstats[iv], iv);
+  for (iv = 0; iv <= depivs; iv++) info(0,"%u ports with %u departures", depstats[iv], iv);
 
   struct range conrange;
 
@@ -810,24 +812,20 @@ static int mknetn(ub4 nstop)
 // the number of stops need to be determined such that all port pairs are reachable
 int mknet(ub4 maxstop)
 {
-  ub4 allportcnt = net.allportcnt;
-  ub4 allhopcnt = net.allhopcnt;
-  struct port *allports;
-  struct hop *allhops;
+  ub4 allportcnt,allhopcnt;
   ub4 nstop;
   int rv;
 
   allportcnt = net.allportcnt;
   allhopcnt = net.allhopcnt;
-  if (allportcnt == 0 || allhopcnt == 0) return 1;
 
-  allports = net.allports;
-  allhops = net.allhops;
+  if (allportcnt == 0) return info0(0,"skip mknet on 0 ports");
+  if (allhopcnt == 0) return info0(0,"skip mknet on 0 hops");
 
   rv = condense(&net);
   if (rv) return 1;
 
-  if (globs.nosteps || globs.doinit) {
+  if (dorun(Runnet0)) {
     if (mknet0()) return 1;
   }
 
@@ -835,7 +833,7 @@ int mknet(ub4 maxstop)
 
   net.maxstop = maxstop;
 
-  if (globs.nosteps || globs.doinit) {
+  if (dorun(Runnetn)) {
     for (nstop = 1; nstop <= maxstop; nstop++) {
       if (mknetn(nstop)) return 1;
       if (net.lstlen[nstop] == 0) {

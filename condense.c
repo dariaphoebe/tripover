@@ -104,7 +104,7 @@ static ub4 newport(struct port *dst,struct port *src,ub4 port)
 int condense(struct network *net)
 {
   ub4 port,portcnt,allportcnt = net->allportcnt;
-  ub4 fullportcnt,allport,macport;
+  ub4 fullportcnt,allport;
   ub4 hop,hopcnt,allhop,allhopcnt = net->allhopcnt;
   struct port *pp,*npp,*ports,*pparr,*ppdep,*parr,*pdep,*allports = net->allports;
   struct hop *hp,*ahp,*hops,*allhops = net->allhops;
@@ -114,12 +114,17 @@ int condense(struct network *net)
   ub4 dep,arr,ndep,narr,ndeparr,narrdep,ndepdep,narrarr,depndx,arrndx;
   ub4 allarr,alldep,cnt;
   ub4 minicnt,iv,latlo,lathi,lonlo,lonhi,lat2hi,lat2lo,lon2lo,lon2hi,macid,nloc,dlat,dlon;
-  int mini,change;
+  int mini,change,docondense;
 
-  if (allportcnt == 0 || allhopcnt == 0) return 1;
+  if (allportcnt == 0) return info0(0,"skip condense on 0 ports");
+  if (allhopcnt == 0) return info0(0,"skip condense on 0 hops");
 
-  if (allportcnt < 200) { // todo heuristic
+  docondense = dorun(Runcondense);
 
+  if (allportcnt < 200) docondense = 0;  // todo heuristic
+
+  if (docondense == 0) {
+    info(0,"no condense for %u ports",allportcnt);
     net->portcnt = allportcnt;
     net->hopcnt = allhopcnt;
     net->ports = allports;
@@ -460,7 +465,6 @@ int condense(struct network *net)
   info(0,"%u ports, %u full %u mini %u macro %u new",allportcnt,fullportcnt,minicnt,nmac,portcnt);
 
   ports = alloc(portcnt,struct port,0,"ports",portcnt);
-  npp = ports;
 
   all2full = alloc(allportcnt,ub4,0xff,"all2full",allportcnt);
 
@@ -470,7 +474,7 @@ int condense(struct network *net)
   info(0,"assigning %u+%u=%u ports",fullportcnt,nmac,portcnt);
 
   // full ports
-  macport = port = 0;
+  port = 0;
   for (allport = 0; allport < allportcnt; allport++) {  // full ports
     pp = allports + allport;
     if (pp->mini) continue;
@@ -553,7 +557,6 @@ int condense(struct network *net)
   info(0,"%u from %u hops",hopcnt,allhopcnt);
 
   hops = alloc(hopcnt,struct hop,0,"hops",hopcnt);
-  hp = hops;
 
   hop = 0;
 

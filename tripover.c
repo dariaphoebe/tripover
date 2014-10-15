@@ -54,6 +54,7 @@ static int init0(char *progname)
   info(User,"tripover %u.%u %s\n%s\n", Version_maj,Version_min,Version_phase,copyright);
 
   if (iniutil()) return 1;
+  if (inicfg()) return 1;
   initime();
   inimem();
   inios();
@@ -80,17 +81,17 @@ static int getbasenet(void)
   error_ovf(portcnt,ub2);
 
   if (*globs.netdir) {  // todo read compiled net
-    if (globs.nosteps || globs.doreadnet) {
+    if (dorun(Runread)) {
       rv = readextnet(basenet,globs.netdir);
       if (rv) return rv;
-      rv = prepnet(basenet);
+      if (dorun(Runprep)) rv = prepnet(basenet);
       return rv;
     } else return 0;
   }
   info(0,"generate random %u port %u hop net", globs.maxports, globs.maxhops);
   rv = mkrandnet(portcnt,hopcnt);
   if (rv) return rv;
-  rv = prepnet(basenet);
+  if (dorun(Runprep)) rv = prepnet(basenet);
 //  net2pdf(net);
   return rv;
 }
@@ -103,7 +104,7 @@ static int cmd_vrb(struct cmdval *cv) {
 }
 
 static int cmd_max(struct cmdval *cv) {
-  ub4 val = cv->uval | Cfgcl;
+  ub4 val = cv->uval | Cfgcl | Cfgdef;
 
   if (streq(cv->subarg,"ports")) globs.maxports = val;
   else if (streq(cv->subarg,"hops")) globs.maxhops = val;
@@ -127,16 +128,10 @@ static int cmd_cfg(struct cmdval *cv)
   return 0;
 }
 
-static int cmd_run(struct cmdval *cv)
+static int cmd_stopat(struct cmdval *cv)
 {
-  ub2 x = 0;
+  strcopy(globs.stopatstr, cv->sval);
 
-  globs.nosteps = 0;
-  if (strstr(cv->sval,"init")) x = globs.doinit = 1;
-  if (strstr(cv->sval,"server")) x = globs.doserver = 1;
-  if (strstr(cv->sval,"randnet")) x = globs.dorandnet = 1;
-  if (strstr(cv->sval,"readnet")) x = globs.doreadnet = 1;
-  if (x == 0) warning(0,"unrecognised run %s",cv->sval);
   return 0;
 }
 
@@ -152,7 +147,7 @@ static struct cmdarg cmdargs[] = {
   { "max-ports", "limit%u", "limit #ports", cmd_max },
   { "max-hops", "limit%u", "limit #hops", cmd_max },
   { "max-stops", "limit%u", "limit #stops", cmd_max },
-  { "run","steps","run the given steps only",cmd_run },
+  { "stopat|runto","stage","run only up to the given stage",cmd_stopat },
   { ".test-a", "test%u", "test", cmd_test },
   { ".test-b", "test%u", "test", cmd_test },
   { ".test-set", "test%u", "tests", cmd_test },
@@ -162,8 +157,6 @@ static struct cmdarg cmdargs[] = {
 
 int main(int argc, char *argv[])
 {
-  netbase *base;
-
   // temporary defaults
   globs.msglvl = Info;
   strcopy(globs.cfgfile,"tripover.cfg");
@@ -172,16 +165,15 @@ int main(int argc, char *argv[])
   setmsglvl(globs.msglvl,0);
   if (init0(argv[0])) return 1;
 
-  globs.nosteps = 1;
   if (cmdline(argc,argv,cmdargs)) return 1;
+  if (inicfgcl()) return 1;
 
   oslimits();
 
   if (readcfg(globs.cfgfile)) return 1;
-  writecfg("tripover.curcfg");
 
   if (getbasenet()) return 1;
-  base = getnetbase();
+
   if (mknet(globs.maxstops)) return 1;
 
   if (globs.testcnt > 1) {
@@ -203,7 +195,7 @@ int main(int argc, char *argv[])
     else info(0,"%u to %u : no trip\n",dep,arr);
   }
 
-  if (globs.nosteps || globs.doserver) {
+  if (dorun(Runserver)) {
     serverloop();
   }
 

@@ -65,6 +65,52 @@ void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln)
   else memcpy(dst,src,len);
 }
 
+int filecreate(const char *name)
+{
+  int fd = oscreate(name);
+  if (fd == -1) oserror(0,"cannot create %s",name);
+  return fd;
+}
+
+int filewrite(int fd, const void *buf,ub4 len,const char *name)
+{
+  long n;
+
+  if (len == 0) return error(0,"nil write to %s",name);
+  n = oswrite(fd,buf,len);
+  if (n == -1) return oserror(0,"cannot write \ah%u bytes to %s",len,name);
+  else if (n != (long)len) return error(0,"partial write \ah%ld of \ah%u bytes to %s",n,len,name);
+  else return 0;
+}
+
+int fileread(int fd,void *buf,ub4 len,const char *name)
+{
+  long n;
+
+  if (len == 0) return error(0,"nil read from %s",name);
+
+  n = osread(fd,buf,len);
+
+  if (n == -1) return oserror(0,"cannot read from %s",name);
+  else if (n  == 0) return error(0,"eof on reading \ah%u bytes from %s",len,name);
+  else if (n != (long)len) return error(0,"partial read \ah%ld of \ah%u bytes from %s",n,len,name);
+  else return 0;
+}
+
+int fileclose(int fd,const char *name)
+{
+  int rv = osclose(fd);
+  if (rv) oserror(0,"cannot close %s",name);
+  return rv;
+}
+
+int dorun(enum Runlvl stage)
+{
+  if (stage >= globs.stopat) return 0;
+  else if (stage >= Runcnt) return 1;
+  else return globs.doruns[stage];
+}
+
 int readfile(struct myfile *mf,const char *name, int mustexist)
 {
   int fd = osopen(name);
@@ -352,6 +398,8 @@ int iniutil(void)
 {
   msgfile = setmsgfile(__FILE__);
   iniassert();
+
+  memset(globs.doruns,1,Runcnt);
 
   return 0;
 }
