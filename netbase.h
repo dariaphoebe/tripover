@@ -38,9 +38,9 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-enum txkind { Unknown, Air,Rail,Bus,Walk };
+#define Netbase_inc
 
-#define Portlinks 2
+enum txkind { Unknown,Air,Rail,Bus,Walk };
 
 struct portbase {
   ub4 magic;
@@ -74,6 +74,7 @@ struct hopbase {
   enum txkind kind;
 
   ub4 dep,arr;
+  ub4 routeid;
 
   ub4 dist;
 
@@ -165,6 +166,7 @@ struct networkbase {
   ub4 *id2ports;          // [maxid]
   ub4 *id2hops;          // [maxid]
   ub4 maxportid;
+  ub4 maxrouteid;
 
   datetime *gomaps;
   sb2 *faremaps;

@@ -40,7 +40,7 @@ int prepnet(netbase *basenet)
   struct port *ports,*pdep,*parr,*pp;
   struct hop *hops,*hp;
   ub4 portcnt,hopcnt,dep,arr,ndep,narr,nodep,noarr,nodeparr,nudep,nuarr;
-  ub4 nlen,n;
+  ub4 nlen,n,rid;
   enum txkind kind;
   ub4 hop,port;
 
@@ -81,17 +81,22 @@ int prepnet(netbase *basenet)
     }
     dep = bhp->dep;
     arr = bhp->arr;
+    rid = bhp->routeid;
+
     hp->dep = dep;
     hp->arr = arr;
+    hp->routeid = rid;
+
     pdep = ports + dep;
     parr = ports + arr;
 
     kind = bhp->kind;
+    hp->kind = kind;
     switch(kind) {
-    case Walk: hp->walk = 1; pdep->nwalkdep++; parr->nwalkarr++; break;
-    case Air: hp->air = 1; break;
-    case Rail: hp->rail = 1; break;
-    case Bus: hp->bus = 1; break;
+    case Walk: pdep->nwalkdep++; parr->nwalkarr++; break;
+    case Air: break;
+    case Rail: break;
+    case Bus: break;
     case Unknown: info(0,"hop %s has unknown transport mode", hp->name); break;
     }
 
@@ -101,6 +106,8 @@ int prepnet(netbase *basenet)
   net->allhopcnt = hopcnt;
   net->allports = ports;
   net->allhops = hops;
+
+  net->maxrouteid = basenet->maxrouteid;
 
 // mark local links
 
@@ -119,7 +126,7 @@ int prepnet(netbase *basenet)
     pdep->ndep = ndep+1;
     parr->narr = narr+1;
 
-    if (hp->walk) continue;
+    if (hp->kind == Walk) continue;
 
     nudep = pdep->nudep;
     nuarr = parr->nuarr;

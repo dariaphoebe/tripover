@@ -16,6 +16,10 @@
 #define Nterm 4
 #define Nstop 8
 
+#ifndef Netbase_inc
+  enum txkind { Unknown,Air,Rail,Bus,Walk };
+#endif
+
 struct port {
   ub4 magic;
   ub4 id;      // index in net.ports
@@ -66,9 +70,10 @@ struct hop {
   ub4 namelen;
 //  struct gname name;
 
-  ub2 walk,rail,bus,air;
+  enum txkind kind;
 
   ub4 dep,arr;
+  ub4 routeid,rid;
 
   ub4 dist;
 };
@@ -76,8 +81,16 @@ struct hop {
 struct route {
   ub4 magic;
   ub4 id;
-  struct routebase *base;
-  // todo
+
+  enum txkind kind;
+
+  ub4 routeid;
+  ub4 portcnt;
+  ub4 hopcnt;
+
+  ub4 dtermport,atermport; // terminus
+
+  // rest todo
 };
 
 struct carrier {
@@ -134,6 +147,8 @@ struct network {
   ub4 *con0ofs;    // [port2]  offsets in lst
 
   ub4 maxstop;     // 
+
+  ub4 maxrouteid;
 
   size_t needconn;    // final required any-stop connectivity
 

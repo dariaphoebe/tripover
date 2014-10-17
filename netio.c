@@ -395,8 +395,8 @@ static int rdexthops(netbase *net,const char *dir)
   enum states state;
   int rv,newhop;
   char *buf,*p,*end,c,tab,nl;
-  ub4 len,linno,colno,x,val,namelen,valndx,id,idhi,maxid;
-  ub4 depid,arrid,dep,arr,rtype;
+  ub4 len,linno,colno,x,val,namelen,valndx,id,idhi,maxid,maxrid;
+  ub4 depid,arrid,dep,arr,rtype,routeid;
   char name[Maxname];
   ub4 vals[Maxval];
   ub4 namemax = min(Maxname,sizeof(hops->name)) - 1;
@@ -420,7 +420,7 @@ static int rdexthops(netbase *net,const char *dir)
   maxportid = net->maxportid;
 
   state = Out;
-  namelen = val = valndx = id = idhi = maxid = 0;
+  namelen = val = valndx = id = idhi = maxid = maxrid = 0;
   newhop = 0;
 
   colno = 0;
@@ -527,6 +527,11 @@ static int rdexthops(netbase *net,const char *dir)
       depid = vals[1];
       arrid = vals[2];
       rtype = vals[3];
+      if (valndx > 4) {
+        routeid = vals[4];
+        maxrid = max(maxrid,routeid);
+      } else routeid = hi32;
+
 //      info(0,"vals %u %u %u",vals[0],depid,arrid);
       if (depid == arrid) return parserr(fname,linno,colno,"dep id %u equal to arr id",depid);
       if (depid > maxportid) return parserr(fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
@@ -539,11 +544,12 @@ static int rdexthops(netbase *net,const char *dir)
       hp->dep = dep;
       hp->arr = arr;
       switch(rtype) {
-      case Rtype_walk: hp->kind = Walk;break;
+      case Rtype_walk: hp->kind = Walk; routeid = hi32; break;
       case 0:case 1:case 2: hp->kind = Rail; break;
       case 3: hp->kind = Bus; break;
       default: hp->kind = Unknown;
       }
+      hp->routeid = routeid;
       hp->namelen = namelen;
       memcopy(hp->name,name,namelen);
       maxid = max(maxid,id);
@@ -554,7 +560,7 @@ static int rdexthops(netbase *net,const char *dir)
 
   ub4 hop,*id2hops;
 
-  if (maxid > 100 * 1000 * 1000) warning(0,"max port id %u",maxid);
+  if (maxid > 100 * 1000 * 1000) warning(0,"max hop id %u",maxid);
   id2hops = alloc(maxid+1,ub4,0xff,"id2port",maxid);
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
@@ -567,6 +573,7 @@ static int rdexthops(netbase *net,const char *dir)
   info(0,"read %u hops from %s", hopcnt, fname);
   net->hopcnt = hopcnt;
   net->hops = hops;
+  net->maxrouteid = maxrid;
 
   return 0;
 }

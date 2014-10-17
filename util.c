@@ -106,6 +106,7 @@ int fileclose(int fd,const char *name)
 
 int dorun(enum Runlvl stage)
 {
+  info(0,"dorun stage %u stopat %u",stage, globs.stopat);
   if (stage >= globs.stopat) return 0;
   else if (stage >= Runcnt) return 1;
   else return globs.doruns[stage];

@@ -35,6 +35,7 @@ static ub4 msgfile;
 #include "netio.h"
 #include "netprep.h"
 #include "condense.h"
+#include "compound.h"
 #include "search.h"
 
 struct globs globs;
@@ -65,6 +66,7 @@ static int init0(char *progname)
   ininetio();
   ininetprep();
   inicondense();
+  inicompound();
   inisearch();
 
   return 0;

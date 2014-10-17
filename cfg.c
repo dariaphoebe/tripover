@@ -43,6 +43,7 @@ int inicfg(void)
   lvlnames[Runmknet] = "mknet";
   lvlnames[Runnet0] = "mknet0";
   lvlnames[Runcondense] = "condense";
+  lvlnames[Runcompound] = "compound";
   lvlnames[Runnetn] = "mknetn";
   lvlnames[Runserver] = "server";
   lvlnames[Runcnt] = "end";

@@ -1,4 +1,4 @@
-// condense.h - make network more dense
+// compound.h - create compound hops from routes
 
 /*
    This file is part of Tripover, a broad-search journey planner.
@@ -9,5 +9,5 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-extern void inicondense(void);
-extern int condense(struct network *net);
+extern void inicompound(void);
+extern int compound(struct network *net);

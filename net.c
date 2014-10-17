@@ -42,6 +42,7 @@ static ub4 msgfile;
 #include "bitfields.h"
 #include "net.h"
 #include "condense.h"
+#include "compound.h"
 
 #undef hdrstop
 
@@ -79,7 +80,7 @@ static int mknet0(void)
   ub4 dist,*dist0,*hopdist;
   ub4 geohist[Geohist];
   double fdist;
-  ub4 dep,arr,port2,da,depcnt,arrcnt,needconn,watch;
+  ub4 dep,arr,port2,da,depcnt,arrcnt,needconn,haveconn,watch;
   ub2 iv;
   ub4 depstats[16];
   ub4 arrstats[16];
@@ -143,8 +144,12 @@ static int mknet0(void)
     portsbyhop[hop * 2 + 1] = arr;
     da = dep * portcnt + arr;
     concnt = con0cnt[da];
-    if (concnt == hi16-1) ovfcnt++;
-    else con0cnt[da] = (ub2)(concnt+1);
+    if (concnt == hi16-1) {
+      dport = ports + dep;
+      aport = ports + arr;
+      info(0,"connect overflow port %u-%u %s to %s",dep,arr,dport->name,aport->name);
+      ovfcnt++;
+    } else con0cnt[da] = (ub2)(concnt+1);
     dist = dist0[da];
 //    error_z(dist,hop);
     hp->dist = dist;
@@ -153,24 +158,26 @@ static int mknet0(void)
   if (ovfcnt) warning(0,"limiting 0-stop net by \ah%u",ovfcnt);
 
   ofs = 0;
-  needconn = 0;
+  needconn = haveconn = 0;
   for (dep = 0; dep < portcnt; dep++) {
 
     progress(&eta,"port %u of %u in pass 2 0-stop %u hop net",dep,portcnt,hopcnt);
 
     dport = ports + dep;
-    if (dport->ndep == 0) continue;
+//    if (dport->ndep == 0) continue;
 
     for (arr = 0; arr < portcnt; arr++) {
       if (dep == arr) continue;
       aport = ports + arr;
-      if (aport->narr == 0) continue;
+//      if (aport->narr == 0) continue;
 
       needconn++;
 
       da = dep * portcnt + arr;
       concnt = con0cnt[da];
       if (concnt == 0) continue;
+
+      haveconn++;
 
       con0ofs[da] = ofs;
       gen = 0;
@@ -191,6 +198,7 @@ static int mknet0(void)
     }
   }
   net.lstlen[0] = ofs;
+  info(0,"\ah%u of \ah%u connections",haveconn,needconn);
 
   // get connectivity stats
   aclear(depstats);
@@ -202,7 +210,7 @@ static int mknet0(void)
       depcnt += con0cnt[dep * portcnt + arr];
       error_ovf(depcnt,ub2);
     }
-    error_ne(depcnt,ports[dep].ndep);
+//    error_ne(depcnt,ports[dep].ndep);
     depstats[min(depivs,depcnt)]++;
   }
   for (iv = 0; iv <= depivs; iv++) info(0,"%u ports with %u departures", depstats[iv], iv);
@@ -216,7 +224,7 @@ static int mknet0(void)
       arrcnt += con0cnt[dep * portcnt + arr];
       error_ovf(arrcnt,ub2);
     }
-    error_ne(arrcnt,ports[arr].narr);
+//    error_ne(arrcnt,ports[arr].narr);
     arrstats[min(arrivs,arrcnt)]++;
   }
   for (iv = 0; iv <= arrivs; iv++) info(0,"%u ports with %u arrivals", arrstats[iv], iv);
@@ -823,6 +831,9 @@ int mknet(ub4 maxstop)
   if (allhopcnt == 0) return info0(0,"skip mknet on 0 hops");
 
   rv = condense(&net);
+  if (rv) return 1;
+
+  rv = compound(&net);
   if (rv) return 1;
 
   if (dorun(Runnet0)) {

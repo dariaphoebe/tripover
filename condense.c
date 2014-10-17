@@ -100,7 +100,7 @@ static ub4 newport(struct port *dst,struct port *src,ub4 port)
   return port + 1;
 }
 
-// create condensed net out of base net
+// create condensed net out of full net
 int condense(struct network *net)
 {
   ub4 port,portcnt,allportcnt = net->allportcnt;
@@ -266,7 +266,7 @@ int condense(struct network *net)
       if (pp->nwalkdep) {
         for (hop = 0; hop < allhopcnt; hop++) {
           hp = allhops + hop;
-          if (hp->walk == 1 && hp->dep == port) {
+          if (hp->kind == Walk && hp->dep == port) {
             arr = hp->arr;
             pparr = allports + arr;
             if (pparr->mini) {
@@ -286,7 +286,7 @@ int condense(struct network *net)
       if (macid == hi32 && pp->nwalkarr) {
         for (hop = 0; hop < allhopcnt; hop++) {
           hp = allhops + hop;
-          if (hp->walk == 1 && hp->arr == port) {
+          if (hp->kind == Walk && hp->arr == port) {
             dep = hp->dep;
             ppdep = allports + dep;
             if (ppdep->mini) {
