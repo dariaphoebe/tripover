@@ -22,7 +22,7 @@ local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
 my $version_min = 11;
-my $lastchanged = "17 oct 2014";
+my $lastchanged = "19 oct 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -69,21 +69,8 @@ sub usage()
   info("import <indir> [outdir] import gtfs into tripover");
 }
 
-sub showvers($)
-{
-  my ($full) = @_;
-
-  info("Tripover gtfs tool version $version_maj.$version_min");
-  info("last changed $lastchanged") if $full; 
-  info("$copyright\n");
-}
-
-sub init()
-{
-}
-
+# these are written as options to ext output
 my $rtype_walk = 1699;
-
 my $maxvariant = 32;
 
 # use integer codes for fields
@@ -170,6 +157,19 @@ sub inarray($@) {
 
   foreach my $b (@arr) { return 1 if $a eq $b; }
   return 0;
+}
+
+sub showvers($)
+{
+  my ($full) = @_;
+
+  info("Tripover gtfs tool version $version_maj.$version_min");
+  info("last changed $lastchanged") if $full; 
+  info("$copyright\n");
+}
+
+sub init()
+{
 }
 
 sub readstops($)
@@ -1030,6 +1030,9 @@ sub writext($$)
   printf($hopfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($hopfile "# %u hops from %s/stoptimes.txt\n\n",$hopcnt,$indir);
 
+  printf($hopfile ".variants\t%x\t0\t0\t0\t0\t# possible route variants\n\n",$maxvariant);
+  printf($hopfile ".walk_id\t%x\t0\t0\t0\t0\t# route ID for inferred walk\n",$rtype_walk);
+
   print($hopfile "# routename\tID\tfrom\tto\ttype\tid\t# from-name to-name\n\n");
 
   my ($mark);
@@ -1052,6 +1055,7 @@ sub writext($$)
 #    info("$dep $arr $route");
     $rtype = $rtypes{$rid};
     $mark = ($rid eq $walkroute) ? 'walk ' : '';
+    $route = '.' . $route if (substr($route,0,1) eq '.');
     printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x\t# %s%s to %s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$mark,$depname,$arrname);
   }
   return 1;

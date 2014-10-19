@@ -40,9 +40,10 @@ int prepnet(netbase *basenet)
   struct port *ports,*pdep,*parr,*pp;
   struct hop *hops,*hp;
   ub4 portcnt,hopcnt,dep,arr,ndep,narr,nodep,noarr,nodeparr,nudep,nuarr;
-  ub4 nlen,n,rid;
+  ub4 nlen,n,routeid;
   enum txkind kind;
   ub4 hop,port;
+  ub4 variants,varmask;
 
   hopcnt = basenet->hopcnt;
   portcnt = basenet->portcnt;
@@ -81,11 +82,11 @@ int prepnet(netbase *basenet)
     }
     dep = bhp->dep;
     arr = bhp->arr;
-    rid = bhp->routeid;
+    routeid = bhp->routeid;
 
     hp->dep = dep;
     hp->arr = arr;
-    hp->routeid = rid;
+    hp->routeid = routeid;
 
     pdep = ports + dep;
     parr = ports + arr;
@@ -108,8 +109,11 @@ int prepnet(netbase *basenet)
   net->allhops = hops;
 
   net->maxrouteid = basenet->maxrouteid;
+  net->maxvariants = variants = basenet->maxvariants;
+  net->routevarmask = varmask = basenet->routevarmask;
 
 // mark local links
+  ub4 undx,nvdep,nvarr,nveq;
 
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
@@ -128,20 +132,40 @@ int prepnet(netbase *basenet)
 
     if (hp->kind == Walk) continue;
 
+    routeid = hp->routeid;
+
     nudep = pdep->nudep;
+    nvdep = pdep->nvdep;
     nuarr = parr->nuarr;
-    switch(nudep) {
-    case 0: pdep->deps[0] = arr; pdep->nudep = 1; break;
-    case 1: if (pdep->deps[0] != arr) { pdep->deps[1] = arr; pdep->nudep = 2; } break;
-    case 2: if (pdep->deps[0] != arr && pdep->deps[1] != arr) pdep->nudep = 3; break;
-    default: pdep->nudep = nudep + 1; break; // tentative
+    nvarr = parr->nvarr;
+
+    if (nudep == 0) {
+      pdep->deps[0] = arr; pdep->nudep = pdep->nvdep = 1; pdep->drids[0] = routeid;
+    } else if (nudep < Nlocal) {
+      undx = nveq = 0;
+      while (undx < nudep && pdep->deps[undx] != arr) {
+        if (routeid != hi32 && (routeid & varmask) == (pdep->drids[undx++] & varmask) ) nveq = 1;
+      }
+      if (undx == nudep) {
+        pdep->deps[undx] = arr; pdep->nudep = undx + 1;
+        pdep->drids[undx] = routeid;
+        if (nveq == 0 || routeid == hi32) pdep->nvdep = nvdep + 1;
+      }
     }
-    switch(nuarr) {
-    case 0: parr->arrs[0] = dep; parr->nuarr = 1; break;
-    case 1: if (parr->arrs[0] != dep) { parr->arrs[1] = dep; parr->nuarr = 2; } break;
-    case 2: if (parr->arrs[0] != dep && parr->arrs[1] != dep) parr->nuarr = 3; break;
-    default: parr->nuarr = nuarr + 1; break; // tentative
+    if (nuarr == 0) {
+      parr->arrs[0] = dep; parr->nuarr = parr->nvarr = 1; parr->arids[0] = routeid;
+    } else if (nuarr < Nlocal) {
+      undx = nveq = 0;
+      while (undx < nuarr && parr->arrs[undx] != dep) {
+        if (routeid != hi32 && (routeid & varmask) == (parr->arids[undx++] & varmask) ) nveq = 1;
+      }
+      if (undx == nuarr) {
+        parr->arrs[undx] = dep; parr->nuarr = undx + 1;
+        parr->arids[undx] = routeid;
+        if (nveq == 0 || routeid == hi32) parr->nvarr = nvarr + 1;
+      }
     }
+
   }
   nodep = noarr = nodeparr = 0;
 

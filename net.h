@@ -13,12 +13,11 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-#define Nterm 4
-#define Nstop 8
-
 #ifndef Netbase_inc
   enum txkind { Unknown,Air,Rail,Bus,Walk };
 #endif
+
+#define Nlocal 4
 
 struct port {
   ub4 magic;
@@ -50,15 +49,16 @@ struct port {
 
   ub4 macbox[4]; // latlon of mimi members
 
-  ub4 ndep,narr,nudep,nuarr;   // generic connectivity info
+  ub4 ndep,narr,nudep,nuarr,nvdep,nvarr;   // generic connectivity info
   ub4 nwalkdep,nwalkarr;
 
-  ub4 deps[2];     // store small net locally
-  ub4 arrs[2];
+  ub4 deps[Nlocal];     // store small net locally
+  ub4 arrs[Nlocal];
+  ub4 drids[Nlocal];
+  ub4 arids[Nlocal];
 
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
 
-  ub4 terms[Nterm];  // terminal or transfer port 
   ub2 depcnts[Nstop];
 };
 
@@ -149,6 +149,8 @@ struct network {
   ub4 maxstop;     // 
 
   ub4 maxrouteid;
+
+  ub4 maxvariants,routevarmask;
 
   size_t needconn;    // final required any-stop connectivity
 

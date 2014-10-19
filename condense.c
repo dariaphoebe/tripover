@@ -73,18 +73,6 @@ void inicondense(void)
   iniassert();
 }
 
-static int nolink(struct port *pdep,struct port *parr,ub4 arr)
-{
-  if (pdep->ndep == 0 || parr->narr == 0) { info(0,"ndep %u narr %u",pdep->ndep,parr->narr); return 1; }
-
-  if (pdep->nudep == 1) {
-    if (pdep->deps[0] != arr) vrb(0,"arr %u != %u ",pdep->deps[0],arr);
-    return (pdep->deps[0] != arr);
-  }
-  if (pdep->deps[0] != arr && pdep->deps[1] != arr) vrb(0,"arr %u %u not %u",pdep->deps[0],pdep->deps[1],arr);
-  return (pdep->deps[0] != arr && pdep->deps[1] != arr);
-}
-
 static ub4 newhop(struct hop *dst,struct hop *src,ub4 hop,ub4 dep,ub4 arr)
 {
   *dst = *src;
@@ -100,6 +88,13 @@ static ub4 newport(struct port *dst,struct port *src,ub4 port)
   return port + 1;
 }
 
+// todo: from config and conditional/relative
+static int offrange(ub8 dlat,ub8 dlon)
+{
+  ub8 dsquare = dlat * dlat + dlon * dlon;
+  return dsquare > 1000000;
+}
+
 // create condensed net out of full net
 int condense(struct network *net)
 {
@@ -111,10 +106,12 @@ int condense(struct network *net)
   ub4 *macports,*macseqs,*all2full,*mac2port,*all2mac;
   ub4 *minilst;
   ub4 nmac,macsize,macseq,mergeiter,merged,miniofs,miniport;
-  ub4 dep,arr,ndep,narr,ndeparr,narrdep,ndepdep,narrarr,depndx,arrndx;
+  ub4 dep,arr,ndep,narr,nvdep,nvarr,depndx,arrndx;
   ub4 allarr,alldep,cnt;
-  ub4 minicnt,iv,latlo,lathi,lonlo,lonhi,lat2hi,lat2lo,lon2lo,lon2hi,macid,nloc,dlat,dlon;
-  int mini,change,docondense;
+  ub4 routeid;
+  ub4 varmask = net->routevarmask,maxvariant = net->maxvariants;
+  ub4 minicnt,iv,latlo,lathi,lonlo,lonhi,lat2hi,lat2lo,lon2lo,lon2hi,macid,dlat,dlon;
+  int change,docondense;
 
   if (allportcnt == 0) return info0(0,"skip condense on 0 ports");
   if (allhopcnt == 0) return info0(0,"skip condense on 0 hops");
@@ -134,6 +131,8 @@ int condense(struct network *net)
 
   info(0,"condensing %u ports",allportcnt);
 
+  info(0,"%u possible variants, mask %x", maxvariant,varmask);
+
   for (port = 0; port < allportcnt; port++) {
     pp = allports + port;
     pp->macid = port;
@@ -143,9 +142,6 @@ int condense(struct network *net)
 
 // condense into mini, full and macro ports
   minicnt = 0;
-
-  ub4 nominis[8];
-  aclear(nominis);
 
 // part 1: cluster on inferred walk links
 // gtfs feeds group platform stops into parent stations 
@@ -162,9 +158,10 @@ int condense(struct network *net)
   }
   info(0,"pass 1: %u of %u miniports",minicnt,allportcnt);
 
+  ub4 nominis[8];
+  ub4 okminis[8];
   aclear(nominis);
-
-  nloc = Elemcnt(pp->deps);
+  aclear(okminis);
 
 // part 2 : a-b-c-d where b and c only connect to each other and a or d
   for (port = 0; port < allportcnt; port++) {
@@ -175,75 +172,60 @@ int condense(struct network *net)
 
     ndep = pp->nudep;
     narr = pp->nuarr;
-    if (ndep > 2 || narr > 2) { nominis[0]++; continue; }
+    nvdep = pp->nvdep;
+    nvarr = pp->nvarr;
 
-    mini = 1;
-    for (depndx = 0; depndx < min(ndep,nloc); depndx++) {
-      dep = pp->deps[depndx];
-      error_ge(dep,allportcnt);
-
-      // mini only if connecting to mini ?
-      parr = allports + dep;
-      narrdep = parr->nudep;
-      if (narrdep > 2) { mini = 0; nominis[1]++; break; }
-      narrarr = parr->nuarr;
-      if (narrarr > 2) { mini = 0; nominis[2]++; break; }
-      error_z(narrarr,dep);
-
-      // sanity check
-      if (parr->arrs[0] != port && (narrarr == 1 || parr->arrs[1] != port)) {
-        warning(0,"port %u-%u not in local net",port,dep);
-        mini = 0;
-        break;
-      }
-
-      // a to b and b to a
-      if (ndep > 1 && nolink(parr,pp,port)) {
-        vrb(Iter,"hop %u-%u does not link back on dep %s for %u-%u links",port,dep,pp->name,pp->nudep,pp->nuarr);
-        mini = 0;
-        nominis[3]++;
-        break;
-      }
+    if (ndep == 0 && narr == 0) {
+      warning(0,"port %u %s is not connected",port,pp->name);
+      continue;
+    } else if (nvdep == 0 && nvarr == 0) {
+      nominis[0]++;
+      continue;
     }
-    if (mini == 0) continue;
 
-    for (arrndx = 0; arrndx < min(narr,nloc); arrndx++) {
-      arr = pp->arrs[arrndx];
-      error_ge(arr,allportcnt);
-
-      // mini only if connecting to mini ?
-      pdep = allports + arr;
-      ndeparr = pdep->nuarr;
-      if (ndeparr > 2) { mini = 0; nominis[4]++; break; }
-      ndepdep = pdep->nudep;
-      if (ndepdep > 2) { mini = 0; nominis[5]++; break; }
-      error_z(ndepdep,arr);
-
-      // sanity check
-      if (pdep->deps[0] != port && (ndepdep == 1 || pdep->deps[1] != port)) {
-        warning(0,"port %u-%u not in local net",port,arr);
-        mini = 0;
-        break;
-      }
-
-      // a to b and b to a
-      if (narr > 1 && nolink(pp,pdep,arr)) {
-        vrb(Iter,"hop %u-%u does not link back on arr",arr,port);
-        nominis[6]++;
-        mini = 0;
-        break;
-      }
+    if (nvdep == 0 && nvarr == 1) { // e.g. term or unidir
+      okminis[0]++;
+      pp->mini = 1;
+      continue;
+    } else if (nvdep == 1 && nvarr == 0) { // e.g term or unidir
+      okminis[1]++;
+      pp->mini = 1;
+      continue;
+    } else if (nvdep == 1 && nvarr == 1) { // bidir route
+      if ( (pp->drids[0] & varmask) == (pp->arids[0] & varmask) ) {
+        okminis[2]++;
+        pp->mini = 1;
+        continue;
+      } else nominis[0]++;
+    } else if (nvdep == 2 && nvarr == 2) {
+      nominis[1]++;
+      continue;
+    } else if (nvdep == 2 && nvarr == 1) {
+      nominis[2]++;
+      continue;
+    } else if (nvdep == 1 && nvarr == 2) {
+      nominis[3]++;
+      continue;
+    } else {
+      nominis[4]++;
+      continue;
     }
-    if (mini == 0) continue;
 
-    pp->mini = 1;
-    pp->macid = hi32;
-    minicnt++;
+  }
+
+  minicnt = 0;
+  for (port = 0; port < allportcnt; port++) {
+    pp = allports + port;
+    if (pp->mini) {
+      pp->macid = hi32;
+      minicnt++;
+    }
   }
   info(0,"pass 2: %u of %u miniports",minicnt,allportcnt);
+  for (iv = 0; iv < Elemcnt(okminis); iv++) info(0,"okmini on %u: %u",iv,okminis[iv]);
   for (iv = 0; iv < Elemcnt(nominis); iv++) info(0,"nomini on %u: %u",iv,nominis[iv]);
 
-  ub4 diffminis[4];
+  ub4 diffminis[8];
   aclear(diffminis);
 
   macseq = 0;
@@ -315,19 +297,23 @@ int condense(struct network *net)
       // todo: use schedule time
 
       depndx = 0;
-      while (depndx < min(ndep,nloc)) {
-        dep = pp->deps[depndx++];
+      while (depndx < ndep && change == 0) {
+        dep = pp->deps[depndx];
+        routeid = pp->drids[depndx];
+        depndx++;
+        if (routeid == hi32) { diffminis[0]++; continue; }
+
         error_eq(dep,port);
         pparr = allports + dep;
 
-        if (pparr->mini == 0) { diffminis[0]++; continue; }
+        if (pparr->mini == 0) { diffminis[1]++; continue; }
 
         lat2lo = pparr->macbox[0]; lat2hi = pparr->macbox[1];
         lon2lo = pparr->macbox[2]; lon2hi = pparr->macbox[3];
 
         dlat = max(lathi,lat2hi) - min(latlo,lat2lo);
         dlon = max(lonhi,lon2hi) - min(lonlo,lon2lo);
-        if (dlat > 400 || dlon > 400) { diffminis[1]++; continue; }
+        if (offrange(dlat,dlon)) { diffminis[2]++; continue; }
 
         macid = pparr->macid;
 
@@ -340,36 +326,40 @@ int condense(struct network *net)
         pp->macbox[1] = pparr->macbox[1] = max(lathi,lat2hi);
         pp->macbox[2] = pparr->macbox[2] = min(lonlo,lon2lo);
         pp->macbox[3] = pparr->macbox[3] = max(lonhi,lon2hi);
+        depndx++;
         change = 1;
       }
+      if (change) continue;
+      else diffminis[3]++;
+
       pparr = NULL;
 
       arrndx = 0;
-      while (arrndx < min(narr,nloc)) {
-        arr = pp->arrs[arrndx++];
+      while (arrndx < narr) {
+        arr = pp->arrs[arrndx];
         error_eq(arr,port);
 
+        routeid = pp->arids[arrndx];
+        arrndx++;
+        if (routeid == hi32) { diffminis[3]++; continue; }
+
         ppdep = allports + arr;
-        if (ppdep->mini == 0) { diffminis[2]++; continue; }
+        if (ppdep->mini == 0) { diffminis[4]++; continue; }
 
         lat2lo = ppdep->macbox[0]; lat2hi = ppdep->macbox[1];
         lon2lo = ppdep->macbox[2]; lon2hi = ppdep->macbox[3];
 
         dlat = max(lathi,lat2hi) - min(latlo,lat2lo);
         dlon = max(lonhi,lon2hi) - min(lonlo,lon2lo);
-        if (dlat > 400 || dlon > 400) { diffminis[3]++; continue; }
+        if (offrange(dlat,dlon)) { diffminis[5]++; continue; }
 
-        if (macid == hi32 && ppdep->macid == hi32) {
+        macid = ppdep->macid;
+        if (macid == hi32) {
           macid = macseq++;
-          ppdep->macid = pp->macid = macid;
-        } else if (macid == hi32 && ppdep->macid != hi32) {
-          pp->macid = ppdep->macid;
-        } else if (macid != hi32 && ppdep->macid == hi32) {
-          ppdep->macid = macid;
-        } else {
-          vrb(0,"port %u arr %u merge on mac %u and %u",port,arr,macid,ppdep->macid);
           ppdep->macid = macid;
         }
+        pp->macid = macid;
+
         pp->macbox[0] = ppdep->macbox[0] = min(latlo,lat2lo);
         pp->macbox[1] = ppdep->macbox[1] = max(lathi,lat2hi);
         pp->macbox[2] = ppdep->macbox[2] = min(lonlo,lon2lo);
@@ -381,14 +371,17 @@ int condense(struct network *net)
       if (change) {
         vrb(0,"change at macid %u port %u",macid,port);
         merged++;
-      }
+      } else { diffminis[6]++; continue; }
 
     } // each allport
 
-    info(0,"miniport merge iteration %u merged %u",mergeiter,merged);
+    vrb(0,"miniport merge iteration %u merged %u",mergeiter,merged);
 
-  } while (change && mergeiter < 1000);
+  } while (change && mergeiter < 10000);
+  info(0,"tentative %u macros",macseq);
   for (iv = 0; iv < Elemcnt(diffminis); iv++) info(0,"diffmini on %u: %u",iv,diffminis[iv]);
+
+  ub4 onemini = 0;
 
   // cancel single minis
   minicnt = 0;
@@ -398,10 +391,11 @@ int condense(struct network *net)
     if (pp->mini) {
       if (pp->macid == hi32) {
         pp->mini = 0;
+        onemini++;
       } else minicnt++;
     }
   }
-  info(0,"%u of %u miniports",minicnt,allportcnt);
+  info(0,"%u of %u miniports, %u single",minicnt,allportcnt,onemini);
 
   info(0,"miniport merge took %u iterations",mergeiter);
 

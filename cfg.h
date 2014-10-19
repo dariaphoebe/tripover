@@ -15,7 +15,10 @@
 // compile-time limits: practical
 #define Portcnt (1024 * 64 - 2)
 
-#define Stopcnt 16
+// search limits: practical
+
+// max stops aka transfers supported
+#define Nstop 8
 
 #define Nvia 16
 

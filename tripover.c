@@ -201,5 +201,7 @@ int main(int argc, char *argv[])
     serverloop();
   }
 
+  eximsg();
+
   return 0;
 }

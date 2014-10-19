@@ -168,6 +168,8 @@ struct networkbase {
   ub4 maxportid;
   ub4 maxrouteid;
 
+  ub4 maxvariants,routevarmask;
+
   datetime *gomaps;
   sb2 *faremaps;
 };

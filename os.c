@@ -316,7 +316,7 @@ static int rlimit(int res,rlim_t lim,const char *desc)
 
   if (getrlimit(res,&rlim)) return oserror(0,"cannot get resource limit for %s",desc);
 
-  rlim.rlim_cur = lim;
+  rlim.rlim_cur = min(lim,rlim.rlim_max);
   if (setrlimit(res,&rlim)) return oserror(0,"cannot set resource limit for %s",desc);
   return info(0,"resource limit for %s set to \ah%lu",desc,lim);
 }

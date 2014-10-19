@@ -48,6 +48,8 @@ static ub4 vrblvl = 2;
 static ub4 msgopts;
 static int msg_fd = 2;
 
+static ub4 warncnt,errcnt;
+
 static const char msgnames[Msglvl_last] = "XFAEWIV";
 static const char *msgnames_long[Msglvl_last] = {
   "X",
@@ -62,6 +64,8 @@ static const char *msgnames_long[Msglvl_last] = {
 static char msgbuf[MSGLEN];
 static char ccbuf[MSGLEN];
 static char ccbuf2[MSGLEN];
+static char lastwarn[MSGLEN];
+static char lasterr[MSGLEN];
 static ub4 cclen,ccfln;
 
 static ub4 oserrcnt;
@@ -500,6 +504,8 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert\n  ");
   pos += vsnprint(msgbuf, pos, maxlen, fmt, ap);
   pos = min(pos,maxlen-1);
+  if (lvl == Warn) memcpy(lastwarn,msgbuf,pos);
+  else if (lvl < Warn) memcpy(lasterr,msgbuf,pos);
   msgbuf[pos++] = '\n';
   msgwrite(msgbuf, pos);
   if ( (opts & Msg_ccerr) && lvl <= Warn && msg_fd != 2) myttywrite(msgbuf,pos);
@@ -572,6 +578,7 @@ int __attribute__ ((format (printf,3,4))) warningfln(ub4 line, ub4 code, const c
   va_list ap;
 
   msginfo(line);
+  warncnt++;
   if (msglvl < Warn) return 0;
   va_start(ap, fmt);
   msg(Warn, 0, line, code, fmt, ap);
@@ -583,6 +590,8 @@ int __attribute__ ((format (printf,3,4))) errorfln(ub4 line, ub4 code, const cha
 {
   va_list ap;
 
+  errcnt++;
+
   va_start(ap, fmt);
   msg(Error, 0, line, code, fmt, ap);
   va_end(ap);
@@ -593,6 +602,8 @@ int __attribute__ ((format (printf,3,4))) errorfln(ub4 line, ub4 code, const cha
 int __attribute__ ((format (printf,3,4))) assertfln(ub4 line, ub4 code, const char *fmt, ...)
 {
   va_list ap;
+
+  errcnt++;
 
   va_start(ap, fmt);
   msg(Assert, 0, line, code, fmt, ap);
@@ -608,6 +619,7 @@ int __attribute__ ((format (printf,3,4))) oswarningfln(ub4 line,ub4 code,const c
   char buf[MSGLEN];
 
   msginfo(line);
+  warncnt++;
   if (msglvl < Warn) return 0;
 
   va_start(ap, fmt);
@@ -622,6 +634,7 @@ int __attribute__ ((format (printf,3,4))) oserrorfln(ub4 line,ub4 code,const cha
   char *errstr = getoserr();
   char buf[MSGLEN];
 
+  errcnt++;
   va_start(ap, fmt);
   vsnprint(buf,0,sizeof(buf),fmt,ap);
   va_end(ap);
@@ -708,6 +721,13 @@ void inimsg(char *progname, const char *logname, ub4 opts)
     infofln(0,User,"opening log %s for %s\n", logname,progname);
   }
   iniassert();
+}
+
+void eximsg(void)
+{
+  if (warncnt) info(0,"%u warnings\n%s",warncnt,lastwarn);
+  if (errcnt) info(0,"%u errors\n%s",errcnt,lasterr);
+  if (oserrcnt) info(0,"%u I/O errors",oserrcnt);
 }
 
 void setmsglvl(enum Msglvl lvl, ub4 vlvl)

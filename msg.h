@@ -69,6 +69,8 @@ extern ub4 setmsgfile(const char *filename);
 extern ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid);
 
 extern void inimsg(char *progname, const char *logname, ub4 opts);
+extern void eximsg(void);
+
 extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'

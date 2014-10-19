@@ -199,7 +199,7 @@ int compound(struct network *net)
       lodep = min(lodep,ndep); loarr = min(loarr,narr);
       hidep = max(hidep,ndep); hiarr = max(hiarr,narr);
       pdep = ports + port;
-      info(0,"port %u at %u deps %u arrs %u %s",port,rport,ndep,narr,pdep->name);
+      vrb(0,"port %u at %u deps %u arrs %u %s",port,rport,ndep,narr,pdep->name);
       port2rport[port] = rport;
       rport2port[rport] = port;
       rport++;
@@ -244,7 +244,7 @@ int compound(struct network *net)
     for (ndep = 0; ndep < 4; ndep++) {
       for (narr = 0; narr < 4; narr++) {
         n = constats[(ndep << 4) | narr];
-        if (n) info(0,"%u ports with %u deps + %u arrs", n,ndep,narr);
+        if (n) vrb(0,"%u ports with %u deps + %u arrs", n,ndep,narr);
       }
     }
 
@@ -329,7 +329,7 @@ int compound(struct network *net)
 
         pdep = ports + dep;
         parr = ports + arr;
-        info(0,"add compound %u-%u %s to %s",dep,arr,pdep->name,parr->name);
+        vrb(0,"add compound %u-%u %s to %s",dep,arr,pdep->name,parr->name);
         error_ge(newhop,newhopcnt);
         nhp->dep = dep;
         nhp->arr = arr;
