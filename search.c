@@ -97,7 +97,7 @@ int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   ub4 mdep,marr;
   ub4 stop,nleg;
   int rv;
-  struct network *net = getnet();
+  struct network *net = getnet(0);
   ub4 portcnt = net->allportcnt;
   ub4 maxstop = net->maxstop;
   ub4 *mac2port = net->mac2port;
@@ -141,7 +141,7 @@ int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   if (src->tripcnt == 0) return 0;
   nleg = src->lostop + 1;
 
-  trip2ports(src->trip,nleg,src->tripports);
+  triptoports(net,src->trip,nleg,src->tripports);
 
   // todo: if dep != mdep or arr != marr add distance difference and allport to result
 

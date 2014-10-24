@@ -322,6 +322,7 @@ int condense(struct network *net)
           pparr->macid = macid;
         }
         pp->macid = macid;
+// todo updbbox
         pp->macbox[0] = pparr->macbox[0] = min(latlo,lat2lo);
         pp->macbox[1] = pparr->macbox[1] = max(lathi,lat2hi);
         pp->macbox[2] = pparr->macbox[2] = min(lonlo,lon2lo);

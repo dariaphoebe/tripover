@@ -1,6 +1,6 @@
-// net.h - secondary, derived network defines
+// net.h - main + derived network defines
 
-/* structures and definitions for the secondary network components
+/* structures and definitions for the main and derived network components
  * search-related defines are in src.h
  */
 
@@ -13,9 +13,26 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
+/*
+ a net consists of ports (aka stops) connected by hops (aka links,connections)
+ routes are auxiliary
+
+ connectivity is stored in 2D port by port arrays for each of n stops aka transfers
+
+ for larger #ports, a set of measures are taken to reduce the size
+
+ - merge related ports that can trivially be interpolated
+ - partition by set of routes
+
+  1m^2 = 1t -> (1k + 1)^2 * (1k + 1) + (?^2) ~ 1g
+
+ */
+
 #ifndef Netbase_inc
   enum txkind { Unknown,Air,Rail,Bus,Walk };
 #endif
+
+#define Npart 256
 
 #define Nlocal 4
 
@@ -28,14 +45,16 @@ struct port {
   ub4 namelen;
 //  struct gname name;
 
-  ub4 gid;   // global port, index in net.gports, in full connectivity matrix
-  ub4 lid;   // local port, index in net.lports, local connections only
+  ub4 gid;   // global port, index in gnet.ports
 
   ub4 lat,lon;
   double rlat,rlon;
 
   ub4 utcofs;
 
+  ub4 partcnt,part;
+
+  bool isagg;
   bool full;
   bool mini;
 
@@ -65,6 +84,7 @@ struct port {
 struct hop {
   ub4 magic;
   ub4 id;
+  ub4 gid;
 
   char name[128];  // todo: use below structure instead
   ub4 namelen;
@@ -74,6 +94,8 @@ struct hop {
 
   ub4 dep,arr;
   ub4 routeid,rid;
+
+  ub4 part;
 
   ub4 dist;
 };
@@ -115,9 +137,10 @@ struct timetable {
 
 #define Nleg (Nstop+1)
 
-// holds all
+// holds all for a partition
 struct network {
-  ub4 portcnt,allportcnt;
+  ub4 part;
+  ub4 portcnt,pportcnt,allportcnt;
   ub4 hopcnt,allhopcnt;
 
   ub4 routecnt;
@@ -132,6 +155,8 @@ struct network {
   struct timetable *timetables;  // [routecnt]
 
 // access
+  ub4 *g2pport;       // [portcnt] global to partition port id
+
   ub4 tthops[Hopcnt];   // index in timetables above
 
   ub4 fports2ports[Portcnt];
@@ -149,7 +174,6 @@ struct network {
   ub4 maxstop;     // 
 
   ub4 maxrouteid;
-
   ub4 maxvariants,routevarmask;
 
   size_t needconn;    // final required any-stop connectivity
@@ -158,7 +182,7 @@ struct network {
   ub2 *concnt[Nstop];  // [port2]
   ub4 *conofs[Nstop];  // [port2]
 
-  block conlst[Nstop];  // [x]
+  block conlst[Nstop];  // [lstlen]
   size_t lstlen[Nstop];
 
   ub4 *lodist[Nstop];  // [port2] lowest over-route distance
@@ -175,13 +199,39 @@ struct network {
 
 };
 
-extern int mknet(ub4 maxstop);
-extern struct network *getnet(void);
-extern int trip2ports(ub4 *trip,ub4 triplen,ub4 *ports);
+struct partition {
+  ub4 bbox[9];
+};
 
-#define checktrip(legs,nleg,dep,arr,dist) checktrip_fln((legs),(nleg),(dep),(arr),(dist),FLN)
-#define checktrip3(legs,nleg,dep,arr,via,dist) checktrip3_fln((legs),(nleg),(dep),(arr),(via),(dist),FLN)
-extern void checktrip_fln(ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln);
-extern void checktrip3_fln(ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln);
+struct gnetwork {
+  ub4 portcnt;
+  ub4 hopcnt;
+
+  struct port *ports;
+  struct hop *hops;
+
+  ub4 partcnt;
+
+  struct partition parts[Npart];
+
+  ub4 portcnts[Npart];
+  ub4 hopcnts[Npart];
+
+  ub1 *portparts;  // [partcnt * portcnt] port memberships
+
+  ub4 maxrouteid;
+  ub4 maxvariants,routevarmask;
+};
+
+extern int mknet(ub4 maxstop);
+extern struct network *getnet(ub4 part);
+extern struct gnetwork *getgnet(void);
+extern int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports);
+
+#define checktrip(net,legs,nleg,dep,arr,dist) checktrip_fln((net),(legs),(nleg),(dep),(arr),(dist),FLN)
+#define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)
+extern void checktrip_fln(struct network *net,ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln);
+extern void checktrip3_fln(struct network *net,ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln);
+extern int showconn(struct port *ports,ub4 portcnt);
 
 extern void ininet(void);

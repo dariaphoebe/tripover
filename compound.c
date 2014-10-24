@@ -34,6 +34,8 @@ static ub4 msgfile;
 
 #undef hdrstop
 
+static ub2 maxroutelen = 100;
+
 void inicompound(void)
 {
   msgfile = setmsgfile(__FILE__);
@@ -43,6 +45,7 @@ void inicompound(void)
 // add compound hops
 int compound(struct network *net)
 {
+  ub4 part = net->part;
   ub4 port,rportcnt,port2,portcnt = net->portcnt;
   ub4 hop,newhop,newhopcnt,addhopcnt,hopcnt = net->hopcnt;
   struct port *parr,*pdep,*ports = net->ports;
@@ -85,10 +88,12 @@ int compound(struct network *net)
     rrid = hp->routeid;
     if (rrid == hi32) continue;
 
+    error_ne(hp->part,part);
+
     error_gt(rrid,maxrid);
     cnt2 = rrid2hopcnt[rrid];
-    error_ovf(cnt2,ub2);
     cnt2++;
+    limit(cnt2,maxroutelen,rrid);
     if (cnt2 > maxcnt) { maxcnt = cnt2; rid4max = rrid; }
     rrid2hopcnt[rrid] = cnt2;
   }
@@ -97,7 +102,8 @@ int compound(struct network *net)
   routecnt = routesum = addhopcnt = rid = 0;
   for (rrid = 0; rrid <= maxrid; rrid++) {
     cnt = rrid2hopcnt[rrid];
-    if (cnt) rrid2rid[rrid] = rid++;
+    if (cnt == 0) continue;
+    rrid2rid[rrid] = rid++;
     routesum += cnt;
     if (cnt > 2) addhopcnt += cnt * (cnt - 1);
   }
@@ -206,7 +212,7 @@ int compound(struct network *net)
     }
     rportcnt = rp->portcnt = rport;
     if (rportcnt < 4) continue;
-    info(0,"route %x %u ports deps %u-%u arrs %u-%u",rrid,rport,lodep,hidep,loarr,hiarr);
+    vrb(0,"route %x %u ports deps %u-%u arrs %u-%u",rrid,rport,lodep,hidep,loarr,hiarr);
 
     memset(rportdeps,0,rportcnt * sizeof(ub2));
     memset(rportarrs,0,rportcnt * sizeof(ub2));
@@ -226,10 +232,10 @@ int compound(struct network *net)
       if (ndep == 0 && narr == 0) {
         warning(0,"route %x port %u is not connected",rrid,port);
       } else if (rp->dtermport == hi32 && ndep && narr == loarr && loarr != hiarr) {
-        info(0,"route %x dep term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
+        vrb(0,"route %x dep term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
         rp->dtermport = port;
       } else if (rp->atermport == hi32 && narr && ndep == lodep && lodep != hidep) {
-        info(0,"route %x arr term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
+        vrb(0,"route %x arr term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
         rp->atermport = port;
       } else if (rp->dtermport != hi32 && ndep && narr == loarr && loarr != hiarr) {
         info(0,"route %x extra dep term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
@@ -281,8 +287,15 @@ int compound(struct network *net)
     spos = pos = 0;
     while (spos < rportcnt - 1) {
       pos = 0;
+      if (port == rp->atermport) {
+        warning(0,"route %u.%x arr term port %u.%u.%u %s",part,rrid,pdep->partcnt,pdep->part,port,pdep->name);
+        break;
+      }
       while (pos < cnt && rdp[pos] != rport) pos++;
-      if (pos == cnt) { warning(0,"route %x port %u %s not found",rrid,port,pdep->name); break; }
+      if (pos == cnt) {
+        warning(0,"route %u.%x port %u.%u.%u %s not found",part,rrid,pdep->partcnt,pdep->part,port,pdep->name);
+        break;
+      }
       vrb(0,"found %u at pos %u, seq %u %s",port,pos,spos,pdep->name);
       spp[spos++] = rport;
       rdp[pos] = hi16;
@@ -302,7 +315,7 @@ int compound(struct network *net)
         warning(0,"route %x arr term port %u %s not found",rrid,port,parr->name);
         rportcnt = spos;
       } else {
-        info(0,"found %u at pos %u, seq %u %s",port,pos,spos,pdep->name);
+        vrb(0,"found %u at pos %u, seq %u %s",port,pos,spos,pdep->name);
         spp[spos++] = rport;
       }
     }
