@@ -88,6 +88,8 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 
 #define error_gt2(a1,a2,b) error_gt2_fln((a1),(a2),(b),#a1,#a2,#b,FLN)
 
+#define error_eq_cc(a,b,fmt,...) if ((a) == (b)) error_cc_fln((a),(b),#a,#b,"==",FLN,fmt,__VA_ARGS__)
+
 #define error_ge_cc(a,b,fmt,...) error_ge_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)
 #define error_gt_cc(a,b,fmt,...) error_gt_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)
 
@@ -107,6 +109,8 @@ extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((fo
 extern int info0fln(ub4 fln, ub4 code, const char *s);
 
 extern int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim,ub4 fln);
+
+extern void error_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,const char *cc,ub4 line,const char *fmt,...);
 
 extern void error_ge_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line,const char *fmt,...);
 extern void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line,const char *fmt,...);

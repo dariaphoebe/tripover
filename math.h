@@ -33,6 +33,10 @@ extern double lon2rad(ub4 lon);
 extern ub4 rad2lat(double rlat);
 extern ub4 rad2lon(double rlon);
 
+enum Geobox {Minlat,Maxlat,Minlon,Maxlon,Latrng,Lonrng,Midlat,Midlon,Boxcnt,Geocnt};
+
+extern void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt]);
+
 extern double geodist(double rlat1, double rlon1, double rlat2, double rlon2);
 
 extern int inimath(void);

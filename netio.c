@@ -555,7 +555,7 @@ static int rdexthops(netbase *net,const char *dir)
       rtype = vals[3];
       if (valndx > 4) {
         routeid = vals[4];
-        maxrid = max(maxrid,routeid);
+        if (routeid != hi32) maxrid = max(maxrid,routeid);
       } else routeid = hi32;
 
 //      info(0,"vals %u %u %u",vals[0],depid,arrid);

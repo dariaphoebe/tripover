@@ -51,6 +51,8 @@ extern void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln);
 extern int str2ub4(const char *s, ub4 *pv);
 extern int hex2ub4(const char *s, ub4 *pv);
 
+#define limit(a,b,c) if ((a) > (b)) { (a) = (b); warningfln(FLN,0,"limit %s:%u to %s:%u for %s:%u",#a,(a),#b,(b),#c,(c)); }
+
 extern int dorun(enum Runlvl stage);
 
 extern int writeppm(const char *name,ub4 *data,ub4 nx,ub4 ny);

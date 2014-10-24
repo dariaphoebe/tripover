@@ -404,8 +404,8 @@ ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid)
   ub4 line = fln & 0xffff;
   ub4 fileno = fln >> 16;
 
-  if (fileno < Elemcnt(filenames)) return mysnprintf(dst,pos,len, "%*s%-4u ",wid,filenames[fileno].name,line);
-  return mysnprintf(dst,pos,len, "*%7x*%-4u ",fileno,line);
+  if (fileno < Elemcnt(filenames)) return mysnprintf(dst,pos,len, "%*s %-4u ",wid,filenames[fileno].name,line);
+  return mysnprintf(dst,pos,len, "*%7x* %-4u ",fileno,line);
 }
 
 static void msginfo(ub4 fln)
@@ -504,8 +504,8 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert\n  ");
   pos += vsnprint(msgbuf, pos, maxlen, fmt, ap);
   pos = min(pos,maxlen-1);
-  if (lvl == Warn) memcpy(lastwarn,msgbuf,pos);
-  else if (lvl < Warn) memcpy(lasterr,msgbuf,pos);
+  if (lvl == Warn) { memcpy(lastwarn,msgbuf,pos); lastwarn[pos] = 0; }
+  else if (lvl < Warn) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
   msgbuf[pos++] = '\n';
   msgwrite(msgbuf, pos);
   if ( (opts & Msg_ccerr) && lvl <= Warn && msg_fd != 2) myttywrite(msgbuf,pos);
@@ -646,6 +646,17 @@ int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim, ub4 fln)
   if (x <= lim) return x;
   warningfln(fln,0,"limiting %s:%u to %s:%u",sx,x,slim,lim);
   return lim;
+}
+
+void error_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,const char *cc,ub4 line,const char *fmt,...)
+{
+  va_list ap;
+  char buf[1024];
+
+  va_start(ap,fmt);
+  vsnprint(buf,0,sizeof(buf),fmt,ap);
+  va_end(ap);
+  assertfln(line,Exit,"%s:%u %s %s:%u  %s", sa,a,cc,sb,b,buf);
 }
 
 void error_ge_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line,const char *fmt,...)

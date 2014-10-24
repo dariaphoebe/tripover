@@ -163,7 +163,13 @@ static ub4 xorshift1024star(void)
 
 static ub4 rndmask(ub4 mask) { return (ub4)xorshift1024star() & mask; }
 
-ub4 rnd(ub4 range) { return (ub4)((xorshift1024star() % range)); }
+ub4 rnd(ub4 range)
+{
+  ub4 r;
+  if (range) r = (ub4)((xorshift1024star() % range));
+  else r = 1;
+  return r;
+}
 
 double frnd(ub4 range)
 {
@@ -247,7 +253,22 @@ double lon2rad(ub4 lon) { return ((double)lon / Lonscale - 180.0) * 2 * M_PI / 3
 ub4 rad2lat(double rlat) { return (ub4)(( (rlat * 180 / M_PI) + 90) * Latscale); }
 ub4 rad2lon(double rlon) { return (ub4)(( (rlon * 180 / M_PI) + 180) * Lonscale); }
 
+// minlat,maxlat,latrange,minlon,maxlon,lonrange,midlat,midlon,count
+void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt])
+{
+  bbox[Minlat] = min(bbox[Minlat],lat);
+  bbox[Maxlat] = max(bbox[Maxlat],lat);
+  bbox[Minlon] = min(bbox[Minlon],lon);
+  bbox[Maxlon] = max(bbox[Maxlon],lon);
+  bbox[Latrng] = bbox[Maxlat] - bbox[Minlat];
+  bbox[Lonrng] = bbox[Maxlon] - bbox[Minlon];
+  bbox[Midlat] = bbox[Minlat] + bbox[Latrng] / 2;
+  bbox[Midlon] = bbox[Minlon] + bbox[Lonrng] / 2;
+  bbox[Boxcnt]++;
+}
+
 static double geolow = M_PI * 0.0001;
+static double geolimit = M_PI * 1.0e-8;
 
 // great circle lat/lon to Km.
 double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
@@ -268,8 +289,11 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
   dlam = lam2 - lam1;
   dphi = phi2 - phi1;
 
-  if (dlam > -geolow && dlam < geolow && dphi > -geolow && dphi < geolow) { // approx trivial case
-//    info(0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
+  if (dlam > -geolimit && dlam < geolimit && dphi > -geolimit && dphi < geolimit) { // flush to 0
+    vrb(0,"geodist 0 below |%e|",geolimit);
+    return 0.0;
+  } else if (dlam > -geolow && dlam < geolow && dphi > -geolow && dphi < geolow) { // approx trivial case
+    vrb(0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
     dlat = dlam * mean_earth_radius / 4 * M_PI;
     dlon = dphi * mean_earth_radius / 4 * M_PI;
     fdist = sqrt(dlat * dlat + dlon * dlon);
