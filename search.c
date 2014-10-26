@@ -141,7 +141,7 @@ int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   if (src->tripcnt == 0) return 0;
   nleg = src->lostop + 1;
 
-  triptoports(net,src->trip,nleg,src->tripports);
+  triptoports(net,src->trip,nleg,src->tripports,src->tripgports);
 
   // todo: if dep != mdep or arr != marr add distance difference and allport to result
 

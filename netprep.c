@@ -122,14 +122,14 @@ int prepnet(netbase *basenet)
   struct port *ports,*pports,*pdep,*parr,*pp,*gp;
   struct hop *hops,*phops,*hp,*ghp;
   ub4 portcnt,xportcnt,hopcnt,dep,arr,aport,depp,arrp;
-  ub4 nlen,cnt,acnt,dcnt,routeid,part,hpart;
+  ub4 nlen,cnt,acnt,dcnt,routeid,part,hpart,xmaplen;
   ub4 pportcnt,phopcnt,partcnt,npart1;
   enum txkind kind;
   ub4 hop,port,phop,pport;
   ub4 variants,varmask,maxrid;
   ub4 *hopcnts,*portcnts;
   ub1 *portparts;
-  ub4 *g2p;
+  ub4 *g2p,*p2g;
   struct partition *parts,*partp,*apartp;
 
   hopcnt = basenet->hopcnt;
@@ -149,12 +149,14 @@ int prepnet(netbase *basenet)
   }
 
   // todo: ad-hoc partitioning
-  partcnt = max(portcnt / 3000,1);
+  partcnt = max(portcnt / 10000,1);
   portparts = alloc(partcnt * portcnt,ub1,0,"portparts",portcnt);
   npart1 = (partcnt - 1);
 
   ports = alloc(portcnt,struct port,0,"ports",portcnt);
   hops = alloc(hopcnt,struct hop,0,"hops",hopcnt);
+
+  xmaplen = 0;
 
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
@@ -249,14 +251,31 @@ int prepnet(netbase *basenet)
   gnet->maxvariants = variants = basenet->maxvariants;
   gnet->routevarmask = varmask = basenet->routevarmask;
 
+  ub4 partstats[8];
+  ub4 iv,xmap,partivs = Elemcnt(partstats) - 1;
+  aclear(partstats);
   for (port = 0; port < portcnt; port++) {
-    cnt = 0;
-    for (part = 0; part < partcnt; part++) {
-      if (portparts[port * partcnt + part]) cnt++;
-    }
+    cnt = xmap = 0;
     gp = ports + port;
+    for (part = 0; part < partcnt; part++) {
+      net = getnet(part);
+      if (portparts[port * partcnt + part]) {
+        if (cnt < Nxpart) {
+          gp->pmapofs[cnt] = xmaplen;
+          gp->partnos[cnt] = (ub2)part;
+          xmaplen += portcnts[part];
+        }
+        cnt++;
+      }
+    }
     gp->partcnt = cnt;
+
+    partstats[min(partivs,cnt)]++;
   }
+  for (iv = 0; iv <= partivs; iv++) info(0,"%u ports in %u partitions each", partstats[iv], iv);
+  info(0,"\ah%u xmaps",xmaplen);
+
+  gnet->xpartbase = mkblock(&gnet->xpartmap,xmaplen,ub2,Init0,"xmap for %u parts", partcnt);
 
   // separate into partitions
   for (part = 0; part < partcnt; part++) {
@@ -297,7 +316,8 @@ int prepnet(netbase *basenet)
     pports = alloc(xportcnt,struct port,0,"ports",xportcnt);
     phops = alloc(phopcnt,struct hop,0,"phops",phopcnt);
 
-    g2p = alloc(portcnt,ub4,0,"g2p-ports",portcnt);
+    g2p = alloc(portcnt,ub4,0xff,"g2p-ports",portcnt);
+    p2g = alloc(xportcnt,ub4,0xff,"p2g-ports",xportcnt);
 
     // assign ports : members of this part, plus placeholder for each other part
     pp = pports;
@@ -305,10 +325,14 @@ int prepnet(netbase *basenet)
     for (port = 0; port < portcnt; port++) {
       gp = ports + port;
       if (portparts[port * partcnt + part] == 0) continue;
+      if (port == 20) {
+        info(0,"port %u part %u g2p %p %s",port,part,g2p,gp->name);
+      }
       memcpy(pp,gp,sizeof(*pp));
       pp->id = pport;
       pp->ndep = pp->narr = 0;
       g2p[port] = pport;
+      p2g[pport] = port;
       pp++;
       pport++;
     }
@@ -391,6 +415,7 @@ int prepnet(netbase *basenet)
     net->allports = pports;
     net->allhops = phops;
     net->g2pport = g2p;
+    net->p2gport = p2g;
 
     net->maxrouteid = maxrid;
     net->maxvariants = variants;

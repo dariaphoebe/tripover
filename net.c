@@ -74,9 +74,9 @@ static ub4 watches = 0;
 static ub4 watch_dep[Watches];
 static ub4 watch_arr[Watches];
 
-static ub2 cnt0lim_xpart2 = 64;
-static ub2 cnt0lim_xpart1 = 128;
-static ub2 cnt0lim_part = 256;
+static ub2 cnt0lim_xpart2 = 16;
+static ub2 cnt0lim_xpart1 = 32;
+static ub2 cnt0lim_part = 128;
 
 // create 0-stop connectivity matrix and derived info.
 // n-stop builds on this
@@ -113,16 +113,16 @@ static int mknet0(struct network *net)
   ports = net->ports;
   hops = net->hops;
 
-  con0cnt = alloc(port2, ub2,0,"con0cnt",portcnt);
-  con0ofs = alloc(port2, ub4,0xff,"con0ofs",portcnt);
+  con0cnt = alloc(port2, ub2,0,"net0 concnt",portcnt);
+  con0ofs = alloc(port2, ub4,0xff,"net0 conofs",portcnt);
 
-  con0lst = mkblock(net->conlst,hopcnt,ub4,Init1,"0-stop conlst");
+  con0lst = mkblock(net->conlst,hopcnt,ub4,Init1,"net0 0-stop conlst");
 
-  portsbyhop = alloc(hopcnt * 2, ub4,0xff,"con0ofs",portcnt);
+  portsbyhop = alloc(hopcnt * 2, ub4,0xff,"net0 conofs",portcnt);
 
   // geographical direct-line distance
-  dist0 = alloc(port2, ub4,0,"geodist0",portcnt);
-  hopdist = alloc(hopcnt,ub4,0,"hopdist",hopcnt);
+  dist0 = alloc(port2, ub4,0,"net0 geodist",portcnt);
+  hopdist = alloc(hopcnt,ub4,0,"net0 hopdist",hopcnt);
 
   info(0,"calculating \ah%u distance pairs", port2);
   for (dep = 0; dep < portcnt; dep++) {
@@ -286,7 +286,7 @@ static ub4 distbins[Distbins];
 // create n-stop connectivity matrix and derived info
 static int mknetn(struct network *net,ub4 nstop)
 {
-  ub4 portcnt = net->portcnt;
+  ub4 pportcnt,portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
 
   struct port *ports,*pmid,*pdep,*parr;
@@ -309,9 +309,11 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 cntlim,sumcnt,gen,outcnt;
   ub4 constats[16];
 
-  ub4 varlimit = 32; // todo configurable and dependent on other aspects
+  ub4 varlimit = 128; // todo configurable and dependent on other aspects
+  ub4 var12limit = 32;
 
-  ub4 var12limit = 1024;
+  ub4 portlimit = 2000;
+
   ub4 dupcode,legport1,legport2;
   ub4 trip1ports[Nleg * 2];
   ub4 trip2ports[Nleg * 2];
@@ -321,6 +323,8 @@ static int mknetn(struct network *net,ub4 nstop)
   error_z(nstop,0);
   error_zz(portcnt,hopcnt);
 
+  pportcnt = net->pportcnt;
+
   info(0,"init %u-stop connections for %u port %u hop network",nstop,portcnt,hopcnt);
 
   port2 = portcnt * portcnt;
@@ -329,13 +333,13 @@ static int mknetn(struct network *net,ub4 nstop)
 
   portsbyhop = net->portsbyhop;
 
-  concnt = alloc(port2, ub2,0,"concnt",portcnt);
-  lodists = alloc(port2, ub4,0xff,"lodist",portcnt);
-  hidists = alloc(port2, ub4,0,"hidist",portcnt);
+  concnt = alloc(port2, ub2,0,"net concnt",portcnt);
+  lodists = alloc(port2, ub4,0xff,"net lodist",portcnt);
+  hidists = alloc(port2, ub4,0,"net hidist",portcnt);
 
-  distlims = alloc(port2, ub4,0,"distlims",portcnt);
+  distlims = alloc(port2, ub4,0,"net distlims",portcnt);
 
-  portdst = alloc(portcnt, ub4,0,"portdst",portcnt);
+  portdst = alloc(portcnt, ub4,0,"net portdst",portcnt);
 
   dist0 = net->dist0;
   hopdist = net->hopdist;
@@ -366,20 +370,24 @@ static int mknetn(struct network *net,ub4 nstop)
 */
 
   ub4 dupstats[8];
+  ub4 cntstats[9];
 
   lstlen = 0;
 
   aclear(distbins);
 
   aclear(dupstats);
+  aclear(cntstats);
 
   // for each departure port
-  for (dep = 0; dep < portcnt; dep++) {
+  for (dep = 0; dep < pportcnt; dep++) {
 
-    progress(&eta,"port %u of %u in pass 1 %u-stop net",dep,portcnt,nstop);
+    progress(&eta,"port %u of %u in pass 1 %u-stop net",dep,pportcnt,nstop);
+
+    if (dep > portlimit) continue;
 
     pdep = ports + dep;
-    if (pdep->deps == 0) continue;
+    if (pdep->ndep == 0) { cntstats[0]++; continue; }
 
     outcnt = 0;
 
@@ -388,7 +396,10 @@ static int mknetn(struct network *net,ub4 nstop)
       if (arr == dep) continue;
 
       parr = ports + arr;
-      if (parr->arrs == 0) continue;
+      if (parr->narr == 0) { cntstats[1]++; continue; }
+
+      // both on single route
+      if (pdep->onerid && parr->onerid && pdep->rid == parr->rid) { cntstats[2]++; continue; }
 
       deparr = dep * portcnt + arr;
 
@@ -412,22 +423,24 @@ static int mknetn(struct network *net,ub4 nstop)
         // first obtain distance range
         for (mid = 0; mid < portcnt; mid++) {
           if (mid == dep || mid == arr) continue;
+          if (arr < pportcnt && mid >= pportcnt) { cntstats[3]++; continue; }
           pmid = ports + mid;
-          if (pmid->ndep == 0 || pmid->narr == 0) continue;
+          if (pmid->ndep == 0 || pmid->narr == 0) { cntstats[4]++; continue; }
 
           depmid = dep * portcnt + mid;
 
           n1 = cnts1[depmid];
-          if (n1 == 0) continue;
+          if (n1 == 0) { cntstats[5]++; continue; }
 
           midarr = mid * portcnt + arr;
           n2 = cnts2[midarr];
-          if (n2 == 0) continue;
+          if (n2 == 0) { cntstats[6]++; continue; }
 
           error_ovf(n1,ub2);
           error_ovf(n2,ub2);
 
-          n12 = min(n1 * n2,var12limit);
+          n12 = n1 * n2;
+          if (n12 > var12limit) { cntstats[7]++; n12 = var12limit; }
           cnt += n12;
           cntlim = min(cnt,varlimit);
 
@@ -463,6 +476,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
       // if too many options, sort on distance.
       if (cnt > varlimit) {
+        cntstats[8]++;
 
         // subpass 2: create distance histogram and derive threshold
         for (midstop1 = 0; midstop1 < nstop; midstop1++) {
@@ -484,6 +498,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
           for (mid = 0; mid < portcnt; mid++) {
             if (mid == dep || mid == arr) continue;
+            if (arr < pportcnt && mid >= pportcnt) continue;
             depmid = dep * portcnt + mid;
 
             n1 = cnts1[depmid];
@@ -575,10 +590,10 @@ static int mknetn(struct network *net,ub4 nstop)
 
                 // mark in histogram, discard actual trip here
                 dist12 = dist1 + dist2;
-                error_lt(dist12,lodist);
-                error_gt(dist12,hidist);  // todo: fails
+//                error_lt(dist12,lodist); // todo fails
+//                error_gt(dist12,hidist);  // todo: fails
                 iv = (dist12 - lodist) * Distbins / distrange;
-                distbins[iv]++;
+                if (iv < Distbins) distbins[iv]++;
               } // each v2
             } // each v1
 
@@ -596,7 +611,7 @@ static int mknetn(struct network *net,ub4 nstop)
           distlim = lodist + iv * distrange / Distbins;
         }
         aclear(distbins);
-      } else distlim = hidist;  // cnt limited
+      } else distlim = hidist;  // not cnt limited
       distlims[deparr] = distlim;
 
     } // each arrival port
@@ -605,6 +620,7 @@ static int mknetn(struct network *net,ub4 nstop)
   } // each departure port
 
   for (iv = 0; iv < Elemcnt(dupstats); iv++) info(0,"dup %u: %u",iv,dupstats[iv]);
+  for (iv = 0; iv < Elemcnt(cntstats); iv++) info(0,"cnt %u: %u",iv,cntstats[iv]);
 
   info(0,"%u-stop pass 1 done, tentative \ah%lu triplets",nstop,lstlen);
 
@@ -618,11 +634,11 @@ static int mknetn(struct network *net,ub4 nstop)
   mkhist(portdst,portcnt,&portdr,Elemcnt(ivportdst),ivportdst,"outbounds by port",Vrb);
 
   // prepare list matrix and its offsets
-  conofs = alloc(port2, ub4,0xff,"conofs",portcnt);  // = org
+  conofs = alloc(port2, ub4,0xff,"net conofs",portcnt);  // = org
 
   lstblk = net->conlst + nstop;
 
-  lst = mkblock(lstblk,lstlen * nleg,ub4,Init1,"%u-stop conlst",nstop);
+  lst = mkblock(lstblk,lstlen * nleg,ub4,Init1,"netv %u-stop conlst",nstop);
   net->lstlen[nstop] = lstlen;
 
   ofs = 0;
@@ -642,6 +658,8 @@ static int mknetn(struct network *net,ub4 nstop)
   for (dep = 0; dep < portcnt; dep++) {
 
     progress(&eta,"port %u of %u in pass 2 %u-stop net",dep,portcnt,nstop);
+
+    if (dep > portlimit) continue;
 
     for (arr = 0; arr < portcnt; arr++) {
       if (arr == dep) continue;
@@ -679,6 +697,7 @@ static int mknetn(struct network *net,ub4 nstop)
         mid = 0;
         while (mid < portcnt && gen < cnt) {
           if (mid == dep || mid == arr) { mid++; continue; }
+          if (arr < pportcnt && mid >= pportcnt) { mid++; continue; }
           depmid = dep * portcnt + mid;
           n1 = cnts1[depmid];
           if (n1 == 0) { mid++; continue; }
@@ -850,16 +869,18 @@ static int mknetn(struct network *net,ub4 nstop)
 }
 
 // count connections within part
-static ub2 hasconn(struct network *net,ub4 deparr)
+static ub2 hasconn(ub4 callee,struct network *net,ub4 deparr)
 {
   ub4 nstop = 0;
   ub2 **concnts = net->concnt,*cnts,cnt = 0;
 
+  enter(callee);
   error_ge(deparr,net->portcnt * net->portcnt);
   while (nstop <= net->maxstop && cnt == 0) {
     cnts = concnts[nstop++];
     if (cnts) cnt = cnts[deparr];
   }
+  leave(callee);
   return cnt;
 }
 
@@ -868,24 +889,47 @@ static ub2 hasconn(struct network *net,ub4 deparr)
 static ub2 hasxcon(ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
 {
   struct gnetwork *gnet = getgnet();
-  struct network *net,*dnet,*anet;
-  ub4 nstop,nleg;
-  ub4 dep,arr,deparr;
+  struct network *net,*dnet,*anet,*xnet,*xanet;
+  struct port *gpp,*xpp,*app;
+  ub4 nstop,nleg,portno,xpi,api;
+  ub4 xapart,xpart;
+  ub4 portcnt,pportcnt;
+  ub4 dep,arr,xarr,xxarr,deparr,gxarr;
   ub2 **concnts,*cnts,dcnt = 0;
   ub4 **conofs,*dofss,dofs;
   ub4 *dlst,*trip;
   block *conlst,*lstblk;
   ub4 ports[Nleg * 2];
+  ub4 gports[Nleg * 2];
   int rv;
+  ub2 *xmappos,*xmapbase,mask,stopmask;
+  block *xpartmap = &gnet->xpartmap;
+  ub4 xmapofs,xmapcnt = 0;
 
-  info(0,"hasxcon %u-%u",gdep,garr);
+  ub4 stats[6];
+  ub4 iv;
+
+  aclear(stats);
+
+  error_eq(dpart,apart);
 
   dnet = getnet(dpart);
   anet = getnet(apart);
 
+  pportcnt = dnet->pportcnt;
+  portcnt = dnet->portcnt;
+
   dep = dnet->g2pport[gdep];
-  arr = dnet->g2pport[garr];
-  deparr = dep * dnet->portcnt + arr;
+  arr = pportcnt + apart;
+  if (apart > dpart) arr--;
+
+  error_ge(dep,pportcnt);
+  error_ge(arr,portcnt);
+  deparr = dep * portcnt + arr;
+
+  gpp = gnet->ports + garr;
+
+  xmapbase = blkdata(xpartmap,0,ub2);
 
   nstop = 1;
   concnts = dnet->concnt;
@@ -894,8 +938,9 @@ static ub2 hasxcon(ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
   while (dcnt == 0 && nstop <= dnet->maxstop) {
     nleg = nstop + 1;
     cnts = concnts[nstop];
+    if (!cnts) { nstop++; stats[0]++; continue; }
     dcnt = cnts[deparr];
-    if (dcnt == 0) continue;
+    if (dcnt == 0) { nstop++; stats[1]++; continue; }
     dofss = conofs[nstop];
     lstblk = conlst + nstop;
     dlst = blkdata(lstblk,0,ub4);
@@ -903,11 +948,198 @@ static ub2 hasxcon(ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
     bound(lstblk,dofs * nleg,ub4);
     bound(lstblk,dofs * nleg + nstop,ub4);
     trip = dlst + dofs * nleg;
-    rv = triptoports(dnet,trip,nstop,ports);
+    rv = triptoports(dnet,trip,nstop,ports,gports);
     if (rv) return 0;
+
+    portno = nstop;
+    while (portno) {
+      xarr = ports[portno];
+      gxarr = gports[portno];
+      portno--;
+      if (xarr == hi32 || gxarr == hi32) { stats[2]++; continue; }
+      if (xarr >= pportcnt) xpart = xarr - pportcnt;
+      else { stats[3]++; xpart = dpart; } // stat
+      if (xpart != apart) { // use xmap to check reach
+        xnet = getnet(xpart);
+        xpp = xnet->ports + xarr;
+        xpi = 0;
+        while (xpi < xpp->partcnt && xpi < Nxpart && xpp->partnos[xpi] != apart) xpi++;
+        if (xpp->partnos[xpi] != apart) {
+          xapart = hi32;
+          stats[4]++;  // stat
+          for (xpi = 0; xpi < min(xpp->partcnt,Nxpart); xpi++) {
+            for (api = 0; api < min(gpp->partcnt,Nxpart); api++) {
+              if (xpp->partnos[xpi] == gpp->partnos[api]) { xapart = xpp->partnos[xpi]; break; }
+            }
+            if (xapart != hi32) break;
+          }
+          if (xapart == hi32) { stats[5]++; break; }
+          xanet = getnet(xapart);
+          xmapofs = xpp->pmapofs[xpi];
+          xxarr = xanet->g2pport[gxarr];
+          pportcnt = xanet->pportcnt;
+        } else {
+          xmapofs = xpp->pmapofs[xpi];
+          xxarr = xnet->g2pport[gxarr];
+          pportcnt = xnet->pportcnt;
+        }
+        bound(xpartmap,xmapofs,ub2);
+        bound(xpartmap,xmapofs + pportcnt,ub2);
+        xmappos = xmapbase + xmapofs;
+
+        mask = xmappos[xxarr];
+        if (mask) dcnt++;
+      }
+    }
     nstop++;
   }
+//  for (iv = 0; iv < Elemcnt(stats); iv++) vrb(0,"%u:%u", iv,stats[iv]);
+
+  if (dcnt) vrb(0,"hasxcon %u.%u-%u.%u %u",dpart,gdep,apart,garr,dcnt);
   return dcnt;
+}
+
+static int dogconn(ub4 callee,struct gnetwork *gnet)
+{
+  // fill xmap and show cumulative connectivity
+  struct network *dnet,*anet,*danet,*xnet;
+  ub4 partcnt = gnet->partcnt;
+  ub4 *portcnts = gnet->portcnts;
+  ub4 xportcnt,gportcnt = gnet->portcnt;
+  ub4 dpart,apart,xpart,xpartcnt,xpi;
+  ub4 gdep,garr,dep,arr,xdep,xarr,adep,da,dapart;
+  struct port *gpdep,*gparr,*gports = gnet->ports;
+  ub1 *portparts = gnet->portparts;
+  ub2 **concnts,*cnts,cnt;
+  ub4 sample,gconn = 0, noxcon = 0;
+  ub2 *xmappos,*xmapbase,mask,stopmask;
+  block *xpartmap = &gnet->xpartmap;
+  ub4 xmapofs,xmapcnt = 0;
+  ub4 nstop,fillcnt = 0;
+  struct eta eta;
+
+  enter(callee);
+
+  xmappos = xmapbase = blkdata(xpartmap,0,ub2);
+
+  info0(0,"fill inter-partition reach maps");
+  for (gdep = 0; gdep < gportcnt; gdep++) {
+
+    progress(&eta,"port %u of %u in %u partitions",gdep,gportcnt,gnet->partcnt);
+
+    gpdep = gports + gdep;
+    xpartcnt = gpdep->partcnt;
+    if (xpartcnt < 2) continue;
+    for (xpi = 0; xpi < min(xpartcnt,Nxpart); xpi++) {
+      xpart = gpdep->partnos[xpi];
+      xmapofs = gpdep->pmapofs[xpi];
+      bound(xpartmap,xmapofs,ub2);
+      xmappos = xmapbase + xmapofs;
+      xportcnt = portcnts[xpart];
+      if (xportcnt == 0) continue;
+      bound(xpartmap,xmapofs + xportcnt - 1,ub2);
+      xnet = getnet(xpart);
+      concnts = xnet->concnt;
+      if (!concnts[0]) continue;
+      fillcnt++;
+      xdep = xnet->g2pport[gdep];
+      for (arr = 0; arr < xportcnt; arr++) {
+        da = xdep * xnet->portcnt + arr;
+        cnt = 0;
+        mask = 0; stopmask = 1;
+        for (nstop = 0; nstop <= xnet->maxstop; nstop++) {
+          cnts = concnts[nstop];
+          cnt = cnts[da];
+          if (cnt) mask |= stopmask;
+          stopmask <<= 1;
+        }
+        xmappos[arr] = stopmask;
+      }
+    }
+  }
+  info(0,"done filling %u inter-partition reach maps",fillcnt);
+
+  if (gportcnt > 20000) {
+    sample = gportcnt / 10000;
+    info(0,"sampling connectivity in %u steps",sample);
+  } else sample = 0;
+
+  info0(0,"global connectivity");
+
+  for (gdep = 0; gdep < gportcnt; gdep += rnd(sample) ) {
+
+    progress(&eta,"port %u of %u in global connect, sample %u",gdep,gportcnt,sample);
+
+    gpdep = gports + gdep;
+    dpart = gpdep->part;
+    dnet = getnet(dpart);
+    error_ne(dnet->part,dpart);
+    dep = dnet->g2pport[gdep];
+    error_ge(dep,dnet->pportcnt);
+    error_ge(dep,dnet->portcnt);
+    concnts = dnet->concnt;
+
+    error_ne(dnet->part,dpart);
+
+    for (garr = 0; garr < gportcnt; garr += rnd(sample) ) {
+      error_ne(dnet->part,dpart);
+      if (garr == gdep) continue;
+      gparr = gports + garr;
+      apart = gparr->part;
+      anet = getnet(apart);
+
+      if (portparts[garr * partcnt + dpart]) {  // arr is member of dep.part
+        arr = dnet->g2pport[garr];
+//        vrb(CC,"garr %u part %u g2p %p",garr,dpart,dnet->g2pport);
+        error_ge(arr,dnet->pportcnt);
+        da = dep * dnet->portcnt + arr;
+        cnt = hasconn(caller,dnet,da);
+        if (cnt) gconn++;
+
+      } else { // dep and arr not in same part: search for part with both as member
+        dapart = 0;
+        while (dapart < partcnt && (portparts[gdep * partcnt + dapart] & portparts[garr * partcnt + dapart]) == 0) dapart++;
+        if (dapart < partcnt) {
+          danet = getnet(dapart);
+          adep = danet->g2pport[gdep];
+          arr = danet->g2pport[garr];
+          error_ge(adep,danet->pportcnt);
+          error_ge(arr,danet->pportcnt);
+          da = adep * danet->portcnt + arr;
+          cnt = hasconn(caller,danet,da);
+          if (cnt) gconn++;
+
+        } else {  // no shared part for dep and arr
+          xarr = dnet->pportcnt + apart;  // arr placeholder in dep.part
+          if (apart > dpart) xarr--;
+          error_ge(xarr,dnet->portcnt);
+          error_ge(dep,dnet->portcnt);
+          da = dep * dnet->portcnt + xarr;
+          cnt = hasconn(caller,dnet,da);
+          if (cnt == 0) { noxcon++; continue; }
+          // follow
+          xdep = anet->pportcnt + dpart;
+          if (dpart > apart) xdep--;
+          error_ge(xdep,anet->portcnt);
+          arr = anet->g2pport[garr];
+          error_ge(arr,anet->pportcnt);
+          da = xdep * anet->portcnt + arr;
+          cnt = hasconn(caller,anet,da);
+          if (cnt == 0) { noxcon++; continue; }
+
+          cnt = hasxcon(gdep,garr,dpart,apart);
+          if (cnt == 0) { noxcon++; continue; }
+
+          xmapcnt++;
+        }
+      }
+    }
+  }
+  info(0,"global connectivity \ah%u of \ah%u, \ah%u interpart, \ah%u missing interpart",gconn,gportcnt * (gportcnt - 1),xmapcnt,noxcon);
+
+  leave(callee);
+
+  return 0;
 }
 
 // initialize basic network, and connectivity for each number of stops
@@ -918,7 +1150,7 @@ int mknet(ub4 maxstop)
   ub4 nstop,part,partcnt;
   int rv;
   struct gnetwork *gnet = getgnet();
-  struct network *net,*dnet,*anet;
+  struct network *net;
 
   partcnt = gnet->partcnt;
   if (partcnt == 0) return info0(0,"skip init zero-partition net");
@@ -942,7 +1174,7 @@ int mknet(ub4 maxstop)
 
     if (dorun(Runnet0)) {
       if (mknet0(net)) return 1;
-    }
+    } else continue;
 
     limit_gt(maxstop,Nstop);
 
@@ -959,78 +1191,14 @@ int mknet(ub4 maxstop)
 
   } // each part
 
-  // show cumulative connectivity
-  ub4 gportcnt = gnet->portcnt;
-  ub4 dpart,apart;
-  ub4 gdep,garr,dep,arr,xdep,xarr,da,dapart;
-  struct port *gpdep,*gparr,*gports = gnet->ports;
-  ub1 *portparts = gnet->portparts;
-  ub2 **concnts,cnt;
-  ub4 sample,gconn = 0, noxcon = 0;
-
-  if (gportcnt > 20000) {
-    sample = gportcnt / 10000;
-    info(0,"sampling connectivity in %u steps",sample);
-  } else sample = 0;
-
-  for (gdep = 0; gdep < gportcnt; gdep += (rnd(sample) + 1) ) {
-    gpdep = gports + gdep;
-    dpart = gpdep->part;
-    dnet = getnet(dpart);
-    dep = dnet->g2pport[gdep];
-    concnts = dnet->concnt;
-
-    for (garr = 0; garr < gportcnt; garr += (rnd(sample) + 1) ) {
-      if (garr == gdep) continue;
-      gparr = gports + garr;
-      apart = gparr->part;
-      anet = getnet(apart);
-
-      if (portparts[garr * partcnt + dpart]) {  // arr is member of dep.part
-        arr = dnet->g2pport[garr];
-        da = dep * dnet->portcnt + arr;
-        cnt = hasconn(dnet,da);
-        if (cnt) gconn++;
-
-      } else { // dep and arr not in same part: search for part with both as member
-        dapart = 0;
-        while (dapart < partcnt && (portparts[gdep * partcnt + dapart] & portparts[garr * partcnt + dapart]) == 0) dapart++;
-        if (dapart < partcnt) {
-          dnet = getnet(dapart);
-          dep = dnet->g2pport[gdep];
-          arr = dnet->g2pport[garr];
-          da = dep * dnet->portcnt + arr;
-          cnt = hasconn(dnet,da);
-          if (cnt) gconn++;
-
-        } else {  // no shared part for dep and arr
-          xarr = dnet->pportcnt + apart;  // arr placeholder in dep.part
-          if (apart > dpart) xarr--;
-          da = dep * dnet->portcnt + xarr;
-          cnt = hasconn(dnet,da);
-          if (cnt == 0) { noxcon++; continue; }
-          // follow
-          xdep = anet->pportcnt + dpart;
-          if (dpart > apart) xdep--;
-          arr = anet->g2pport[garr];
-          da = xdep * anet->portcnt + arr;
-          cnt = hasconn(anet,da);
-          if (cnt == 0) { noxcon++; continue; }
-
-          cnt = hasxcon(gdep,garr,dpart,apart);
-          if (cnt == 0) { noxcon++; continue; }
-        }
-      }
-    }
-  }
-  info(0,"global connectivity \ah%u of \ah%u, %u missing interpart",gconn,gportcnt * (gportcnt - 1),noxcon);
+  dogconn(caller,gnet);
 
   return 0;
 }
 
 int showconn(struct port *ports,ub4 portcnt)
 {
-  ub4 nodep,noarr,nodeparr;
+  ub4 nodep,noarr,nodeparr,udeparr1;
   ub4 port,ndep,narr,n;
   struct port *pp;
 
@@ -1041,7 +1209,7 @@ int showconn(struct port *ports,ub4 portcnt)
   aclear(constats);
   aclear(depstats);
   aclear(arrstats);
-  nodep = noarr = nodeparr = 0;
+  nodep = noarr = nodeparr = udeparr1 = 0;
 
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
@@ -1052,18 +1220,24 @@ int showconn(struct port *ports,ub4 portcnt)
     if (ndep < 16 && narr < 16) constats[(ndep << 4) | narr]++;
     if (ndep < Elemcnt(depstats) && narr) depstats[ndep]++;
     if (narr < Elemcnt(arrstats) && ndep) arrstats[narr]++;
+    if (pp->nudep == 1 && pp->nuarr == 1 && pp->drids[0] == pp->arids[0] && pp->drids[0] != hi32) {
+      udeparr1++;
+      pp->onerid = 1;
+      pp->rid = pp->drids[0];
+    }
   }
   info(0,"%u of %u ports without departures",nodep,portcnt);
   info(0,"%u of %u ports without arrivals",noarr,portcnt);
   info(0,"%u of %u ports without connection",nodeparr,portcnt);
-  for (ndep = 0; ndep < 4; ndep++) {
-    for (narr = 0; narr < 4; narr++) {
+  for (ndep = 0; ndep < 3; ndep++) {
+    for (narr = 0; narr < 3; narr++) {
       n = constats[(ndep << 4) | narr];
       if (n || ndep < 2 || narr < 2) info(0,"%u ports with %u deps + %u arrs", n,ndep,narr);
     }
   }
-  for (ndep = 0; ndep < 24; ndep++) info(0,"%u ports with %u deps and 1+ arrs", depstats[ndep],ndep);
-  for (narr = 0; narr < 24; narr++) info(0,"%u ports with %u arrs and 1+ deps", arrstats[narr],narr);
+  for (ndep = 0; ndep < 16; ndep++) info(0,"%u ports with %u deps and 1+ arrs", depstats[ndep],ndep);
+  for (narr = 0; narr < 16; narr++) info(0,"%u ports with %u arrs and 1+ deps", arrstats[narr],narr);
+  info(0,"%u of %u ports one a single route",udeparr1,portcnt);
   return 0;
 }
 
@@ -1135,9 +1309,11 @@ void checktrip3_fln(struct network *net,ub4 *legs, ub4 nleg,ub4 dep,ub4 arr,ub4 
   error_z_fln(hasvia,0,"via","0",fln);
 }
 
-int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports)
+int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports)
 {
   ub4 leg,l,dep,arr = hi32;
+
+  error_ge(triplen,Nleg);
 
   for (leg = 0; leg < triplen; leg++) {
     l = trip[leg];
@@ -1145,9 +1321,14 @@ int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports)
     if (leg) {
       if (dep != arr) return error(0,"leg %u hop %u dep %u not connects to preceding arr %u",leg,l,dep,arr);
     }
+    error_ge(dep,net->portcnt);
     arr = net->portsbyhop[2 * l + 1];
+    error_ge(arr,net->portcnt);
     ports[leg] = dep;
+    gports[leg] = net->p2gport[dep];
   }
   ports[triplen] = arr;
+  gports[triplen] = net->p2gport[arr];
+  if (triplen < Nstop) ports[triplen+1] = gports[triplen+1] = hi32;
   return 0;
 }

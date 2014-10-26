@@ -13,6 +13,7 @@
 struct srcctx {
   ub4 trip[Nleg];
   ub4 tripports[Nleg];
+  ub4 tripgports[Nleg];
   ub4 tripcnt;
   ub4 dist;
   ub4 lodist;

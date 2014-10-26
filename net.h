@@ -35,6 +35,7 @@
 #define Npart 256
 
 #define Nlocal 4
+#define Nxpart 4
 
 struct port {
   ub4 magic;
@@ -52,11 +53,16 @@ struct port {
 
   ub4 utcofs;
 
-  ub4 partcnt,part;
+  ub4 partcnt;  // #parts member of
+  ub4 part;     // 'home' part
+
+  ub2 partnos[Nxpart];  // partnos of membership
+  ub4 pmapofs[Nxpart];  // reachability map
 
   bool isagg;
   bool full;
   bool mini;
+  bool onerid;
 
   ub4 macid;
   ub4 macport;
@@ -75,6 +81,7 @@ struct port {
   ub4 arrs[Nlocal];
   ub4 drids[Nlocal];
   ub4 arids[Nlocal];
+  ub4 rid;
 
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
 
@@ -155,7 +162,8 @@ struct network {
   struct timetable *timetables;  // [routecnt]
 
 // access
-  ub4 *g2pport;       // [portcnt] global to partition port id
+  ub4 *g2pport;      // [gportcnt] global to partition port id
+  ub4 *p2gport;      // [portcnt]
 
   ub4 tthops[Hopcnt];   // index in timetables above
 
@@ -165,13 +173,13 @@ struct network {
   ub4 *hopdist;    // [hopcnt] idem
   ub4 *portsbyhop; // [hopcnt * 2] <dep,arr>
 
-  ub4 *mac2port;  // [nmac < portcnt]
+  ub4 *mac2port;   // [nmac < portcnt]
 
 // connection matrices. cached separately ?
   ub2 *con0cnt;    // [port2]  0-stop connections
   ub4 *con0ofs;    // [port2]  offsets in lst
 
-  ub4 maxstop;     // 
+  ub4 maxstop;     // highest n-stop connections inited
 
   ub4 maxrouteid;
   ub4 maxvariants,routevarmask;
@@ -214,10 +222,14 @@ struct gnetwork {
 
   struct partition parts[Npart];
 
-  ub4 portcnts[Npart];
+  ub4 portcnts[Npart];  // only proper ports
   ub4 hopcnts[Npart];
 
   ub1 *portparts;  // [partcnt * portcnt] port memberships
+
+  block xpartmap;
+  ub2 *xpartbase;
+  ub4 xpartlen;
 
   ub4 maxrouteid;
   ub4 maxvariants,routevarmask;
@@ -226,7 +238,7 @@ struct gnetwork {
 extern int mknet(ub4 maxstop);
 extern struct network *getnet(ub4 part);
 extern struct gnetwork *getgnet(void);
-extern int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports);
+extern int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports);
 
 #define checktrip(net,legs,nleg,dep,arr,dist) checktrip_fln((net),(legs),(nleg),(dep),(arr),(dist),FLN)
 #define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)
