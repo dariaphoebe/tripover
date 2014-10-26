@@ -312,7 +312,7 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 varlimit = 128; // todo configurable and dependent on other aspects
   ub4 var12limit = 32;
 
-  ub4 portlimit = 2000;
+  ub4 portlimit = 4000;
 
   ub4 dupcode,legport1,legport2;
   ub4 trip1ports[Nleg * 2];
@@ -379,6 +379,9 @@ static int mknetn(struct network *net,ub4 nstop)
   aclear(dupstats);
   aclear(cntstats);
 
+  ub4 dmid,dmidcnt,*dmids = alloc(portcnt * nstop,ub4,0,"net vias",portcnt);
+  ub4 dmidcnts[Nstop];
+
   // for each departure port
   for (dep = 0; dep < pportcnt; dep++) {
 
@@ -388,6 +391,26 @@ static int mknetn(struct network *net,ub4 nstop)
 
     pdep = ports + dep;
     if (pdep->ndep == 0) { cntstats[0]++; continue; }
+
+    // prepare eligible via's
+
+    for (midstop1 = 0; midstop1 < nstop; midstop1++) {
+      cnts1 = net->concnt[midstop1];
+
+      dmid = 0;
+      for (mid = 0; mid < portcnt; mid++) {
+        if (mid == dep) continue;
+        pmid = ports + mid;
+        if (pmid->ndep == 0) continue;
+        depmid = dep * portcnt + mid;
+
+        n1 = cnts1[depmid];
+
+        if (n1 == 0) continue;
+        dmids[midstop1 * nstop + dmid++] = mid;
+      }
+      dmidcnts[midstop1] = dmid;
+    }
 
     outcnt = 0;
 
@@ -421,16 +444,17 @@ static int mknetn(struct network *net,ub4 nstop)
 
         // for each via
         // first obtain distance range
-        for (mid = 0; mid < portcnt; mid++) {
-          if (mid == dep || mid == arr) continue;
+        for (dmid = 0; dmid < dmidcnts[midstop1]; dmid++) {
+          mid = dmids[midstop1 * nstop + dmid];
+          if (mid == arr) continue;
           if (arr < pportcnt && mid >= pportcnt) { cntstats[3]++; continue; }
           pmid = ports + mid;
-          if (pmid->ndep == 0 || pmid->narr == 0) { cntstats[4]++; continue; }
+          if (pmid->narr == 0) { cntstats[4]++; continue; }
 
           depmid = dep * portcnt + mid;
 
           n1 = cnts1[depmid];
-          if (n1 == 0) { cntstats[5]++; continue; }
+          error_z(n1,mid);
 
           midarr = mid * portcnt + arr;
           n2 = cnts2[midarr];
