@@ -40,6 +40,7 @@ struct eta {
 
 // arrange file coords
 #define FLN (__LINE__|msgfile)
+#define caller __LINE__|msgfile
 
 #define genmsg(lvl,code,fmt,...) genmsgfln(FLN,(lvl),(code),(fmt),__VA_ARGS__)
 #define vrb(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
@@ -67,6 +68,7 @@ extern ub4 mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...) __attri
 
 extern ub4 setmsgfile(const char *filename);
 extern ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid);
+extern void msg_write(const char *buf,ub4 len);
 
 extern void inimsg(char *progname, const char *logname, ub4 opts);
 extern void eximsg(void);
@@ -115,32 +117,35 @@ extern void error_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,const char *c
 extern void error_ge_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line,const char *fmt,...);
 extern void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line,const char *fmt,...);
 
+extern void enter(ub4 fln);
+extern void leave(ub4 fln);
+
 static void error_eq_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
   if (a != b) return;
 
-  assertfln(line,Exit,"%s:%u == %s:%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:\ah%u == %s:\ah%u", sa,a,sb,b);
 }
 
 static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a == b) return;
 
-  assertfln(line,Exit,"%s:%lu != %s:%lu", sa,a,sb,b);
+  assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu", sa,a,sb,b);
 }
 
 static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a <= b) return;
 
-  assertfln(line,Exit,"%s:%lu > %s:%lu", sa,a,sb,b);
+  assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu", sa,a,sb,b);
 }
 
 static void error_ge_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a < b) return;
 
-  assertfln(line,Exit,"%s:%lu >= %s:%lu", sa,a,sb,b);
+  assertfln(line,Exit,"%s:\ah%lu >= %s:\ah%lu", sa,a,sb,b);
 }
 
 static void error_lt_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)

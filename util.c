@@ -117,7 +117,7 @@ int readfile(struct myfile *mf,const char *name, int mustexist)
   int fd = osopen(name);
   char *buf;
   size_t len;
-  ssize_t nr;
+  long nr;
 
   clear(mf);
   if (fd == -1) {
@@ -137,7 +137,7 @@ int readfile(struct myfile *mf,const char *name, int mustexist)
   nr = osread(fd,buf,len);
   if (nr == -1) { oserror(0,"cannot read %s",name); osclose(fd); return 1; }
   osclose(fd);
-  if (nr != (ssize_t)len) return error(0,"partial read of %s",name);
+  if (nr != (long)len) return error(0,"partial read of %s",name);
   return 0;
 }
 

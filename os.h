@@ -20,6 +20,8 @@ extern int osclose(int fd);
 extern int setsigs(void);
 extern int oslimits(void);
 
+extern int osrotate(const char *name,const char old,const char new);
+
 extern int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *ext);
 extern int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext);
 

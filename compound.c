@@ -238,9 +238,9 @@ int compound(struct network *net)
         vrb(0,"route %x arr term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
         rp->atermport = port;
       } else if (rp->dtermport != hi32 && ndep && narr == loarr && loarr != hiarr) {
-        info(0,"route %x extra dep term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
+        vrb(0,"route %x extra dep term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
       } else if (rp->atermport != hi32 && narr && ndep == lodep && lodep != hidep) {
-        info(0,"route %x extra arr term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
+        vrb(0,"route %x extra arr term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
       } else if (ndep > 2 || narr > 2) info(0,"route %x port %u with %u deps %u arrs",rrid,port,ndep,narr);
       else vrb(0,"route %x port %u with %u deps %u arrs",rrid,port,ndep,narr);
     }

@@ -74,7 +74,7 @@ static ub8 progstart;
 
 // temporary choice. unbuffered is useful for console messages,
 // yet debug logging may ask for buffering
-static void msgwrite(char *buf, ub4 len)
+static void msgwrite(const char *buf, ub4 len)
 {
   int nw;
 
@@ -86,6 +86,8 @@ static void msgwrite(char *buf, ub4 len)
   if (nw == -1) oserrcnt++;
   if (msg_fd > 2) oswrite(1,buf,len);
 }
+
+void msg_write(const char *buf,ub4 len) { msgwrite(buf,len); }
 
 // make errors appear on stderr
 static void myttywrite(char *buf, ub4 len)
@@ -139,8 +141,6 @@ static ub4 ucnv(char *dst, ub4 x,ub4 wid,char pad)
   else if (x < 1000000000) n = 9;
   else n = 10;
 
-//  wid = 0;
-
   nn = n;
   if (wid > n) {
     while (wid > nn) { *dst++ = pad; nn++; }
@@ -155,30 +155,29 @@ static ub4 Ucnv(char *dst, ub4 x1,ub4 x2,char c)
 {
   ub4 n;
 
-  if (x1 > 1 && x2 >= 1000) {
-    n = ucnv(dst,x1+1,0,0);
-    dst[n] = c;
-    return n+1;
-  }
+  while (x2 >= 1024 - 5) { x1++; x2 >>= 10; }
+
   if (x1 < 10) n = 1;
   else if (x1 < 100) n = 2;
   else if (x1 < 1000) n = 3;
   else if (x1 < 10000) n = 4;
   else n = 5;
 
-  x2 &= 0x3ff;
-  if (x2 < 10) n += 1;
-  else if (x2 < 100) n += 2;
-  else if (x2 < 1000) n += 3;
-  else n += 4;
+  if (x2) n += 3;
 
-  dst += n + 2;
+  dst += n + 1;
   *dst-- = c;
   *dst-- = ' ';
-  do *dst-- = (ub1)((x2 % 10) + '0'); while (x2 /= 10);
-  *dst-- = '.';
+
+  if (x2) { // print 2 decimals
+    if ((x2 % 10) > 5) x2 += 10;
+    x2 /= 10;
+    *dst-- = (ub1)((x2 % 10) + '0'); x2 /= 10;
+    *dst-- = (ub1)((x2 % 10) + '0');
+    *dst-- = '.';
+  }
   do *dst-- = (ub1)((x1 % 10) + '0'); while (x1 /= 10);
-  return n + 3;
+  return n + 2;
 }
 
 // simple %e
@@ -285,10 +284,11 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         switch(c2) {
         case 'u': luval = va_arg(ap,unsigned long);
                   if (len - n <= 10) break;
-                  if (do_U && luval >= 1024UL) {
+                  if (do_U && luval >= 1024UL * 10) {
                     lx = luval;
-                    if (lx >= 1024UL * 1024UL) n += Ucnv(dst + n,(ub4)(lx >> 20),(ub4)(lx >> 10),'M');
-                    else n += Ucnv(dst + n,(ub4)(lx >> 10),(ub4)lx,'K');
+                    if (lx == hi32) n += Ucnv(dst + n,4,0,'G');
+                    else if (lx >= 1024UL * 1024UL) n += Ucnv(dst + n,(ub4)(lx >> 20),(ub4)(lx >> 10) & 0x3ff,'M');
+                    else n += Ucnv(dst + n,(ub4)(lx >> 10),(ub4)lx & 0x3ff,'K');
                   } else n += ucnv(dst + n,(ub4)luval,wid,pad  );
                   break;
         case 'x':
@@ -309,10 +309,11 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         case 'u': uval = va_arg(ap,unsigned int);
                   if (do_vec) { vlen = uval; break; }
                   if (len - n <= 10) break;
-                  if (do_U && uval >= 1024) {
+                  if (do_U && uval >= 1024U * 10) {
                     x = uval;
-                    if (x >= 1024 * 1024) n += Ucnv(dst + n,x >> 20,x >> 10,'M');
-                    else n += Ucnv(dst + n,x >> 10,x,'K');
+                    if (x == hi32) n += Ucnv(dst + n,4,0,'G');
+                    else if (x >= 1024U * 1024) n += Ucnv(dst + n,x >> 20,(x >> 10) & 0x3ff,'M');
+                    else n += Ucnv(dst + n,x >> 10,x & 0x3ff,'K');
                   } else n += ucnv(dst + n,uval,wid,pad);
                   break;
         case 'x': uval = va_arg(ap,unsigned int);
@@ -396,6 +397,31 @@ ub4 __attribute__ ((format (printf,4,5))) mysnprintf(char *dst, ub4 pos, ub4 len
   n = vsnprint(dst,pos,len,fmt,ap);
   va_end(ap);
   return n;
+}
+
+static ub4 callstack[64];
+static ub4 callpos;
+
+void enter(ub4 fln)
+{
+  if (callpos + 1 < Elemcnt(callstack)) callstack[callpos++] = fln;
+}
+
+extern void leave(ub4 fln)
+{
+  if (callpos) callpos--;
+}
+
+static void showstack(void)
+{
+  ub4 pos,cpos = callpos;
+  char buf[256];
+
+  while (cpos) {
+    pos = msgfln(buf,0,sizeof(buf)-1,callstack[--cpos],9);
+    buf[pos++] = '\n';
+    msgwrite(buf,pos);
+  }
 }
 
 // print file coords only
@@ -605,6 +631,8 @@ int __attribute__ ((format (printf,3,4))) assertfln(ub4 line, ub4 code, const ch
 
   errcnt++;
 
+  showstack();
+
   va_start(ap, fmt);
   msg(Assert, 0, line, code, fmt, ap);
   va_end(ap);
@@ -718,16 +746,22 @@ void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4
 // level to be set beforehand
 void inimsg(char *progname, const char *logname, ub4 opts)
 {
+  int c;
   vrb(2,"init msg for %s",logname);
 
+  for (c = 9; c; c--) osrotate(logname,(const char)((c - 1) + '0'), (const char)(c + '0'));
+  osrotate(logname,0,'0');
   msg_fd = oscreate(logname);
 
   if (msg_fd == -1) msg_fd = 2;
+  globs.msg_fd = msg_fd;
 
   progstart = gettime_usec();
 
   msgopts = opts;
   msgfile = setmsgfile(__FILE__);
+  infofln(0,User,"pid\t%d", globs.pid);
+
   if (msg_fd > 2 && (opts & Msg_init)) {
     infofln(0,User,"opening log %s for %s\n", logname,progname);
   }

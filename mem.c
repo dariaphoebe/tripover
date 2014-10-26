@@ -29,6 +29,43 @@ static const ub4 Maxmem_mb = 1024 * 8;
 
 static ub4 totalMB;
 
+struct sumbyuse {
+  char id[16];
+  ub4 idlen;
+  ub4 sum;
+  ub4 fln;
+};
+
+static struct sumbyuse usesums[32];
+
+static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
+{
+  ub4 idlen = 0;
+  struct sumbyuse *up = usesums;
+
+  while (desc[idlen] && desc[idlen] != ' ' && idlen < sizeof(up->id)-1) idlen++;
+  if (idlen == 0) return;
+
+  while (up < usesums + Elemcnt(usesums) && up->idlen && (up->idlen != idlen || memcmp(up->id,desc,idlen))) up++;
+  if (up == usesums + Elemcnt(usesums)) return;
+  up->idlen = idlen;
+  memcpy(up->id,desc,idlen);
+  up->fln = fln;
+  up->sum += mbcnt;
+  if (up->sum > 4) infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
+}
+
+static void showsums(void)
+{
+  struct sumbyuse *up = usesums;
+
+  info(0,"total memuse %u MB",totalMB);
+  while (up < usesums + Elemcnt(usesums) && up->idlen) {
+    if (up->sum > 4) infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
+    up++;
+  }
+}
+
 void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,const char *desc,ub4 arg,ub4 fln)
 {
   ub8 n8 = (ub8)elems * (ub8)elsize;
@@ -42,6 +79,8 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   error_z_fln(elems,arg,"elems","",fln);
   error_z_fln(elsize,arg,"elsize","",fln);
 
+  error_zp(desc,0);
+
   n = (size_t)n8;
   nm = (ub4)(n8 >> 20);
   if (n8 != n) error(Exit,"wraparound allocating %u MB for %s", nm, desc);
@@ -53,6 +92,9 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   if (!p) error(Exit,"cannot allocate %u MB for %s", nm, desc);
   else memset(p, fill, n);
   totalMB += nm;
+
+  addsum(fln,desc,nm);
+
   if (nm > 64) info(0,"alloc %u MB for %s, total %u", nm, desc, totalMB);
   return p;
 }
@@ -131,6 +173,8 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   totalMB += nm;
   if (nm > 64) info(0,"alloc %u MB for %s, total %u", nm, desc, totalMB);
 
+  addsum(fln,desc,nm);
+
   if (lruhead >= lrupool + Elemcnt(lrupool)) lruhead = lrupool;
   memcpy(lruhead,blk,sizeof(block));
 
@@ -184,4 +228,9 @@ void inimem(void)
 {
   msgfile = setmsgfile(__FILE__);
   iniassert();
+}
+
+void eximem(void)
+{
+  showsums();
 }

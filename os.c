@@ -9,7 +9,7 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-#define _POSIX_C_SOURCE 199309L
+#define _POSIX_C_SOURCE 200112L
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -22,6 +22,10 @@
 
 #include <errno.h>
 #include <signal.h>
+
+#ifdef USE_GLIBC_EXT
+ #include <execinfo.h>
+#endif
 
 #include <string.h>
 #include <stdio.h>
@@ -83,20 +87,43 @@ char *getoserr(void)
   return strerror(errno);
 }
 
-static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __attribute__ ((unused)) p)
+int osrotate(const char *name,const char old,const char new)
 {
-  char buf[1024];
+  char oldname[1024];
+  char newname[1024];
+
+  if (old) fmtstring(oldname,"%s.%c",name,old);
+  else fmtstring(oldname,"%s",name);
+  fmtstring(newname,"%s.%c",name,new);
+  return rename(oldname,newname);
+}
+
+static pid_t mypid;
+
+static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
+{
+  char buf[245];
   ub4 pos;
   size_t adr,nearby;
 
   if (msginfolen) oswrite(2,msginfo,msginfolen);
 
+#ifdef USE_GLIBC_EXT
+  void *btbuf[32];
+  int btcnt = backtrace(btbuf,Elemcnt(btbuf));
+
+  backtrace_symbols_fd(btbuf,btcnt,2);
+  backtrace_symbols_fd(btbuf,btcnt,globs.msg_fd);
+#endif
+
   switch(sig) {
   case SIGSEGV:
-    adr = (size_t)(si->si_addr);
+    adr = (size_t)si->si_addr;
     nearby = nearblock(adr);
-    pos = mysnprintf(buf,0,sizeof buf,"\nsigsegv at %lx near %lx\n", (unsigned long)adr,(unsigned long)nearby);
-    break;
+    pos = mysnprintf(buf,0,sizeof buf,"\nsigsegv at %lx near %lx\npid %u\n", (unsigned long)adr,(unsigned long)nearby,mypid);
+    oswrite(2,buf,pos);
+    pause();
+
   default: pos = mysnprintf(buf,0,sizeof buf,"\nsignal %u\n", sig);
   }
   oswrite(2,buf,pos);
@@ -108,6 +135,10 @@ int setsigs(void)
   struct sigaction sa;
 
   memset(&sa,0,sizeof(sa));
+
+  mypid = getpid();
+  globs.pid = (int)mypid;
+
   sa.sa_sigaction = mysigact;
   sa.sa_flags = SA_SIGINFO;
 
@@ -326,7 +357,7 @@ int oslimits(void)
   int rv;
 
   rv = rlimit(RLIMIT_AS,Maxmem,"virtual memory");
-  rv |= rlimit(RLIMIT_CORE,1024 * 1024,"core size");
+  rv |= rlimit(RLIMIT_CORE,64 * 1024 * 1024,"core size");
   return rv;
 }
 

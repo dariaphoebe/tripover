@@ -34,7 +34,7 @@ typedef struct memblk block;
 enum Blkopts { Noinit, Init0, Init1 };
 
 #define Maxmem (1024UL * 1024 * 1024 * 12)
- 
+
 #define alloc(cnt,el,fill,desc,arg) (el*)alloc_fln((cnt),sizeof(el),#cnt,#el,(fill),(desc),(arg),MFLN)
 #define mkblock(blk,cnt,el,opt,...) (el*)mkblock_fln((blk),(cnt),sizeof(el),(opt),#cnt,#el,MFLN,__VA_ARGS__)
 
@@ -52,3 +52,4 @@ extern void afree_fln(void *p,ub4 fln, const char *desc);
 extern size_t nearblock(size_t adr);
 
 extern void inimem(void);
+extern void eximem(void);

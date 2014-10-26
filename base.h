@@ -73,6 +73,9 @@ extern struct globs {
   ub4 writpdf;
   ub4 extdec;
 
+  int msg_fd;
+  int pid;
+
   ub4 testa,testb;
   ub4 testcnt;
   ub4 testset[16];

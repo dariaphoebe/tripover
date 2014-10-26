@@ -72,6 +72,12 @@ static int init0(char *progname)
   return 0;
 }
 
+static void exit0(void)
+{
+  eximem();
+  eximsg();
+}
+
 // read or generate base network
 static int getbasenet(void)
 {
@@ -201,7 +207,7 @@ int main(int argc, char *argv[])
     serverloop();
   }
 
-  eximsg();
+  exit0();
 
   return 0;
 }
