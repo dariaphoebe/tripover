@@ -21,7 +21,7 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 10
+#define Version_min 11
 #define Version_phase "initial"
 
 // handful of useful macros

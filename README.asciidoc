@@ -43,9 +43,10 @@ The planner is targeted to run on a server, accessed by local and web clients.
 [small]#aim at higher system requirements#
 
 == Status
-Starting
+Developing
 
 * Initial artificial network
+* preliminary GTFS reader and 'external' readable network file format
 * Static connectivity matrix aka graph builing
 * rudimentary local commandline client / server interface
 * rudimentary route-only search
@@ -80,11 +81,33 @@ Currently, the local commandline client does not need a build step
 
 == Usage
 
+=== artificial netowrk
+
 Invoke the server without an existing network :
 
 `./tripover -max-ports=500 -max-hops=500 -max-stops=2`
 
 This will create a small artificial network, then enters a loop waiting for client requests.
+
+=== GTFS feed
+
+Prepare a GTFS feed by unpacking into any directory:
+
+`mkdir data/seq && cd data/seq`
+
+`wget http://translink.com.au/sites/default/files/assets/resources/about-translink/reporting-and-publications/open-data/gtfs/SEQ.zip?20141020`
+
+`unzip SEQ`
+
+`cd ../..`
+
+Convert into tripover external format
+
+`gtfstool import data/seq data`
+
+Run tripover server with this network
+
+`./tripover data`
 
 Invoke the commandline client :
 

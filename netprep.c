@@ -117,11 +117,11 @@ int prepnet(netbase *basenet)
 {
   struct network *net;
   struct gnetwork *gnet = getgnet();
-  struct portbase *bports,*bpp;
+  struct portbase *bports,*bpp,*bpdep,*bparr;
   struct hopbase *bhops,*bhp;
   struct port *ports,*pports,*pdep,*parr,*pp,*gp;
   struct hop *hops,*phops,*hp,*ghp;
-  ub4 portcnt,xportcnt,hopcnt,dep,arr,aport,depp,arrp;
+  ub4 bportcnt,portcnt,xportcnt,bhopcnt,hopcnt,dep,arr,aport,depp,arrp;
   ub4 nlen,cnt,acnt,dcnt,routeid,part,hpart,xmaplen;
   ub4 pportcnt,phopcnt,partcnt,npart1;
   enum txkind kind;
@@ -132,36 +132,48 @@ int prepnet(netbase *basenet)
   ub4 *g2p,*p2g;
   struct partition *parts,*partp,*apartp;
 
-  hopcnt = basenet->hopcnt;
-  portcnt = basenet->portcnt;
-  if (portcnt == 0 || hopcnt == 0) return 1;
+  bhopcnt = basenet->hopcnt;
+  bportcnt = basenet->portcnt;
+  if (bportcnt == 0 || bhopcnt == 0) return 1;
 
+  // filter unconnected ports
+  portcnt = 0;
   bports = basenet->ports;
-  bhops = basenet->hops;
-
-  hopcnts = gnet->hopcnts;
-  portcnts = gnet->portcnts;
-  parts = gnet->parts;
-
-  maxrid = basenet->maxrouteid;
-  for (hop = 0; hop < hopcnt; hop++) {
-    bhp = bhops + hop;
+  for (port = 0; port < bportcnt; port++) {
+    bpp = bports + port;
+    bpp->id = portcnt;
+    if (bpp->ndep == 0 && bpp->narr == 0) {
+      info(0,"omitting unconnected port %u %s",bpp->id,bpp->name);
+    } else portcnt++;
+    if (bpp->namelen == 0) warning(0,"port %u has no name",bpp->id);
   }
-
-  // todo: ad-hoc partitioning
-  partcnt = max(portcnt / 10000,1);
-  portparts = alloc(partcnt * portcnt,ub1,0,"portparts",portcnt);
-  npart1 = (partcnt - 1);
-
+  info(0,"%u from %u ports",portcnt,bportcnt);
   ports = alloc(portcnt,struct port,0,"ports",portcnt);
+
+  // filter nil hops
+  hopcnt = 0;
+  bhops = basenet->hops;
+  for (hop = 0; hop < bhopcnt; hop++) {
+    bhp = bhops + hop;
+    dep = bhp->dep;
+    arr = bhp->arr;
+    error_ge(dep,bportcnt);
+    error_ge(arr,bportcnt);
+    if (dep == arr) {
+      bpp = bports + dep;
+      warning(0,"nil hop %u %s at %u",dep,bpp->name,bhp->cid);
+    } else hopcnt++;
+  }
   hops = alloc(hopcnt,struct hop,0,"hops",hopcnt);
 
-  xmaplen = 0;
-
-  for (port = 0; port < portcnt; port++) {
-    pp = ports + port;
+  portcnt = 0;
+  for (port = 0; port < bportcnt; port++) {
     bpp = bports + port;
-    pp->id = pp->allid = pp->gid = port;
+    if (bpp->ndep == 0 && bpp->narr == 0) continue;
+
+    pp = ports + portcnt;
+    pp->id = pp->allid = pp->gid = portcnt;
+    pp->cid = bpp->cid;
     nlen = bpp->namelen;
     if (nlen) {
       memcpy(pp->name,bpp->name,nlen);
@@ -172,25 +184,56 @@ int prepnet(netbase *basenet)
     pp->rlat = bpp->rlat;
     pp->rlon = bpp->rlon;
     pp->utcofs = bpp->utcofs;
+    portcnt++;
   }
 
-  for (hop = 0; hop < hopcnt; hop++) {
-    hp = hops + hop;
-    hp->id = hop;
+  hopcnt = 0;
+  for (hop = 0; hop < bhopcnt; hop++) {
     bhp = bhops + hop;
+    dep = bhp->dep;
+    arr = bhp->arr;
+    if (dep == arr) continue;
+
+    hp = hops + hopcnt;
+    hp->id = hopcnt;
     nlen = bhp->namelen;
     if (nlen) {
       memcpy(hp->name,bhp->name,nlen);
       hp->namelen = nlen;
     }
-    dep = bhp->dep;
-    arr = bhp->arr;
-    if (dep == arr) { warning(0,"nil hop %u-%u",dep,arr); continue; }
     routeid = bhp->routeid;
+    hp->routeid = routeid;
+    kind = bhp->kind;
+    hp->kind = kind;
 
+    bpdep = bports + dep;
+    bparr = bports + arr;
+    dep = bpdep->id;
+    arr = bparr->id;
     hp->dep = dep;
     hp->arr = arr;
-    hp->routeid = routeid;
+
+    hopcnt++;
+  }
+
+  hopcnts = gnet->hopcnts;
+  portcnts = gnet->portcnts;
+  parts = gnet->parts;
+
+  maxrid = basenet->maxrouteid;
+
+  // todo: ad-hoc partitioning
+  partcnt = max(portcnt / 1000,1);
+  portparts = alloc(partcnt * portcnt,ub1,0,"portparts",portcnt);
+  npart1 = (partcnt - 1);
+
+  xmaplen = 0;
+
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    dep = hp->dep;
+    arr = hp->arr;
+    routeid = hp->routeid;
 
     // todo: ad-hoc partitioning
     if (partcnt > 1) {
@@ -208,8 +251,10 @@ int prepnet(netbase *basenet)
     parr->narr++;
 
     partp = parts + part;
-    error_zz(pdep->lat,pdep->lon);
-    error_zz(parr->lat,parr->lon);
+    error_z_cc(pdep->lat,"dport %u %s",dep,pdep->name);
+    error_z_cc(pdep->lon,"dport %u %s",dep,pdep->name);
+    error_z_cc(parr->lat,"aport %u %s",arr,parr->name);
+    error_z_cc(parr->lon,"aport %u %s",arr,parr->name);
 
     dcnt = portparts[dep * partcnt + part];
     if (dcnt == 0) {
@@ -227,14 +272,14 @@ int prepnet(netbase *basenet)
     }
     if (acnt < 255) portparts[arr * partcnt + part] = (ub1)acnt + 1;
 
-    kind = bhp->kind;
-    hp->kind = kind;
+    kind = hp->kind;
     switch(kind) {
     case Walk: pdep->nwalkdep++; parr->nwalkarr++; break;
     case Air: break;
     case Rail: break;
     case Bus: break;
     case Unknown: info(0,"hop %s has unknown transport mode", hp->name); break;
+    case Kindcnt: break;
     }
 
   }
@@ -272,7 +317,11 @@ int prepnet(netbase *basenet)
 
     partstats[min(partivs,cnt)]++;
   }
-  for (iv = 0; iv <= partivs; iv++) info(0,"%u ports in %u partitions each", partstats[iv], iv);
+  cnt = partstats[0];
+  if (cnt) warning(0,"%u port\as in no partition", cnt);
+  cnt = partstats[1];
+  genmsg(cnt ? Info : Warn,0,"%u port\as in 1 partition", cnt);
+  for (iv = 2; iv <= partivs; iv++) info(0,"%u port\as in %u partition\as each", partstats[iv], iv);
   info(0,"\ah%u xmaps",xmaplen);
 
   gnet->xpartbase = mkblock(&gnet->xpartmap,xmaplen,ub2,Init0,"xmap for %u parts", partcnt);
@@ -295,7 +344,8 @@ int prepnet(netbase *basenet)
     }
 
     // count
-    phop = 0;
+    ub4 hpcnt,hxcnt;
+    hpcnt = hxcnt = 0;
     for (hop = 0; hop < hopcnt; hop++) {
       error_ge(hop,hopcnt);
       ghp = hops + hop;
@@ -306,12 +356,19 @@ int prepnet(netbase *basenet)
       error_ge(arr,portcnt);
       pdep = ports + dep;
       parr = ports + arr;
-      if (hpart != part && (pdep->partcnt > 1 || parr->partcnt > 1) ) phop++;
+      if (hpart == part) hpcnt++;
+      else if (pdep->partcnt == 1 && parr->partcnt == 1) { }
+      else if (pdep->partcnt > 1 || parr->partcnt > 1) {
+        if (pdep->partcnt > 1) vrb(0,"dport %u parts %u %s",dep,pdep->partcnt,pdep->name);
+        if (parr->partcnt > 1) vrb(0,"aport %u parts %u %s",arr,parr->partcnt,parr->name);
+        hxcnt++;
+      }
     }
+    error_ne(hpcnt,phopcnt);
 
     xportcnt = pportcnt + npart1;
-    info(0,"partition %u: %u+%u ports %u+%u hops",part,pportcnt,npart1,phopcnt,phop);
-    phopcnt += phop;
+    info(0,"partition %u: %u+%u ports %u+%u hops",part,pportcnt,npart1,phopcnt,hxcnt);
+    phopcnt += hxcnt;
 
     pports = alloc(xportcnt,struct port,0,"ports",xportcnt);
     phops = alloc(phopcnt,struct hop,0,"phops",phopcnt);
@@ -358,10 +415,12 @@ int prepnet(netbase *basenet)
     }
 
     // separate and resequence hops
+    ub4 dpcnt,apcnt,hpcnt2,hxcnt2;
+
     hp = phops;
-    phop = 0;
+    phop = hpcnt2 = hxcnt2 = 0;
     for (hop = 0; hop < hopcnt; hop++) {
-      error_ge(phop,phopcnt);
+      if (phop >= phopcnt) info(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
       ghp = hops + hop;
       hpart = ghp->part;
       dep = ghp->dep;
@@ -370,7 +429,14 @@ int prepnet(netbase *basenet)
       error_ge(arr,portcnt);
       pdep = ports + dep;
       parr = ports + arr;
+      dpcnt = pdep->partcnt;
+      apcnt = parr->partcnt;
+      error_z(dpcnt,hop);
+      error_z(apcnt,hop);
       if (hpart == part) { // this part to this part
+        error_ge(phop,phopcnt);
+        hpcnt2++;
+        error_gt(hpcnt2,hpcnt);
         memcpy(hp,ghp,sizeof(*hp));
         hp->id = phop;
         hp->gid = hop;
@@ -382,8 +448,11 @@ int prepnet(netbase *basenet)
         hp->arr = arrp;
         hp++;
         phop++;
-      } else if (pdep->partcnt == 1 && parr->partcnt == 1) { // other part to same other part: skip
-      } else {
+      } else if (dpcnt == 1 && apcnt == 1) { // other part to same other part: skip
+      } else if (dpcnt > 1 || apcnt > 1) {
+        error_ge(phop,phopcnt);
+        hxcnt2++;
+        error_gt(hxcnt2,hxcnt);
         if (portparts[dep * partcnt + part]) {
           depp = g2p[dep];
           error_ge(depp,pportcnt);

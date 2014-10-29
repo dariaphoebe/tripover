@@ -91,6 +91,7 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 #define error_gt2(a1,a2,b) error_gt2_fln((a1),(a2),(b),#a1,#a2,#b,FLN)
 
 #define error_eq_cc(a,b,fmt,...) if ((a) == (b)) error_cc_fln((a),(b),#a,#b,"==",FLN,fmt,__VA_ARGS__)
+#define error_z_cc(a,fmt,...) if ((a) == 0) error_cc_fln((a),0,#a,"0","==",FLN,fmt,__VA_ARGS__)
 
 #define error_ge_cc(a,b,fmt,...) error_ge_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)
 #define error_gt_cc(a,b,fmt,...) error_gt_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)

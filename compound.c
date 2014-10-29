@@ -267,7 +267,7 @@ int compound(struct network *net)
       if (ndep && narr) {
         rdep = rarr = hi16; // only store if dep and arr unique
         pdep = ports + dep; parr = ports + arr;
-        info(0,"skip extra %u-%u %s to %s",dep,arr,pdep->name,parr->name);
+        vrb(0,"skip extra %u-%u %s to %s",dep,arr,pdep->name,parr->name);
       } else {
         rportdeps[rdep] = (ub2)ndep + 1;
         rportarrs[rarr] = (ub2)narr + 1;
@@ -288,7 +288,7 @@ int compound(struct network *net)
     while (spos < rportcnt - 1) {
       pos = 0;
       if (port == rp->atermport) {
-        warning(0,"route %u.%x arr term port %u.%u.%u %s",part,rrid,pdep->partcnt,pdep->part,port,pdep->name);
+        warning(0,"route %u.%x arr %u into term port %u.%u %s",part,rrid,port,pdep->partcnt,pdep->part,pdep->name);
         break;
       }
       while (pos < cnt && rdp[pos] != rport) pos++;

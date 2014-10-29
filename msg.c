@@ -235,9 +235,9 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
   const char *p = fmt;
   ub4 n = 0,x;
   ub4 wid,prec,plen;
-  unsigned int uval,vlen=0,*puval;
+  unsigned int uval=0,vlen=0,*puval;
   unsigned long luval,lx;
-  int ival,alt,padleft,do_U = 0, do_vec = 0;
+  int ival,alt,padleft,do_U = 0,do_vec = 0;
   long lival;
   double dval;
   char *pval;
@@ -252,6 +252,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
       switch(*p++) {
         case 'h': do_U = 1; break;
         case 'v': do_vec = 1; break;
+        case 's': if (uval != 1) dst[n++] = 's'; break;
         case '%': dst[n++] = c1; c1 = '%'; break;
         default: dst[n++] = c1;
       }
@@ -283,6 +284,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         c2 = *p++;
         switch(c2) {
         case 'u': luval = va_arg(ap,unsigned long);
+                  uval = (ub4)min(luval,hi32);
                   if (len - n <= 10) break;
                   if (do_U && luval >= 1024UL * 10) {
                     lx = luval;
@@ -293,11 +295,14 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   break;
         case 'x':
         case 'p': luval = va_arg(ap,unsigned long);
+                  uval = (ub4)min(luval,hi32);
                   if (len - n <= 10) break;
                   n += xcnv(dst + n,(ub4)luval);
                   n += xcnv(dst + n,(ub4)(luval >> 32));
                   break;
         case 'd': lival = va_arg(ap,long);
+                  if (lival == 1) uval = 1;
+                  else uval = hi32;
                   if (len - n <= 20) break;
                   if (lival < 0) { dst[n++] = '-'; n += ucnv(dst + n, (ub4)-lival,wid,pad); }
                   else n += ucnv(dst + n, (ub4)lival,wid,pad);
@@ -322,6 +327,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   n += xcnv(dst + n,uval);
                   break;
         case 'd': ival = va_arg(ap,int);
+                  if (ival == 1) uval = 1;
+                  else uval = hi32;
                   if (len - n <= 10) break;
                   if (ival < 0) { dst[n++] = '-'; n += ucnv(dst + n, -ival,wid,pad); }
                   else n += ucnv(dst + n,ival,wid,pad);
@@ -410,6 +417,7 @@ void enter(ub4 fln)
 extern void leave(ub4 fln)
 {
   if (callpos) callpos--;
+  else infofln(fln,0,"leave below callstrack");
 }
 
 static void showstack(void)

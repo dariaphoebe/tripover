@@ -98,6 +98,10 @@ routes.txt  todo
 
  */
 
+enum stopopts { Stopopt_child = 1, Stopopt_parent = 2 };
+
+static const char *kindnames[Kindcnt] = { "unknown","air","rail","bus","walk" };
+
 static int memeq(const char *s,const char *q,ub4 n) { return !memcmp(s,q,n); }
 
 // count non-empty and non-comment lines
@@ -149,6 +153,21 @@ static int __attribute__ ((format (printf,5,6))) parserr(ub4 fln,const char *fna
   return errorfln(fln,0,"%s",buf);
 }
 
+static int __attribute__ ((format (printf,5,6))) inerr(ub4 fln,const char *fname,ub4 linno,ub4 colno,const char *fmt, ...)
+{
+  va_list ap;
+  char buf[1024];
+  ub4 pos,len = sizeof(buf);
+
+  pos = fmtstring(buf,"%s.%u.%u: ",fname,linno,colno);
+  if (fmt) {
+    va_start(ap,fmt);
+    myvsnprintf(buf,pos,len,fmt,ap);
+    va_end(ap);
+  }
+  return errorfln(fln,0,"%s",buf);
+}
+
 static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *fname,ub4 linno,ub4 colno,const char *fmt, ...)
 {
   va_list ap;
@@ -164,25 +183,97 @@ static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *f
   return warningfln(fln,0,"%s",buf);
 }
 
+static int showconstats(struct portbase *ports,ub4 portcnt)
+{
+  struct portbase *pp;
+  ub4 nodep,noarr,nodeparr,udeparr1;
+  ub4 hidep,hiarr,hidport,hiaport;
+  ub4 port,ndep,narr,n;
+
+  ub4 constats[256];
+  ub4 depstats[256];
+  ub4 arrstats[256];
+
+  ub4 depivs = Elemcnt(depstats) - 1;
+  ub4 arrivs = Elemcnt(arrstats) - 1;
+
+  aclear(constats);
+  aclear(depstats);
+  aclear(arrstats);
+  nodep = noarr = nodeparr = udeparr1 = 0;
+  hidep = hiarr = hidport = hiaport = 0;
+
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    ndep = pp->ndep; narr = pp->narr;
+    if (ndep == 0 && narr == 0) { info(0,"port %u %u has no connections - %s",port,pp->id,pp->name); nodeparr++; }
+    else if (ndep == 0) { vrb(0,"port %u has no deps - %s",port,pp->name); nodep++; }
+    else if (narr == 0) { vrb(0,"port %u has no arrs - %s",port,pp->name); noarr++; }
+    if (ndep < 16 && narr < 16) constats[(ndep << 4) | narr]++;
+    depstats[min(ndep,depivs)]++;
+    arrstats[min(narr,arrivs)]++;
+    if (ndep > hidep) { hidep = ndep; hidport = port; }
+    if (narr > hiarr) { hiarr = narr; hiaport = port; }
+  }
+  genmsg(nodeparr ? Info : Vrb,0,"%u of %u ports without connection",nodeparr,portcnt);
+  info(0,"%u of %u ports without departures",nodep,portcnt);
+  info(0,"%u of %u ports without arrivals",noarr,portcnt);
+  for (ndep = 0; ndep < 3; ndep++) {
+    for (narr = 0; narr < 3; narr++) {
+      n = constats[(ndep << 4) | narr];
+      if (n || ndep < 2 || narr < 2) info(0,"%u port\as with %u dep + %u arr", n,ndep,narr);
+    }
+  }
+
+  for (ndep = 0; ndep <= depivs; ndep++) {
+    n = depstats[ndep];
+    if (n) info(0,"%u port\as with %u%s dep", n,ndep,ndep == depivs ? "+" : "");
+  }
+  for (narr = 0; narr <= arrivs; narr++) {
+    n = arrstats[narr];
+    if (n) info(0,"%u port\as with %u%s arr", n,narr,narr == arrivs ? "+" : "");
+  }
+  pp = ports + hidport;
+  info(0,"port %u deps %u arrs %u %s",hidport,hidep,pp->narr,pp->name);
+  pp = ports + hiaport;
+  info(0,"port %u deps %u arrs %u %s",hiaport,pp->ndep,hiarr,pp->name);
+
+  return 0;
+}
+
+#define Maxval 32
+
 #define Maxname 256
 
-// s<latlon scale,ofs>
-// id name latlon  # comment
+// name id subid lat lon  # comment
 static int rdextports(netbase *net,const char *dir)
 {
   char fname[512];
   struct myfile mf;
-  ub4 rawportcnt,portcnt,port;
+  ub4 rawportcnt,extportcnt,portcnt,port;
   struct portbase *ports,*pp;
-  ub4 *id2ports;
-  enum states { Out, Idhex1,Iddec0,Iddec1,Name0,Name1,Lat0,Lathex1,Lonhex0,Lonhex1,Latdec0,Latdec1,Londec0,Londec1,Fls};
+  enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
   enum states state;
-  int rv,newport;
+  int rv,iscmd,newitem;
   char *buf,*p,*end,c,tab,nl;
-  ub4 len,linno,colno,x,namelen,lat,lon,id,idhi,maxid,cc;
+  ub4 len,linno,colno,x,namelen,idhi,subidhi,maxid;
+  ub4 lat,lon,id,subid,opts;
   ub4 lolon,lolat,hilon,hilat;
   char name[Maxname];
   ub4 namemax = min(Maxname,sizeof(ports->name)) - 2;
+  ub4 val,valndx,vals[Maxval];
+  ub4 latscale,latscaleline;
+
+  struct extport {
+    char name[64];
+    ub4 namelen;
+    ub4 id, subid;
+    ub4 opts;
+    bool parent,child;
+    ub4 subcnt,subofs,seq;
+    ub4 lat,lon;
+  };
+  struct extport *extports,*ep,*pep;
 
   aclear(name);
   fmtstring(fname,"%s/ports.txt",dir);
@@ -195,16 +286,18 @@ static int rdextports(netbase *net,const char *dir)
   rawportcnt = linecnt(fname,buf, len);
 
   if (rawportcnt == 0) return warning(0,"%s is empty",fname);
-  portcnt = 0;
 
-  ports = pp = mkblock(&net->portmem,rawportcnt,struct portbase,Init0,"");
+  extportcnt = 0;
+  extports = ep = alloc(rawportcnt,struct extport,0,"ext ports",rawportcnt);
 
   state = Out;
-  namelen = lat = lon = id = idhi = maxid = 0;
+  namelen = val = valndx = id = idhi = subidhi = maxid = 0;
+  iscmd = newitem = 0;
+  latscaleline = 0;
+
   lolat = lolon = hi32;
   hilat = hilon = 0;
 
-  newport = 0;
   colno = 0;
   linno = 1;
   tab = '\t'; nl = '\n';
@@ -215,163 +308,299 @@ static int rdextports(netbase *net,const char *dir)
   while (p < end) {
 
     c = *p++;
-    cc = c;
+
     if (c == nl) { linno++; colno = 1; }
     else colno++;
 
 //    info(0,"state %u c %c",state,c);
 
-// todo: generalize like hops below
     switch(state) {
 
     case Out:
+      valndx = 0;
+      iscmd = 0;
       switch (c) {
         case '#': state = Fls; break;
-        case 'D': state = Iddec0; break;
-        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
-        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
-          id = hexmap[cc];
-          state = Idhex1;
-          break;
-        case 's': info0(0,"scale todo"); state = Fls; break;
+        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
         case '\n': break;
-        default: parsewarn(FLN,fname,linno,colno,"unexpected char %c",c); state = Fls;
+        case ' ': break;
+        case '.': iscmd = 1; state = Cmd0; break;
+        default: name[0] = c; namelen = 1; state = Name;
       }
       break;
 
-    case Idhex1:
-      x = hexmap[cc];
-      if (x < 16) id = (id << 4) | x;
-      else if (x == 0x20) state = Name0;
-      else return parserr(FLN,fname,linno,colno,"expected whitespace after ID, found %c",c);
+    case Cmd0:
+      switch (c) {
+        case '#': state = Fls; break;
+        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
+        case '\n': return parserr(FLN,fname,linno,colno,"unexpected newline");
+        case '.': iscmd = 0; name[0] = '.'; namelen = 1; state = Name; break;
+        default: name[0] = c; namelen = 1; state = Name;
+      }
       break;
 
-    case Iddec0:
-      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit for ID, found %c",c);
-      id = c - '0';
-      state = Iddec1;
-      break;
-
-    case Iddec1:
-      if (c == tab) state = Name0;
-      else if (c >= '0' && c <= '9') id = (id * 10) + (c - '0');
-      else return parserr(FLN,fname,linno,colno,"expected decimal digit for ID, found %c",c);
-      break;
-
-    case Name0:
-      namelen = 0;
-      if (c == tab) { warning(0,"%u no name",linno); state = Lat0; }
-      else { name[namelen++] = c; state = Name1; }
-      break;
-
-    case Name1:
-      if (c == tab) state = Lat0;
-      else if (namelen + 1 < namemax) name[namelen++] = c;
+    case Name:
+      if (c == tab) { valndx = 0; aclear(vals); state = Num0; }
+      else if (c == nl) return parserr(FLN,fname,linno,colno,"missing dep arr");
+      else if (namelen + 2 < namemax) name[namelen++] = c;
       else if (name[namemax] != '!') {
         parsewarn(FLN,fname,linno,colno,"name exceeds %u",namemax);
         name[namemax] = '!';
       }
       break;
 
-    case Lat0:
-      if (c == 'D') state = Latdec0;
-      else if (hexmap[cc] < 16) {
-        lat = hexmap[cc];
-        state = Lathex1;
-      } else return parserr(FLN,fname,linno,colno,"expected digit for lat, found %c",c);
-      break;
-
-    case Lathex1:
-      x = hexmap[cc];
-      if (x < 16) lat = (lat << 4) | x;
-      else if (x == 0x20) state = Lonhex0;
-      else return parserr(FLN,fname,linno,colno,"expected wdigit for lat, found %c",c);
-      break;
-
-    case Lonhex0:
-      if (hexmap[cc] < 16) {
-        lon = hexmap[cc];
-        state = Lonhex1;
+    case Num0:
+      switch(c) {
+        case '#': if (valndx > 2) newitem = 1; state = Fls; break;
+        case '\t': case ' ': break;
+        case 'D': state = Dec0; break;
+        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+          val = hexmap[(ub4)c];
+          state = Hex1;
+          break;
+        default: return parserr(FLN,fname,linno,colno,"expected digit, found '%c'",c);
       }
-      else return parserr(FLN,fname,linno,colno,"expected digit for lon, found %c",c);
       break;
 
-    case Lonhex1:
-      x = hexmap[cc];
-      if (x < 16) lon = (lon << 4) | x;
-      else if (x == 0x20) { newport = 1; state = Fls; }
-      else if (x == 0xfe) { newport = 1; state = Out; }
-      else return parserr(FLN,fname,linno,colno,"expected digit for lon, found %c",c);
+    case Hex1:
+      if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
+      x = hexmap[(ub4)c];
+      if (x < 16) val = (val << 4) | x;
+      else if (x == 0x20) {
+        vals[valndx++] = val;
+        state = Num0;
+      } else if (x == 0xfe) { // newline
+        vals[valndx++] = val;
+        newitem = 1;
+        state = Out;
+      } else return parserr(FLN,fname,linno,colno,"expected whitespace after number, found %c",c);
       break;
 
-    case Latdec0:
-      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit for lon, found %c",c);
-      lat = c - '0';
-      state = Latdec1;
+    case Dec0:
+      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
+      val = c - '0';
+      state = Dec1;
       break;
 
-    case Latdec1:
-      if (c == tab) state = Londec0;
-      else if (c >= '0' && c <= '9') lat = (lat * 10) + (c - '0');
-      else return parserr(FLN,fname,linno,colno,"expected decimal digit for lon, found %c",c);
-      break;
-
-    case Londec0:
-      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit for lon, found %c",c);
-      lon = c - '0';
-      state = Londec1;
-      break;
-
-    case Londec1:
-      if (c == tab) { newport = 1; state = Fls; }
-      else if (c == nl) { newport = 1; state = Out; }
-      else if (c >= '0' && c <= '9') lon = (lon * 10) + (c - '0');
-      else return parserr(FLN,fname,linno,colno,"expected decimal digit for lon, found %c",c);
+    case Dec1:
+      if (c == tab || c == ' ') {
+        if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
+        vals[valndx++] = val;
+        state = Num0;
+      } else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
+      else if (c == nl) {
+        vals[valndx++] = val;
+        newitem = 1;
+        state = Out;
+      } else return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
       break;
 
     case Fls:
       if (c == nl) { state = Out; } break;
+
     }
-    if (newport) {
-      error_ge(portcnt,rawportcnt);
-      newport = 0;
-      vrb(0,"port %u id %u",portcnt,id);
+
+    if (newitem && iscmd) {
+      name[namelen] = 0;
+      iscmd = newitem = 0;
+      if (namelen == 8 && memeq(name,"latscale",namelen)) {
+        if (latscaleline) parsewarn(FLN,fname,linno,colno,"ignore %s previously defined at %u",name,latscaleline);
+        else {
+          latscaleline = linno;
+          latscale = vals[0];
+          info(0,"%s : %u",name,latscale);
+        }
+      } else info(0,"ignore unknown cmd %s %u",name,vals[0]);
+
+    } else if (newitem) {
+      newitem = 0;
+      error_ge(extportcnt,rawportcnt);
+      if (valndx < 4) return parserr(FLN,fname,linno,colno,"missing id,subid,lat,lon args, only %u",valndx);
+
+      id = vals[0];
+      subid = vals[1];
+      lat = vals[2];
+      lon = vals[3];
+      if (valndx > 3) opts = vals[4];
+      else opts = 0;
+      vrb(0,"port %u id %u sub %u opts %x",extportcnt,id,subid,opts);
       if (id > idhi) idhi = id;
-      pp->id = id;
+      if (subid > subidhi) subidhi = subid;
+      ep->id = id;
+      ep->subid = subid;
+      ep->opts = opts;
+      ep->parent = (opts & Stopopt_parent);
+      ep->child  = (opts & Stopopt_child);
+      if (id != subid && ep->parent) parsewarn(FLN,fname,linno,colno,"parent port %u has parent %u",subid,id);
+      if (id == subid && ep->child) parsewarn(FLN,fname,linno,colno,"child port %u has no parent",id);
+
       if (lat >= 180 * Latscale) { parsewarn(FLN,fname,linno,colno,"port %u lat %u out of range",id,lat); lat = 0; }
       if (lon >= 360 * Lonscale) { parsewarn(FLN,fname,linno,colno,"port %u lon %u out of range",id,lon); lon = 0; }
-      pp->lat = lat;
-      pp->lon = lon;
+      ep->lat = lat;
+      ep->lon = lon;
       lolat = min(lolat,lat);
       hilat = max(hilat,lat);
       lolon = min(lolon,lon);
       hilon = max(hilon,lon);
-      pp->rlat = lat2rad(lat);
-      pp->rlon = lon2rad(lon);
-//    info(0,"latlon %u %u r %e %e",lat,lon,pp->rlat,pp->rlon);
-      pp->namelen = namelen;
-      if (namelen) memcpy(pp->name,name,namelen);
-      portcnt++;
-      pp++;
+      ep->namelen = namelen;
+      if (namelen) memcpy(ep->name,name,namelen);
+      else { parsewarn(FLN,fname,linno,colno,"port %u has no name",id); }
+      extportcnt++;
+      ep++;
     }
   }
 
+  ub4 pid,subofs,seq;
+  ub4 cnt,extport,subport,subportcnt;
+  struct subportbase *subports,*sp;
+
+  // create mappings
   if (idhi > 100 * 1000 * 1000) warning(0,"max port id %u",idhi);
-  id2ports = alloc(idhi+1,ub4,0xff,"id2port",idhi);
+  if (subidhi > 100 * 1000 * 1000) warning(0,"max subport id %u",subidhi);
+
+  ub4 *id2ports = alloc(idhi+1,ub4,0xff,"ext id2port",idhi);
+  ub4 *subid2ports = alloc(subidhi+1,ub4,0xff,"ext subid2port",subidhi);
+
+  port = 0;
+  for (extport = 0; extport < extportcnt; extport++) {
+    ep = extports + extport;
+    id = ep->id;
+    subid = ep->subid;
+    error_gt(id,idhi);
+    error_gt(subid,subidhi);
+
+    if (id == subid) {
+      if (id2ports[id] != hi32) warning(0,"port ID %u doubly defined as %x", id,id2ports[id]);
+      else id2ports[id] = extport;
+    }
+    if (subid2ports[subid] != hi32) warning(0,"port subID %u doubly defined as %x", subid,subid2ports[subid]);
+    else subid2ports[subid] = extport;
+    if (id == subid) port++;
+  }
+  portcnt = port;
+
+  // count members
+  subportcnt = 0;
+  for (extport = 0; extport < extportcnt; extport++) {
+    ep = extports + extport;
+    id = ep->id;
+    subid = ep->subid;
+    if (id == subid) continue;
+
+    pid = id2ports[id];
+    error_ge(pid,extportcnt);
+    error_eq(pid,extport);
+    pep = extports + pid;
+    cnt = pep->subcnt;
+    pep->subcnt = cnt + 1;
+    ep->seq = cnt;
+    vrb(0,"port %u has parent %u %s %s",subid,id,ep->name,pep->name);
+    subportcnt++;
+  }
+
+  info(0,"%u ports, %u subports", portcnt, subportcnt);
+  error_gt(portcnt,extportcnt);
+  error_ge(subportcnt,extportcnt);
+
+  if (portcnt == 0) return 0;
+
+  ports = mkblock(&net->portmem,portcnt,struct portbase,Init0,"ext ports");
+  net->ports = ports;
+
+  if (subportcnt) {
+    subports = mkblock(&net->subportmem,subportcnt,struct subportbase,Init0,"ext subports");
+    net->subports = subports;
+  } else subports = NULL;
+
+  // assign subport ofs
+  subofs = 0;
+  for (extport = 0; extport < extportcnt; extport++) {
+    ep = extports + extport;
+    id = ep->id;
+    subid = ep->subid;
+    if (id != subid) continue;
+    cnt = ep->subcnt;
+    if (cnt == 0) continue;
+    vrb(0,"port %u subcnt %u %s",extport,cnt,ep->name);
+    ep->subofs = subofs;
+    subofs += cnt;
+  }
+  error_ne(subofs,subportcnt);
+
+  // fill
+  port = subport = 0;
+  for (extport = 0; extport < extportcnt; extport++) {
+    ep = extports + extport;
+    id = ep->id;
+    subid = ep->subid;
+    opts = ep->opts;
+    namelen = ep->namelen;
+    lat = ep->lat;
+    lon = ep->lon;
+    if (id == subid) {
+      pp = ports + port;
+      pp->id = pp->cid = id;
+      pp->parentsta = ep->parent;
+      pp->lat = lat;
+      pp->lon = lon;
+      pp->namelen = namelen;
+      if (namelen) memcpy(pp->name,ep->name,namelen);
+      cnt = ep->subcnt;
+      if (cnt) { // station with members
+        subofs = ep->subofs;
+        error_ge(subofs,subportcnt);
+        pp->subcnt = cnt;
+        pp->subofs = subofs;
+      } else if (ep->parent) info(0,"parent station %u has no stops %s",id,ep->name);
+      port++;
+    } else { // sub
+      pid = id2ports[id];
+      error_ge(pid,extportcnt);
+      pep = extports + pid;
+      cnt = pep->subcnt;
+      subofs = pep->subofs;
+      error_ge(subofs,subportcnt);
+      seq = ep->seq;
+      vrb(0,"seq %u cnt %u",seq,cnt);
+      error_z(cnt,pid);
+      subport = subofs + seq;
+      error_ge(subport,subportcnt);
+      sp = subports + subport;
+      error_nz(sp->id,subport);
+      sp->id = id;
+      sp->subid = subid;
+      sp->seq = seq;
+      sp->namelen = namelen;
+      if (namelen) memcpy(sp->name,ep->name,namelen);
+    }
+  }
+
+  // resequence
+  for (id = 0; id <= idhi; id++) id2ports[id] = hi32;
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     id = pp->id;
-    error_gt(id,idhi);
-    if (id2ports[id] != hi32) warning(0,"port ID %u doubly defined as %x", id,id2ports[id]);
-    else id2ports[id] = port;
+    id2ports[id] = port;
+    pp->rlat = lat2rad(pp->lat);
+    pp->rlon = lon2rad(pp->lon);
   }
+  for (subid = 0; subid <= subidhi; subid++) subid2ports[subid] = hi32;
+  for (port = 0; port < subportcnt; port++) {
+    sp = subports + port;
+    subid = sp->subid;
+    subid2ports[subid] = port;
+  }
+
   info(0,"read %u ports from %s", portcnt, fname);
   info(0,"bbox lat %u - %u = %u scale %u",lolat,hilat,hilat-lolat,Latscale);
   info(0,"bbox lon %u - %u = %u scale %u",lolon,hilon,hilon-lolon,Lonscale);
   net->portcnt = portcnt;
-  net->ports = ports;
+  net->subportcnt = subportcnt;
   net->id2ports = id2ports;
+  net->subid2ports = subid2ports;
   net->maxportid = idhi;
+  net->maxsubportid = subidhi;
   net->latrange[0] = lolat;
   net->latrange[1] = hilat;
   net->lonrange[0] = lolon;
@@ -379,28 +608,32 @@ static int rdextports(netbase *net,const char *dir)
   return 0;
 }
 
-#define Maxval 64
-
 // name id dport.id aport.id route.seq (dow.hhmm.rep.t0.t1.dur dow.hhmm.rep)+ 
 static int rdexthops(netbase *net,const char *dir)
 {
   char fname[512];
   struct myfile mf;
   ub4 rawhopcnt,hopcnt;
-  ub4 portcnt;
+  ub4 portcnt,subportcnt;
   ub4 maxportid;
   ub4 variants = 0,variantsline = 0, rtype_walk = 0, rtype_walkline = 0;
   struct hopbase *hops,*hp;
-  ub4 *id2ports;
+  struct portbase *ports,*pdep,*parr;
+  struct subportbase *subports,*sp;
+  ub4 *id2ports, *subid2ports;
   enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
   enum states state;
   int rv,newitem,iscmd;
   char *buf,*p,*end,c,tab,nl;
   ub4 len,linno,colno,x,val,namelen,valndx,id,idhi,maxid,maxrid;
-  ub4 depid,arrid,dep,arr,rtype,routeid;
+  ub4 depid,arrid,dep,arr,pid,rtype,routeid;
   char name[Maxname];
   ub4 vals[Maxval];
   ub4 namemax = min(Maxname,sizeof(hops->name)) - 1;
+  ub4 kinds[Kindcnt];
+  enum txkind kind;
+
+  aclear(kinds);
 
   fmtstring(fname,"%s/hops.txt",dir);
 
@@ -417,7 +650,11 @@ static int rdexthops(netbase *net,const char *dir)
   hops = hp = mkblock(&net->hopmem,rawhopcnt,struct hopbase,Init0,"");
 
   portcnt = net->portcnt;
+  subportcnt = net->subportcnt;
+  ports = net->ports;
+  subports = net->subports;
   id2ports = net->id2ports;
+  subid2ports = net->subid2ports;
   maxportid = net->maxportid;
 
   state = Out;
@@ -535,14 +772,14 @@ static int rdexthops(netbase *net,const char *dir)
         else {
           variantsline = linno;
           variants = vals[0];
-          info(0,"new cmd %s %u",name,variants);
+          info(0,"%s : %u",name,variants);
         }
       } else if (namelen == 7 && memeq(name,"walk_id",namelen)) {
         if (rtype_walkline) parsewarn(FLN,fname,linno,colno,"ignore %s previously defined at %u",name,rtype_walkline);
         else {
           rtype_walkline = linno;
           rtype_walk = vals[0];
-          info(0,"new cmd %s %u",name,rtype_walk);
+          info(0,"%s : %u",name,rtype_walk);
         }
       } else info(0,"ignore unknown cmd %s %u",name,vals[0]);
     } else if (newitem) {
@@ -559,21 +796,49 @@ static int rdexthops(netbase *net,const char *dir)
       } else routeid = hi32;
 
 //      info(0,"vals %u %u %u",vals[0],depid,arrid);
-      if (depid == arrid) return parserr(FLN,fname,linno,colno,"dep id %u equal to arr id",depid);
-      if (depid > maxportid) return parserr(FLN,fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
-      else if (arrid > maxportid) return parserr(FLN,fname,linno,colno,"arr id %u above highest port id %u",arrid,maxportid);
+      if (depid == arrid) return inerr(FLN,fname,linno,colno,"dep id %u equal to arr id",depid);
+      if (depid > maxportid) return inerr(FLN,fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
+      else if (arrid > maxportid) return inerr(FLN,fname,linno,colno,"arr id %u above highest port id %u",arrid,maxportid);
+
       dep = id2ports[depid];
+      if (dep == hi32) {
+        dep = subid2ports[depid];
+        if (dep >= subportcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest subport %u",dep,depid,subportcnt);
+        sp = subports + dep;
+        pid = sp->id;
+        dep = id2ports[pid];
+      }
+      if (dep >= portcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest port %u",dep,depid,portcnt);
+
       arr = id2ports[arrid];
-      if (dep >= portcnt) return parserr(FLN,fname,linno,colno,"dep %u above highest port %u",dep,portcnt);
-      else if (arr >= portcnt) return parserr(FLN,fname,linno,colno,"arr %u above highest port %u",arr,portcnt);
+      if (arr == hi32) {
+        arr = subid2ports[arrid];
+        if (arr >= subportcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest subport %u",arr,subportcnt);
+        sp = subports + arr;
+        pid = sp->id;
+        arr = id2ports[pid];
+      }
+      if (arr >= portcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest port %u",arr,portcnt);
+      if (dep == arr) {
+        info(0,"line %u hop id %u dep %u id %u equal to arr id %u",linno,id,dep,depid,arrid);
+        continue;
+      }
+
+      pdep = ports + dep;
+      parr = ports + arr;
+      pdep->ndep++;
+      parr->narr++;
+      if (pdep->parentsta) vrb(0,"hop %u dport %u %u %s",id,dep,pdep->id,pdep->name);
+      if (parr->parentsta) vrb(0,"hop %u aport %u %u %s",id,arr,parr->id,parr->name);
+
       hp->id  = id;
       hp->dep = dep;
       hp->arr = arr;
 
-      if (rtype_walkline && rtype == rtype_walk) { hp->kind = Walk; routeid = hi32; }
-      else if (rtype == 0 || rtype == 1 || rtype == 2) hp->kind = Rail;
-      else if (rtype == 3) hp->kind = Bus;
-      else hp->kind = Unknown;
+      if (rtype_walkline && rtype == rtype_walk) { hp->kind = Walk; kinds[Walk]++; routeid = hi32; }
+      else if (rtype == 0 || rtype == 1 || rtype == 2) { hp->kind = Rail; kinds[Rail]++; }
+      else if (rtype == 3) { hp->kind = Bus; kinds[Bus]++; }
+      else { hp->kind = Unknown; kinds[Unknown]++; }
 
       hp->routeid = routeid;
       hp->namelen = namelen;
@@ -584,11 +849,16 @@ static int rdexthops(netbase *net,const char *dir)
     }
   }
 
+  for (kind = 0; kind < Kindcnt; kind++) {
+    val = kinds[kind];
+    if (val) info(0,"%u %s",val,kindnames[kind]);
+  }
+
   ub4 hop,*id2hops;
   ub4 varmask;
 
   if (maxid > 100 * 1000 * 1000) warning(0,"max hop id %u",maxid);
-  id2hops = alloc(maxid+1,ub4,0xff,"id2port",maxid);
+  id2hops = alloc(maxid+1,ub4,0xff,"id2hops",maxid);
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     id = hp->id;
@@ -596,6 +866,8 @@ static int rdexthops(netbase *net,const char *dir)
     else id2hops[id] = hop;
   }
   net->id2hops = id2hops;
+
+  showconstats(ports,portcnt);
 
   info(0,"read %u hops from %s", hopcnt, fname);
   net->hopcnt = hopcnt;

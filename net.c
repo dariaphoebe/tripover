@@ -407,7 +407,7 @@ static int mknetn(struct network *net,ub4 nstop)
         n1 = cnts1[depmid];
 
         if (n1 == 0) continue;
-        dmids[midstop1 * nstop + dmid++] = mid;
+        dmids[midstop1 * portcnt + dmid++] = mid;
       }
       dmidcnts[midstop1] = dmid;
     }
@@ -444,8 +444,9 @@ static int mknetn(struct network *net,ub4 nstop)
 
         // for each via
         // first obtain distance range
-        for (dmid = 0; dmid < dmidcnts[midstop1]; dmid++) {
-          mid = dmids[midstop1 * nstop + dmid];
+        dmidcnt = dmidcnts[midstop1];
+        for (dmid = 0; dmid < dmidcnt; dmid++) {
+          mid = dmids[midstop1 * portcnt + dmid];
           if (mid == arr) continue;
           if (arr < pportcnt && mid >= pportcnt) { cntstats[3]++; continue; }
           pmid = ports + mid;
@@ -913,8 +914,8 @@ static ub2 hasconn(ub4 callee,struct network *net,ub4 deparr)
 static ub2 hasxcon(ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
 {
   struct gnetwork *gnet = getgnet();
-  struct network *net,*dnet,*anet,*xnet,*xanet;
-  struct port *gpp,*xpp,*app;
+  struct network *dnet,*anet,*xnet,*xanet;
+  struct port *gpp,*xpp;
   ub4 nstop,nleg,portno,xpi,api;
   ub4 xapart,xpart;
   ub4 portcnt,pportcnt;
@@ -926,9 +927,9 @@ static ub2 hasxcon(ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
   ub4 ports[Nleg * 2];
   ub4 gports[Nleg * 2];
   int rv;
-  ub2 *xmappos,*xmapbase,mask,stopmask;
+  ub2 *xmappos,*xmapbase,mask;
   block *xpartmap = &gnet->xpartmap;
-  ub4 xmapofs,xmapcnt = 0;
+  ub4 xmapofs;
 
   ub4 stats[6];
   ub4 iv;
@@ -1017,7 +1018,7 @@ static ub2 hasxcon(ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
     }
     nstop++;
   }
-//  for (iv = 0; iv < Elemcnt(stats); iv++) vrb(0,"%u:%u", iv,stats[iv]);
+  for (iv = 0; iv < Elemcnt(stats); iv++) vrb(0,"%u:%u", iv,stats[iv]);
 
   if (dcnt) vrb(0,"hasxcon %u.%u-%u.%u %u",dpart,gdep,apart,garr,dcnt);
   return dcnt;
@@ -1042,6 +1043,8 @@ static int dogconn(ub4 callee,struct gnetwork *gnet)
   ub4 nstop,fillcnt = 0;
   struct eta eta;
 
+  if (partcnt < 2) return info(0,"no inter-partition maps for %u partition\as",partcnt);
+
   enter(callee);
 
   xmappos = xmapbase = blkdata(xpartmap,0,ub2);
@@ -1049,7 +1052,7 @@ static int dogconn(ub4 callee,struct gnetwork *gnet)
   info0(0,"fill inter-partition reach maps");
   for (gdep = 0; gdep < gportcnt; gdep++) {
 
-    progress(&eta,"port %u of %u in %u partitions",gdep,gportcnt,gnet->partcnt);
+    progress(&eta,"port %u of %u in %u partition\as",gdep,gportcnt,partcnt);
 
     gpdep = gports + gdep;
     xpartcnt = gpdep->partcnt;
@@ -1250,13 +1253,13 @@ int showconn(struct port *ports,ub4 portcnt)
       pp->rid = pp->drids[0];
     }
   }
+  genmsg(nodeparr ? Warn : Vrb,0,"%u of %u ports without connection",nodeparr,portcnt);
   info(0,"%u of %u ports without departures",nodep,portcnt);
   info(0,"%u of %u ports without arrivals",noarr,portcnt);
-  info(0,"%u of %u ports without connection",nodeparr,portcnt);
   for (ndep = 0; ndep < 3; ndep++) {
     for (narr = 0; narr < 3; narr++) {
       n = constats[(ndep << 4) | narr];
-      if (n || ndep < 2 || narr < 2) info(0,"%u ports with %u deps + %u arrs", n,ndep,narr);
+      if (n || ndep < 2 || narr < 2) info(0,"%u port\as with %u deps + %u arrs", n,ndep,narr);
     }
   }
   for (ndep = 0; ndep < 16; ndep++) info(0,"%u ports with %u deps and 1+ arrs", depstats[ndep],ndep);

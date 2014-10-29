@@ -268,6 +268,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   return 0;
 }
 
+// todo
 int prepbasenet(void)
 {
   struct portbase *ports;

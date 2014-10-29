@@ -29,7 +29,7 @@
  */
 
 #ifndef Netbase_inc
-  enum txkind { Unknown,Air,Rail,Bus,Walk };
+  enum txkind { Unknown,Air,Rail,Bus,Walk,Kindcnt };
 #endif
 
 #define Npart 256
@@ -40,6 +40,7 @@
 struct port {
   ub4 magic;
   ub4 id;      // index in net.ports
+  ub4 cid;
   ub4 allid;
 
   char name[128];  // todo: use below structure instead

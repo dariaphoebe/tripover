@@ -40,16 +40,22 @@
 
 #define Netbase_inc
 
-enum txkind { Unknown,Air,Rail,Bus,Walk };
+enum txkind { Unknown,Air,Rail,Bus,Walk,Kindcnt };
 
 struct portbase {
   ub4 magic;
-  ub4 id;      // index in net.ports
+  ub4 id;
   ub4 cid;     // constant at net changes
 
   char name[128];  // todo: use below structure instead
   ub4 namelen;
 //  struct gname name;
+
+  ub4 ndep,narr;
+
+  ub4 subcnt,subofs;
+
+  bool parentsta;
 
   bool air;
   bool rail;
@@ -60,6 +66,17 @@ struct portbase {
   ub4 utcofs;
 
   ub4 size;
+};
+
+struct subportbase {
+  ub4 id;      // index in net.ports
+  ub4 subid;
+  ub4 cid;     // constant at net changes
+
+  char name[128];  // todo: use below structure instead
+  ub4 namelen;
+
+  ub4 seq;
 };
 
 struct hopbase {
@@ -139,18 +156,21 @@ struct fare {
 // main structure holding everything
 struct networkbase {
   ub4 portcnt;
+  ub4 subportcnt;
   ub4 hopcnt;
   ub4 routecnt;
   ub4 carriercnt;
   ub4 timetablecnt;
 
   struct portbase *ports;
+  struct subportbase *subports;
   struct hopbase *hops;
   struct routebase *routes;
   struct carrierbase *carriers;  
   struct timetablebase *timetables;  // [routecnt]
 
   struct memblk portmem;
+  struct memblk subportmem;
   struct memblk hopmem;
 
   ub4 latrange[2];
@@ -163,9 +183,11 @@ struct networkbase {
   ub4 tthops[Hopcnt];   // index in timetables above
   ub4 farehops[Hopcnt];   // index in fares above
 
-  ub4 *id2ports;          // [maxid]
+  ub4 *id2ports;         // [maxid]
+  ub4 *subid2ports;      // [maxid]
   ub4 *id2hops;          // [maxid]
   ub4 maxportid;
+  ub4 maxsubportid;
   ub4 maxrouteid;
 
   ub4 maxvariants,routevarmask;
