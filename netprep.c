@@ -131,6 +131,8 @@ int prepnet(netbase *basenet)
   ub1 *portparts;
   ub4 *g2p,*p2g;
   struct partition *parts,*partp,*apartp;
+  ub4 latscale = basenet->latscale;
+  ub4 lonscale = basenet->lonscale;
 
   bhopcnt = basenet->hopcnt;
   bportcnt = basenet->portcnt;
@@ -321,7 +323,10 @@ int prepnet(netbase *basenet)
   if (cnt) warning(0,"%u port\as in no partition", cnt);
   cnt = partstats[1];
   genmsg(cnt ? Info : Warn,0,"%u port\as in 1 partition", cnt);
-  for (iv = 2; iv <= partivs; iv++) info(0,"%u port\as in %u partition\as each", partstats[iv], iv);
+  for (iv = 2; iv <= partivs; iv++) {
+    cnt = partstats[iv];
+    if (cnt) info(0,"%u port\as in %u partition\as each", cnt, iv);
+  }
   info(0,"\ah%u xmaps",xmaplen);
 
   gnet->xpartbase = mkblock(&gnet->xpartmap,xmaplen,ub2,Init0,"xmap for %u parts", partcnt);
@@ -382,9 +387,6 @@ int prepnet(netbase *basenet)
     for (port = 0; port < portcnt; port++) {
       gp = ports + port;
       if (portparts[port * partcnt + part] == 0) continue;
-      if (port == 20) {
-        info(0,"port %u part %u g2p %p %s",port,part,g2p,gp->name);
-      }
       memcpy(pp,gp,sizeof(*pp));
       pp->id = pport;
       pp->ndep = pp->narr = 0;
@@ -407,8 +409,8 @@ int prepnet(netbase *basenet)
       if (pp->lat == 0) {
         error(0,"port %u lat 0 %s",pport,pp->name);
       }
-      pp->rlat = lat2rad(pp->lat);
-      pp->rlon = lon2rad(pp->lon);
+      pp->rlat = lat2rad(pp->lat,latscale);
+      pp->rlon = lon2rad(pp->lon,lonscale);
       pp->isagg = 1;
       pp++;
       pport++;    

@@ -103,6 +103,8 @@ struct hop {
   ub4 dep,arr;
   ub4 routeid,rid;
 
+  ub4 compound;
+
   ub4 part;
 
   ub4 dist;

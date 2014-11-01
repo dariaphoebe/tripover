@@ -254,6 +254,9 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   basenet.portcnt = portcnt;
   basenet.hopcnt = hopcnt;
 
+  basenet.latscale = Latscale;
+  basenet.lonscale = Lonscale;
+
   basenet.latrange[0] = lolat;
   basenet.latrange[1] = hilat;
   basenet.lonrange[0] = lolon;

@@ -256,6 +256,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         case '%': dst[n++] = c1; c1 = '%'; break;
         default: dst[n++] = c1;
       }
+      c1 = *p; if (c1) p++;
     }
     if (c1 == '%') {
       wid = 0; pad = ' '; padleft = 0;
@@ -380,7 +381,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         }
       }
       do_U = 0;
-    } else {
+    } else if (c1) {
       dst[n++] = c1;
     }
   }

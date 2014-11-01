@@ -247,8 +247,17 @@ int mkheightmap(ub4 *map,ub4 n)
 // lat,lon to distance functions and vars
 static double mean_earth_radius = 6371.0;
 
-double lat2rad(ub4 lat) { return ((double)lat / Latscale - 90.0) * M_PI / 180.0; }
-double lon2rad(ub4 lon) { return ((double)lon / Lonscale - 180.0) * 2 * M_PI / 360.0; }
+double lat2rad(ub4 lat,ub4 scale)
+{
+  double r = ((double)lat / (double)scale - 90.0) * M_PI / 180.0;
+  return r;
+}
+
+double lon2rad(ub4 lon,ub4 scale)
+{
+  double r = ((double)lon / (double)scale - 180.0) * 2 * M_PI / 360.0;
+  return r;
+}
 
 ub4 rad2lat(double rlat) { return (ub4)(( (rlat * 180 / M_PI) + 90) * Latscale); }
 ub4 rad2lon(double rlon) { return (ub4)(( (rlon * 180 / M_PI) + 180) * Lonscale); }

@@ -28,8 +28,8 @@ extern double frnd(ub4 range);
 
 extern int mkheightmap(ub4 *map,ub4 n);
 
-extern double lat2rad(ub4 lat);
-extern double lon2rad(ub4 lon);
+extern double lat2rad(ub4 lat,ub4 scale);
+extern double lon2rad(ub4 lon,ub4 scale);
 extern ub4 rad2lat(double rlat);
 extern ub4 rad2lon(double rlon);
 

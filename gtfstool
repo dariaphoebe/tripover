@@ -37,6 +37,8 @@ my $dryrun = 0;
 my $warningcnt = 0;
 my $errorcnt = 0;
 
+my $verbose_hops = 1;
+
 my $logname = 'gtfstool.log';
 rename($logname,$logname . '.0') if -f $logname;
 open(my $logfile,'>',$logname) or die("cannot create $logname:$!");
@@ -83,7 +85,7 @@ sub usage()
 
 # these are written as options to ext output
 my $rtype_walk = 1699;
-my $maxvariant = 32;
+my $maxvariant = 16;
 my $hivariant = 0;
 
 # use integer codes for fields
@@ -121,6 +123,7 @@ my $col_unknown = $col_enum++;
 
 my $opt_childstop = 1;
 my $opt_parentstop = 2;
+my $opt_inferred = 4;
 
 # store field results here
 my %stopids;
@@ -136,10 +139,13 @@ my @stoparrs;
 my %parents;
 my %parentids;
 my %parent_ids;
+my %parentbyid;
 my $parentcnt = 0;
 
 my %tripids;
 my %tripseq;
+my %trippseq;
+my %triprefs;
 my %triproutes;
 my $walkroute;
 
@@ -155,7 +161,7 @@ my %rtypes;
 
 my %uniqhops;
 
-my @stentries;
+# my @stentries;
 
 my @trip_ids;
 my @dep_times;
@@ -348,7 +354,7 @@ sub readstops($)
     $stopnames{$stopid} = $name;
 
     if (length($loctype) > 0 and $loctype == 1) {
-      info("station $name as $id code $code");
+      vrb("station $name as $id code $code");
       $parentids{$id} = $stopid;
       $parent_ids{$stopid} = $id;
       $parentcnt++;
@@ -356,6 +362,7 @@ sub readstops($)
     } elsif (length($parent) > 0) {  # refers to id above
       $opt = $opt_childstop;
       $parents{$parent} .= $stopid . ' ';
+      $parentbyid{$stopid} = $parent;
     } else { $opt = 0; }
 
     error_exit("no stop code at line $linno") unless defined $code;
@@ -648,7 +655,10 @@ sub readtrips($)
 
     if (exists($norouteids{$route_id})) {  # filtered
     } elsif (exists($routeids{$route_id})) {
-      $tripseq{$trip_id} = '';
+      my $seq = {};
+      my $pseq = {};
+      $tripseq{$trip_id} = $seq;
+      $trippseq{$trip_id} = $pseq;
       push(@trips,join("\t",$routeid,$service_id,$trip_id,$dirid));
     } else {
       warning("$linno: undefined route id $route_id");
@@ -669,8 +679,8 @@ sub readstoptimes($)
   my ($stoptimes,$stoptimesname);
   my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
   my ($route_id,$routeid,$trip_id,$arr_time,$dep_time,$stop_id,$stopid,$stop_seq,$dep);
-  my ($route,$trip,$seq,$prvseq,$hop,$dep_id,$arr_id,$prvstop_id);
-  my ($concnt,$depcnt,$arrcnt);
+  my ($route,$trip,$seq,$hop,$dep_id,$arr_id,$prvstop_id);
+  my ($concnt,$depcnt,$arrcnt,$parent,$parentid);
 
   return error("missing dir arg for import",__LINE__) unless defined $dir and length($dir);
 
@@ -716,6 +726,9 @@ sub readstoptimes($)
   my $linno = 0;
 
   my $linecnt = scalar(@lines);
+  my $ttcnt = 0;
+  my $prvseq = 0;
+  my $prvtrip = '';
 
   info("$linecnt lines");
 
@@ -764,6 +777,10 @@ sub readstoptimes($)
     if (length($stop_seq) == 0) { warning("$linno: empty stop_seq for $stop_id"); next; }
     elsif ($stop_seq =~ $nondigits) { warning("$linno: stop_seq '$stop_seq' not numerical for $stop_id"); next; }
 
+    info("$linno: seq $stop_seq prv $prvseq") unless $stop_seq == $prvseq + 1 or $trip_id ne $prvtrip;
+    $prvseq = $stop_seq;
+    $prvtrip = $trip_id;
+
     unless (exists($triproutes{$trip_id})) {
       warning("$linno: undefined route for trip id $trip_id");
       next;
@@ -774,122 +791,67 @@ sub readstoptimes($)
 
     $stopid = $stopids{$stop_id};
 
-    $tripseq{$trip_id} .= $stopid . ' ';
+    my ($seq,$pseq);
+    if (exists($parentbyid{$stopid})) {
+      $parent = $parentbyid{$stopid};
+      $parentid = $parentids{$parent};
+      $pseq = $trippseq{$trip_id};
+      $pseq->{$stop_seq} = $parentid unless exists $pseq->{$stop_seq};
+#      $trippseq{$trip_id} .= $parentid . ' ';
+    }
+    $seq = $tripseq{$trip_id};
+    unless (exists $seq->{$stop_seq}) {
+      $seq->{$stop_seq} = $stopid;
+      $triprefs{$trip_id}{$stop_seq} = $linno;
+#      info("add $stop_id seq $stop_seq") if $routeid == 0x3fa0;
+    } else { info("skip dup $stop_id seq $stop_seq"); }
 
-    push(@stentries,join("\t",$routeid,$trip_id,$stop_id,$stop_seq,$dep_time,$arr_time));
+#    push(@stentries,join("\t",$routeid,$trip_id,$stop_id,$stop_seq,$dep_time,$arr_time));
+    $ttcnt++;
 
     info("line $linno of $linecnt") if ($linno % 100000) == 0;
 
   } # each line
 
-  $ttcnt = scalar(@stentries);
   info("$ttcnt time entries");
 
   my @das;
   my @tripstops;
-  my ($tripstr,$varno,$rtype,$rid1);
+  my ($tripstr,$varno,$rtype,$rid1,$seq,$pseq,$aref,$dref);
   my ($id,$rid,$trid,$seqlen,$i,$seq2,$deparr,$arr,$depid,$arrid,$uniq,$routeno,$name);
-
-  my %newroutebyids;
 
   # recognise and split variants
   $routeno = 0;
   while (($rid,$route_id) = each %routebyids) {
     next if exists $norouteids{$route_id};
 
-    info("processing pass 1 route $routeno of $routecnt * 4") if ($routeno++ % 100) == 0;
-
-    my %routestops;
-    my %routetrips;
-    my $varcnt = 0;
-
-    while (($trip,$trid) = each %triproutes) {
-      next if $trid ne $rid;
-
-      $tripstr = trimws($tripseq{$trip});
-      unless (exists($routestops{$tripstr})) {
-        $routestops{$tripstr} = $varcnt++;
-        $routetrips{$tripstr} = $trip;
-      }
-    }
-    info("route $route_id rid $rid has $varcnt variants") if $varcnt > 1;
-    $hivariant = max($hivariant,$varcnt);
-
-    while (($tripstr,$varno) = each %routestops) {
-      next unless $varno;
-      if ($varno >= $maxvariant) {
-        warning("skip route $route_id rid $rid variant $varno $tripstr");
-        next;
-      }
-      $trip = $routetrips{$tripstr};
-      $rid = $triproutes{$trip};
-
-      $rtype = $rtypes{$rid};
-
-      $rid += $varno * 2;
-      $rid1 = $rid + 1;
-      $triproutes{$trip} = $rid;     # reassign its own route
-
-      $newroutebyids{$rid} = $route_id;
-      $newroutebyids{$rid1} = $route_id;
-
-      $rtypes{$rid} = $rtype;
-      $rtypes{$rid1} = $rtype;
-    }
-
-  }
-  info("highest variant $hivariant limit $maxvariant");
-
-  # merge
-  while (($rid,$route_id) = each %newroutebyids) {
-    unless (exists($routebyids{$rid})) {
-      $routebyids{$rid} = $route_id;
-    }
-  }
-
-  # pass 2: generate hop sequence
-  $routeno = 0;
-  while (($rid,$route_id) = each %routebyids) {
-    next if exists $norouteids{$route_id};
-
-    vrb("route $route_id rid $rid");
-
-    info("processing route $routeno of $routecnt * 2") if ($routeno++ % 100) == 0;
+    info("processing route $routeno of $routecnt") if ($routeno++ % 50) == 0;
 
     my %routeseqs;
 
     while (($trip,$trid) = each %triproutes) {
       next if $trid ne $rid;
-      @tripstops = split(' ',trimws($tripseq{$trip}));
 
-      $seqlen = scalar @tripstops;
-      next unless $seqlen > 1;
-
-      $dep = $tripstops[0];
-      for ($i = 1; $i < $seqlen; $i++) {
-        $arr = $tripstops[$i];
-        next if $dep == $arr;
-        $deparr = $dep . '_' . $arr;
-        $routeseqs{$deparr} = $i;
+      $arr = -1;
+      foreach $seq (sort {$a <=> $b} keys %{ $tripseq{$trip} } ) {
+        if ($arr == -1) {
+          $arr = $tripseq{$trip}{$seq};
+          $aref = $triprefs{$trip}{$seq};
+          next;
+        }
         $dep = $arr;
+        $arr = $tripseq{$trip}{$seq};
+        $deparr = $dep . '_' . $arr;
+        $dref = $aref;
+        $aref = $triprefs{$trip}{$seq};
+        next if exists $routeseqs{$deparr};
+        $routeseqs{$deparr} = $seq;
+        $stopdeps[$dep]++;
+        $stoparrs[$arr]++;
+        push (@hops, join("\t",$dep,$arr,$rid,$hopcnt,$dref . '-' . $aref));
+        $hopcnt++;
       }
     }
-
-    for $deparr (keys %routeseqs) {
-      @das = split('_',$deparr);
-      $dep = $das[0]; $arr = $das[1];
-
-      $uniq = $rid . $dep . $arr;
-      next if exists $uniqhops{$uniq};
-      $uniqhops{$uniq} = $hopcnt;
-      push (@hops, join("\t",$dep,$arr,$rid,$hopcnt));
-
-      $stopdeps[$dep]++;
-      $stoparrs[$arr]++;
-      $hopcnt++;
-    }
-
-    info("$hopcnt hops") if ($hopcnt % 1000) == 0;
   }
   info("$hopcnt hops");
 
@@ -919,7 +881,7 @@ sub readstoptimes($)
   }
 
   # merge connectivity to parents
-  my ($parent,$pid,$stoplst,@sibstop,$ndep,$narr);
+  my ($pid,$stoplst,@sibstop,$ndep,$narr);
 
   while (($parent,$stoplst) = each %parents) {
     $pid = $parentids{$parent};
@@ -1024,7 +986,8 @@ sub writext($$)
   printf($portfile "# name\tid\tsubid\tlat\tlon\topts\n\n");
 
   my ($stop_id,$stopid_to,$stop_name,$stop_code,$stop_lat,$stop_lon,$lat,$lon,$desc,$opts);
-  my ($parent,$parentid);
+  my ($parent,$parentid,$simstr);
+  my %similar;
   my $portcnt = $parentcnt;
 
   foreach $stop (@stops) {
@@ -1038,14 +1001,6 @@ sub writext($$)
     next if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
 
     $parent = $stopln[2];
-    if (length($parent) > 0 and exists $parentids{$parent}) {
-      warning("$parent equal to $stop_id") if $parent eq $stop_id;
-      $parentid = $parentids{$parent};
-      $stopid_to = $parentid;   # tripover-view  parent@gtfs = stopid_to
-    } else {
-      $stopid_to = $stopid;
-      $portcnt++;
-    }
     $stop_lat = $stopln[3];
     $stop_lon = $stopln[4];
     $stop_code = $stopln[5];
@@ -1058,6 +1013,25 @@ sub writext($$)
 
     $lat = str2lat($stop_lat);
     $lon = str2lon($stop_lon);
+
+    if (length($parent) > 0 and exists $parentids{$parent}) {
+      warning("$parent equal to $stop_id") if $parent eq $stop_id;
+      $parentid = $parentids{$parent};
+      $stopid_to = $parentid;   # tripover-view  parent@gtfs = stopid_to
+    } else {
+      $stopid_to = $stopid;
+      $portcnt++;
+      unless ($opts) {
+        $simstr = join('_',($lat / 256,$lon / 256,substr($stop_name,0,-2)));
+        if (exists($similar{$simstr})) {
+          $stopid_to = $similar{$simstr};
+          $opts = $opt_childstop | $opt_inferred;
+          vrb("infer parent $stopid_to for $stopid $stop_name on $simstr");
+        } else {
+          $similar{$simstr} = $stopid;
+        }
+      }
+    }
 
     printf($portfile "%s\t%x\t%x\t%x\t%x\t%x\t# id %s code %s %s\n",$stop_name,$stopid_to,$stopid,$lat,$lon,$opts,$stop_id,$stop_code,$parent);
   }
@@ -1076,12 +1050,13 @@ sub writext($$)
   printf($hopfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($hopfile "# %u hops from %s/stoptimes.txt\n\n",$hopcnt,$indir);
 
-  printf($hopfile ".variants\t%x\t%x\t0\t0\t0\t# possible route variants\n\n",$maxvariant,$hivariant);
-  printf($hopfile ".walk_id\t%x\t0\t0\t0\t0\t# route ID for inferred walk\n",$rtype_walk);
+  printf($hopfile ".variants\t%x\t%x\t0\t0\t0\t# possible route variants\n",$maxvariant,$hivariant);
+  printf($hopfile ".walk_id\t%x\t0\t0\t0\t0\t# route ID for inferred walk\n\n",$rtype_walk);
 
   print($hopfile "# routename\tID\tfrom\tto\ttype\tid\t# from-name to-name\n\n");
 
-  my ($mark);
+  my ($mark,$ref);
+  my $xinfo = '';
 
   foreach $hop (@hops) {
     @hopln = split("\t",$hop);
@@ -1089,6 +1064,7 @@ sub writext($$)
     $arr = $hopln[1];
     $rid = $hopln[2];
     $hopid = $hopln[3];
+    $ref = $hopln[4];
 
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
@@ -1102,7 +1078,9 @@ sub writext($$)
     $rtype = $rtypes{$rid};
     $mark = ($rid eq $walkroute) ? 'walk ' : '';
     $route = '.' . $route if (substr($route,0,1) eq '.');
-    printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x\t# %s%s to %s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$mark,$depname,$arrname);
+    $xinfo = "\t# $mark $ref $depname,$arrname" if ($verbose_hops);
+
+    printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x\n",$route,$hopid,$dep,$arr,$rtype,$rid,$xinfo);
   }
   return 1;
 }

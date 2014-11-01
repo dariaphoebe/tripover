@@ -173,6 +173,7 @@ struct networkbase {
   struct memblk subportmem;
   struct memblk hopmem;
 
+  ub4 latscale,lonscale;
   ub4 latrange[2];
   ub4 lonrange[2];
 

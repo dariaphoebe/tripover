@@ -216,12 +216,12 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
     if (narr > hiarr) { hiarr = narr; hiaport = port; }
   }
   genmsg(nodeparr ? Info : Vrb,0,"%u of %u ports without connection",nodeparr,portcnt);
-  info(0,"%u of %u ports without departures",nodep,portcnt);
-  info(0,"%u of %u ports without arrivals",noarr,portcnt);
-  for (ndep = 0; ndep < 3; ndep++) {
-    for (narr = 0; narr < 3; narr++) {
+  if (nodep) info(0,"%u of %u ports without departures",nodep,portcnt);
+  if (noarr) info(0,"%u of %u ports without arrivals",noarr,portcnt);
+  for (ndep = 0; ndep < 4; ndep++) {
+    for (narr = 0; narr < 4; narr++) {
       n = constats[(ndep << 4) | narr];
-      if (n || ndep < 2 || narr < 2) info(0,"%u port\as with %u dep + %u arr", n,ndep,narr);
+      if (n) info(0,"%u port\as with %u dep + %u arr", n,ndep,narr);
     }
   }
 
@@ -263,6 +263,10 @@ static int rdextports(netbase *net,const char *dir)
   ub4 namemax = min(Maxname,sizeof(ports->name)) - 2;
   ub4 val,valndx,vals[Maxval];
   ub4 latscale,latscaleline;
+  ub4 lonscale,lonscaleline;
+
+  latscale = Latscale;
+  lonscale = Lonscale;
 
   struct extport {
     char name[64];
@@ -293,7 +297,7 @@ static int rdextports(netbase *net,const char *dir)
   state = Out;
   namelen = val = valndx = id = idhi = subidhi = maxid = 0;
   iscmd = newitem = 0;
-  latscaleline = 0;
+  latscaleline = lonscaleline = 0;
 
   lolat = lolon = hi32;
   hilat = hilon = 0;
@@ -411,6 +415,13 @@ static int rdextports(netbase *net,const char *dir)
           latscale = vals[0];
           info(0,"%s : %u",name,latscale);
         }
+      } else if (namelen == 8 && memeq(name,"lonscale",namelen)) {
+        if (lonscaleline) parsewarn(FLN,fname,linno,colno,"ignore %s previously defined at %u",name,lonscaleline);
+        else {
+          lonscaleline = linno;
+          lonscale = vals[0];
+          info(0,"%s : %u",name,lonscale);
+        }
       } else info(0,"ignore unknown cmd %s %u",name,vals[0]);
 
     } else if (newitem) {
@@ -435,8 +446,8 @@ static int rdextports(netbase *net,const char *dir)
       if (id != subid && ep->parent) parsewarn(FLN,fname,linno,colno,"parent port %u has parent %u",subid,id);
       if (id == subid && ep->child) parsewarn(FLN,fname,linno,colno,"child port %u has no parent",id);
 
-      if (lat >= 180 * Latscale) { parsewarn(FLN,fname,linno,colno,"port %u lat %u out of range",id,lat); lat = 0; }
-      if (lon >= 360 * Lonscale) { parsewarn(FLN,fname,linno,colno,"port %u lon %u out of range",id,lon); lon = 0; }
+      if (lat >= 180 * latscale) { parsewarn(FLN,fname,linno,colno,"port %u lat %u out of range",id,lat); lat = 0; }
+      if (lon >= 360 * lonscale) { parsewarn(FLN,fname,linno,colno,"port %u lon %u out of range",id,lon); lon = 0; }
       ep->lat = lat;
       ep->lon = lon;
       lolat = min(lolat,lat);
@@ -582,8 +593,8 @@ static int rdextports(netbase *net,const char *dir)
     pp = ports + port;
     id = pp->id;
     id2ports[id] = port;
-    pp->rlat = lat2rad(pp->lat);
-    pp->rlon = lon2rad(pp->lon);
+    pp->rlat = lat2rad(pp->lat,latscale);
+    pp->rlon = lon2rad(pp->lon,lonscale);
   }
   for (subid = 0; subid <= subidhi; subid++) subid2ports[subid] = hi32;
   for (port = 0; port < subportcnt; port++) {
@@ -593,14 +604,16 @@ static int rdextports(netbase *net,const char *dir)
   }
 
   info(0,"read %u ports from %s", portcnt, fname);
-  info(0,"bbox lat %u - %u = %u scale %u",lolat,hilat,hilat-lolat,Latscale);
-  info(0,"bbox lon %u - %u = %u scale %u",lolon,hilon,hilon-lolon,Lonscale);
+  info(0,"bbox lat %u - %u = %u scale %u",lolat,hilat,hilat-lolat,latscale);
+  info(0,"bbox lon %u - %u = %u scale %u",lolon,hilon,hilon-lolon,lonscale);
   net->portcnt = portcnt;
   net->subportcnt = subportcnt;
   net->id2ports = id2ports;
   net->subid2ports = subid2ports;
   net->maxportid = idhi;
   net->maxsubportid = subidhi;
+  net->latscale = latscale;
+  net->lonscale = lonscale;
   net->latrange[0] = lolat;
   net->latrange[1] = hilat;
   net->lonrange[0] = lolon;
@@ -851,7 +864,7 @@ static int rdexthops(netbase *net,const char *dir)
 
   for (kind = 0; kind < Kindcnt; kind++) {
     val = kinds[kind];
-    if (val) info(0,"%u %s",val,kindnames[kind]);
+    if (val) info(0,"%u %s hop\as",val,kindnames[kind]);
   }
 
   ub4 hop,*id2hops;
