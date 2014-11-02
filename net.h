@@ -63,7 +63,6 @@ struct port {
   bool isagg;
   bool full;
   bool mini;
-  bool onerid;
 
   ub4 macid;
   ub4 macport;
@@ -82,7 +81,6 @@ struct port {
   ub4 arrs[Nlocal];
   ub4 drids[Nlocal];
   ub4 arids[Nlocal];
-  ub4 rid;
 
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
 

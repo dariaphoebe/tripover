@@ -36,7 +36,7 @@ static ub4 msgfile;
 
 static ub2 maxroutelen = 100;
 
-static ub4 rid2log = 0x3fa0;
+static ub4 rid2log = 0x3ec1;
 
 void inicompound(void)
 {
