@@ -540,7 +540,7 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   pos += vsnprint(msgbuf, pos, maxlen, fmt, ap);
   pos = min(pos,maxlen-1);
   if (lvl == Warn) { memcpy(lastwarn,msgbuf,pos); lastwarn[pos] = 0; }
-  else if (lvl < Warn) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
+  else if (lvl < Warn && !(code & Exit)) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
   msgbuf[pos++] = '\n';
   msgwrite(msgbuf, pos);
   if ( (opts & Msg_ccerr) && lvl <= Warn && msg_fd != 2) myttywrite(msgbuf,pos);
@@ -638,14 +638,16 @@ int __attribute__ ((format (printf,3,4))) assertfln(ub4 line, ub4 code, const ch
 {
   va_list ap;
 
-  errcnt++;
-
   showstack();
 
   va_start(ap, fmt);
   msg(Assert, 0, line, code, fmt, ap);
   va_end(ap);
-  if (code & Exit) exit(1);
+  if (code & Exit) {
+    eximsg();
+    exit(1);
+  }
+  errcnt++;
   return 1;
 }
 
@@ -779,9 +781,9 @@ void inimsg(char *progname, const char *logname, ub4 opts)
 
 void eximsg(void)
 {
-  if (warncnt) info(0,"%u warnings\n%s",warncnt,lastwarn);
-  if (errcnt) info(0,"%u errors\n%s",errcnt,lasterr);
-  if (oserrcnt) info(0,"%u I/O errors",oserrcnt);
+  if (warncnt) info(0,"%u warning\as\n%s",warncnt,lastwarn);
+  if (errcnt) info(0,"%u error\as\n%s",errcnt,lasterr);
+  if (oserrcnt) info(0,"%u I/O error\as",oserrcnt);
 }
 
 void setmsglvl(enum Msglvl lvl, ub4 vlvl)

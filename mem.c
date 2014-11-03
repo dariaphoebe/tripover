@@ -25,7 +25,7 @@ static ub4 msgfile;
 #include "msg.h"
 
 // soft limit for wrappers only
-static const ub4 Maxmem_mb = 1024 * 8;
+static const ub4 Maxmem_mb = 1024 * 10;
 
 static ub4 totalMB;
 
@@ -88,14 +88,17 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   if (nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm);
   if (totalMB + nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm + totalMB);
 
+  if (nm > 64) infofln(fln,0,"alloc %u MB for %s",nm,desc);
   p = malloc(n);
   if (!p) error(Exit,"cannot allocate %u MB for %s", nm, desc);
-  else memset(p, fill, n);
+
+  if (nm > 64) infofln(fln,0,"clear %u MB for %s",nm,desc);
+  memset(p, fill, n);
   totalMB += nm;
 
   addsum(fln,desc,nm);
 
-  if (nm > 64) info(0,"alloc %u MB for %s, total %u", nm, desc, totalMB);
+  if (nm > 64) info(0,"alloced %u MB for %s, total %u", nm, desc, totalMB);
   return p;
 }
 
@@ -155,7 +158,7 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   if (n8 != n) error(Exit,"wraparound allocating %u MB",nm);
 
   if (nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm);
-  if (totalMB + nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm + totalMB);
+  if (totalMB + nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm);
 
   p = malloc(n);
   if (!p) { error(0,"cannot allocate %u MB",nm); exit(1); }

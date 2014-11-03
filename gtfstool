@@ -135,6 +135,7 @@ my @stops;
 
 my @stopdeps;
 my @stoparrs;
+my %railstops;
 
 my %parents;
 my %parentids;
@@ -817,15 +818,17 @@ sub readstoptimes($)
 
   my @das;
   my @tripstops;
-  my ($tripstr,$varno,$rtype,$rid1,$seq,$pseq,$aref,$dref);
+  my ($tripstr,$varno,$rtype,$rid1,$pseq,$aref,$dref);
   my ($id,$rid,$trid,$seqlen,$i,$seq2,$deparr,$arr,$depid,$arrid,$uniq,$routeno,$name);
 
-  # recognise and split variants
+  # recognise and split routes
   $routeno = 0;
   while (($rid,$route_id) = each %routebyids) {
     next if exists $norouteids{$route_id};
 
-    info("processing route $routeno of $routecnt") if ($routeno++ % 50) == 0;
+    $rtype = $rtypes{$rid};
+
+    info("processing route $routeno of $routecnt * 2") if ($routeno++ % 50) == 0;
 
     my %routeseqs;
 
@@ -841,6 +844,10 @@ sub readstoptimes($)
         }
         $dep = $arr;
         $arr = $tripseq{$trip}{$seq};
+        if ($dep == $arr) {
+          vrb("route $route_id trip $trip dep $dep equals arr $stopnames{$dep}");
+          next;
+        }
         $deparr = $dep . '_' . $arr;
         $dref = $aref;
         $aref = $triprefs{$trip}{$seq};
@@ -849,6 +856,7 @@ sub readstoptimes($)
         $stopdeps[$dep]++;
         $stoparrs[$arr]++;
         push (@hops, join("\t",$dep,$arr,$rid,$hopcnt,$dref . '-' . $aref));
+        if ($rtype < 3) { $railstops{$dep} = 1; $railstops{$arr} = 1; }
         $hopcnt++;
       }
     }
@@ -1021,12 +1029,14 @@ sub writext($$)
     } else {
       $stopid_to = $stopid;
       $portcnt++;
-      unless ($opts) {
+      if (defined($railstops{$stopid}) and $opts == 0) {
+
+# todo: refine and base on config
         $simstr = join('_',($lat / 256,$lon / 256,substr($stop_name,0,-2)));
         if (exists($similar{$simstr})) {
           $stopid_to = $similar{$simstr};
           $opts = $opt_childstop | $opt_inferred;
-          vrb("infer parent $stopid_to for $stopid $stop_name on $simstr");
+          info("infer parent $stopid_to for $stopid $stop_name on $simstr");
         } else {
           $similar{$simstr} = $stopid;
         }
@@ -1069,6 +1079,10 @@ sub writext($$)
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
 
+    if ($dep == $arr) {
+      warning("hop $hopid dep $dep equals arr $depname");
+      next;
+    }
     warning("route ID $rid not found") unless exists $routebyids{$rid};
     $route = $routebyids{$rid};
     warning("route $route not found") unless exists $routeids{$route};
@@ -1078,9 +1092,9 @@ sub writext($$)
     $rtype = $rtypes{$rid};
     $mark = ($rid eq $walkroute) ? 'walk ' : '';
     $route = '.' . $route if (substr($route,0,1) eq '.');
-    $xinfo = "\t# $mark $ref $depname,$arrname" if ($verbose_hops);
+    $xinfo = "\t# $mark $ref $depname,$arrname" if ($verbose_hops > 0);
 
-    printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x\n",$route,$hopid,$dep,$arr,$rtype,$rid,$xinfo);
+    printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x%s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$xinfo);
   }
   return 1;
 }

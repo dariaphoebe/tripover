@@ -685,9 +685,6 @@ static int rdexthops(netbase *net,const char *dir)
 
     c = *p++;
 
-    if (c == '\n') { linno++; colno = 1; }
-    else colno++;
-
 //    info(0,"state %u %c",state,c);
 
     switch(state) {
@@ -809,7 +806,7 @@ static int rdexthops(netbase *net,const char *dir)
       } else routeid = hi32;
 
 //      info(0,"vals %u %u %u",vals[0],depid,arrid);
-      if (depid == arrid) return inerr(FLN,fname,linno,colno,"dep id %u equal to arr id",depid);
+      if (depid == arrid) return inerr(FLN,fname,linno,colno,"dep id %u,%x equal to arr id",depid,depid);
       if (depid > maxportid) return inerr(FLN,fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
       else if (arrid > maxportid) return inerr(FLN,fname,linno,colno,"arr id %u above highest port id %u",arrid,maxportid);
 
@@ -832,35 +829,41 @@ static int rdexthops(netbase *net,const char *dir)
         arr = id2ports[pid];
       }
       if (arr >= portcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest port %u",arr,portcnt);
-      if (dep == arr) {
-        info(0,"line %u hop id %u dep %u id %u equal to arr id %u",linno,id,dep,depid,arrid);
-        continue;
-      }
-
       pdep = ports + dep;
-      parr = ports + arr;
-      pdep->ndep++;
-      parr->narr++;
-      if (pdep->parentsta) vrb(0,"hop %u dport %u %u %s",id,dep,pdep->id,pdep->name);
-      if (parr->parentsta) vrb(0,"hop %u aport %u %u %s",id,arr,parr->id,parr->name);
 
-      hp->id  = id;
-      hp->dep = dep;
-      hp->arr = arr;
+      if (dep == arr) {
+        info(0,"line %u hop id %u dep %u id %u equal to arr id %u %s",linno,id,dep,depid,arrid,pdep->name);
+      } else {
+        parr = ports + arr;
+        pdep->ndep++;
+        parr->narr++;
+        if (pdep->parentsta) vrb(0,"hop %u dport %u %u %s",id,dep,pdep->id,pdep->name);
+        if (parr->parentsta) vrb(0,"hop %u aport %u %u %s",id,arr,parr->id,parr->name);
 
-      if (rtype_walkline && rtype == rtype_walk) { hp->kind = Walk; kinds[Walk]++; routeid = hi32; }
-      else if (rtype == 0 || rtype == 1 || rtype == 2) { hp->kind = Rail; kinds[Rail]++; }
-      else if (rtype == 3) { hp->kind = Bus; kinds[Bus]++; }
-      else { hp->kind = Unknown; kinds[Unknown]++; }
+        hp->id  = id;
+        hp->dep = dep;
+        hp->arr = arr;
 
-      hp->routeid = routeid;
-      hp->namelen = namelen;
-      memcopy(hp->name,name,namelen);
-      maxid = max(maxid,id);
-      hp++;
-      hopcnt++;
-    }
-  }
+// todo generalise
+        if (rtype_walkline && rtype == rtype_walk) { hp->kind = Walk; kinds[Walk]++; routeid = hi32; }
+        else if (rtype == 0 || rtype == 1 || rtype == 2) { hp->kind = Rail; kinds[Rail]++; }
+        else if (rtype == 3) { hp->kind = Bus; kinds[Bus]++; }
+        else { hp->kind = Unknown; kinds[Unknown]++; }
+
+        hp->routeid = routeid;
+        hp->namelen = namelen;
+        memcopy(hp->name,name,namelen);
+        maxid = max(maxid,id);
+        hp++;
+        hopcnt++;
+      }
+    } // newitem
+
+    if (c == '\n') { linno++; colno = 1; }
+    else colno++;
+
+  } // each input char
+
 
   for (kind = 0; kind < Kindcnt; kind++) {
     val = kinds[kind];

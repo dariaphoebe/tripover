@@ -147,7 +147,7 @@ struct timetable {
 
 // holds all for a partition
 struct network {
-  ub4 part;
+  ub4 part,partcnt;
   ub4 portcnt,pportcnt,allportcnt;
   ub4 hopcnt,allhopcnt;
 

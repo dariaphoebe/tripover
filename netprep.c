@@ -366,7 +366,7 @@ int prepnet(netbase *basenet)
       else if (pdep->partcnt > 1 || parr->partcnt > 1) {
         if (pdep->partcnt > 1) vrb(0,"dport %u parts %u %s",dep,pdep->partcnt,pdep->name);
         if (parr->partcnt > 1) vrb(0,"aport %u parts %u %s",arr,parr->partcnt,parr->name);
-        hxcnt++;
+        if (portparts[dep * partcnt + part] || portparts[arr * partcnt + part]) hxcnt++;
       }
     }
     error_ne(hpcnt,phopcnt);
@@ -451,7 +451,8 @@ int prepnet(netbase *basenet)
         hp++;
         phop++;
       } else if (dpcnt == 1 && apcnt == 1) { // other part to same other part: skip
-      } else if (dpcnt > 1 || apcnt > 1) {
+      } else if (dpcnt > 1 || apcnt > 1) {   // possible interpart
+        if (portparts[dep * partcnt + part] == 0 && portparts[arr * partcnt + part] == 0) continue;
         error_ge(phop,phopcnt);
         hxcnt2++;
         error_gt(hxcnt2,hxcnt);
@@ -471,6 +472,10 @@ int prepnet(netbase *basenet)
           hp->arr = pportcnt + parr->part;
           if (parr->part > part) hp->arr--;
         }
+        if (hp->dep == hp->arr) {
+          warning(0,"dep %u equals arr",hp->dep);
+          continue;
+        }
         hp->routeid = hi32;
         hp++;
         phop++;
@@ -479,6 +484,7 @@ int prepnet(netbase *basenet)
     error_ne(phop,phopcnt);
 
     net->part = part;
+    net->partcnt = partcnt;
 
     net->pportcnt = pportcnt;
     net->allportcnt = xportcnt;
