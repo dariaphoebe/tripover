@@ -22,8 +22,8 @@ my $ccmsg = '';
 local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
-my $version_min = 12;
-my $lastchanged = "30 oct 2014";
+my $version_min = 13;
+my $lastchanged = "4 nov 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -48,7 +48,7 @@ sub info($)    { msg($_[0]); return 1; }
 sub warning($) { msg("warning: " . $_[0]); $warningcnt++; return 1; }
 sub error($$)   { msg("error: " . $_[0] . " at " . $_[1]); $errorcnt++; return 0; }
 
-sub error_exit($) { error($_[0],0); exit 1; }
+sub error_exit($$) { error($_[0],$_[1]); exit 1; }
 
 sub vrb($) {
   $ccmsg = $_[0] . "\n";
@@ -102,6 +102,17 @@ my $col_loctype   = $col_enum++;
 my $col_parent    = $col_enum++;
 my $col_platform  = $col_enum++;
 
+my $col_monday    = $col_enum++;
+my $col_tuesday   = $col_enum++;
+my $col_wednesday = $col_enum++;
+my $col_thursday  = $col_enum++;
+my $col_friday    = $col_enum++;
+my $col_saturday  = $col_enum++;
+my $col_sunday    = $col_enum++;
+
+my $col_startdate = $col_enum++;
+my $col_enddate   = $col_enum++;
+
 my $col_tripid    = $col_enum++;
 my $col_headsign  = $col_enum++;
 my $col_direction = $col_enum++;
@@ -143,14 +154,23 @@ my %parent_ids;
 my %parentbyid;
 my $parentcnt = 0;
 
+my %serviceids;
+my %servicedow;
+my %servicet0;
+my %servicet1;
+my $sidcnt = 0;
+
 my %tripids;
 my %tripseq;
 my %trippseq;
 my %triprefs;
 my %triproutes;
+my %tripsids;
 my $walkroute;
 
 my @trips;
+
+my %tripservice;
 
 my @hops;
 
@@ -216,7 +236,7 @@ sub readstops($)
 
   open($stopfile,'<',$stopsname) or return error("cannot open stops.txt:$!",__LINE__);
   my $headline = readline($stopfile);
-  error_exit("stops.txt is empty") unless defined $headline and length($headline);
+  error_exit("stops.txt is empty",__LINE__) unless defined $headline and length($headline);
   $c = chop $headline;
   $headline .= $c if $c ne "\n"; 
   $c = chop $headline;
@@ -243,15 +263,15 @@ sub readstops($)
     push(@cols,$colid);
   }
   printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
-  error_exit("unknown fields") if (@cols < @colnames);
+  error_exit("unknown fields",__LINE__) if (@cols < @colnames);
 
   foreach $req ('stop_id','stop_name','stop_lat','stop_lon') {
-    error_exit("missing required $req") unless inarray($req,@colnames);
+    error_exit("missing required $req",__LINE__) unless inarray($req,@colnames);
   }
 
   my @lines = readline($stopfile);
   close($stopfile);
-  error_exit("stops.txt is empty") unless (@lines > 0);
+  error_exit("stops.txt is empty",__LINE__) unless (@lines > 0);
   my $linno = 0;
 
   my $linecnt = scalar(@lines);
@@ -300,13 +320,13 @@ sub readstops($)
         if (substr($line,0,1) eq '"') { # quoted
           $line = substr($line,1);
           $endq = index($line,'"');
-          error_exit("line $linno: missing endquote") if $endq < 0;
+          error_exit("line $linno: missing endquote",__LINE__) if $endq < 0;
           $name = substr($line,0,$endq);
           $name =~ $unquoter;
           $line = substr($line,$endq+1);
 
           $comma = index($line,',');
-          error_exit("line $linno: missing ,") if $comma < 0;
+          error_exit("line $linno: missing ,",__LINE__) if $comma < 0;
 
         } else { # unquoted
           $name = substr($line,0,$comma);
@@ -316,12 +336,12 @@ sub readstops($)
         if (substr($line,0,1) eq '"') {
           $line = substr($line,1);
           $endq = index($line,'"');
-          error_exit("line $linno: missing endquote") if $endq < 0;
+          error_exit("line $linno: missing endquote",__LINE__) if $endq < 0;
           $desc = substr($line,0,$endq);
           $desc =~ $unquoter;
           $line = substr($line,$endq+1);
           $comma = index($line,',');
-          error_exit("line $linno: missing ,") if $comma < 0;
+          error_exit("line $linno: missing ,",__LINE__) if $comma < 0;
 
         } else {
           $desc = substr($line,0,$comma);
@@ -366,7 +386,7 @@ sub readstops($)
       $parentbyid{$stopid} = $parent;
     } else { $opt = 0; }
 
-    error_exit("no stop code at line $linno") unless defined $code;
+    error_exit("no stop code at line $linno",__LINE__) unless defined $code;
 
     push(@stops,join("\t",$name,$id,$parent,$lat,$lon,$code,$desc,$opt));
 
@@ -413,7 +433,7 @@ sub readroutes($)
 
   open($routefile,'<',$routefname) or return error("cannot open routes.txt:$!",__LINE__);
   my $headline = readline($routefile);
-  error_exit("routes.txt is empty") unless defined $headline and length($headline);
+  error_exit("routes.txt is empty",__LINE__) unless defined $headline and length($headline);
   $c = chop $headline;
   $headline .= $c if $c ne "\n"; 
   $c = chop $headline;
@@ -436,15 +456,15 @@ sub readroutes($)
   printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
   warning("unknown fields") if (@cols < @colnames);
 
-  error_exit("missing required route name") unless inarray('route_short_name',@colnames) or inarray('route_long_name',@colnames);
+  error_exit("missing required route name",__LINE__) unless inarray('route_short_name',@colnames) or inarray('route_long_name',@colnames);
 
   foreach $req ('route_id','route_type') {
-    error_exit("missing required $req") unless inarray($req,@colnames);
+    error_exit("missing required $req",__LINE__) unless inarray($req,@colnames);
   }
 
   my @lines = readline($routefile);
   close($routefile);
-  error_exit("routes.txt is empty") unless (@lines > 0);
+  error_exit("routes.txt is empty",__LINE__) unless (@lines > 0);
   my $linno = 0;
 
   my $linecnt = scalar(@lines);
@@ -473,13 +493,13 @@ sub readroutes($)
         if (substr($line,0,1) eq '"') { # quoted
           $line = substr($line,1);
           $endq = index($line,'"');
-          error_exit("line $linno: missing endquote") if $endq < 0;
+          error_exit("line $linno: missing endquote",__LINE__) if $endq < 0;
           $name = substr($line,0,$endq);
           $name =~ $unquoter;
           $line = substr($line,$endq+1);
 
           $comma = index($line,',');
-          error_exit("line $linno: missing ,") if $comma < 0;
+          error_exit("line $linno: missing ,",__LINE__) if $comma < 0;
 
         } else { # unquoted
           $name = substr($line,0,$comma);
@@ -552,7 +572,7 @@ sub readtrips($)
 
   open($tripfile,'<',$tripfname) or return error("cannot open trips.txt:$!",__LINE__);
   my $headline = readline($tripfile);
-  error_exit("trips.txt is empty") unless defined $headline and length($headline);
+  error_exit("trips.txt is empty",__LINE__) unless defined $headline and length($headline);
   $c = chop $headline;
   $headline .= $c if $c ne "\n"; 
   $c = chop $headline;
@@ -576,12 +596,12 @@ sub readtrips($)
   warning("unknown fields") if (@cols < @colnames);
 
   foreach $req ('route_id','service_id','trip_id') {
-    error_exit("missing required $req") unless inarray($req,@colnames);
+    error_exit("missing required $req",__LINE__) unless inarray($req,@colnames);
   }
 
   my @lines = readline($tripfile);
   close($tripfile);
-  error_exit("trips.txt is empty") unless (@lines > 0);
+  error_exit("trips.txt is empty",__LINE__) unless (@lines > 0);
   my $linno = 0;
 
   my $linecnt = scalar(@lines);
@@ -615,13 +635,13 @@ sub readtrips($)
         if (substr($line,0,1) eq '"') { # quoted
           $line = substr($line,1);
           $endq = index($line,'"');
-          error_exit("line $linno: missing endquote") if $endq < 0;
+          error_exit("line $linno: missing endquote",__LINE__) if $endq < 0;
           $headsign = substr($line,0,$endq);
           $headsign =~ $unquoter;
           $line = substr($line,$endq+1);
 
           $comma = index($line,',');
-          error_exit("line $linno: missing ,") if $comma < 0;
+          error_exit("line $linno: missing ,",__LINE__) if $comma < 0;
 
         } else { # unquoted
           $headsign = substr($line,0,$comma);
@@ -661,6 +681,7 @@ sub readtrips($)
       $tripseq{$trip_id} = $seq;
       $trippseq{$trip_id} = $pseq;
       push(@trips,join("\t",$routeid,$service_id,$trip_id,$dirid));
+      $tripservice{$trip_id} = $service_id;
     } else {
       warning("$linno: undefined route id $route_id");
     }
@@ -673,14 +694,151 @@ sub readtrips($)
   return 1;
 }
 
+sub readcalendar($)
+{
+  my ($dir) = @_;
+
+  my ($calfile,$calfname);
+  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
+  my ($service_id,$sid,$t0,$t1,$day,$dows,$dow);
+  my @dow;
+
+  $calfname = $dir . '/' . 'calendar.txt';
+
+  info("reading $calfname");
+  return info("dryrun") if $dryrun;
+
+  open($calfile,'<',$calfname) or return error("cannot open $calfname:$!",__LINE__);
+  my $headline = readline($calfile);
+  error_exit("$calfname is empty",__LINE__) unless defined $headline and length($headline);
+  $c = chop $headline;
+  $headline .= $c if $c ne "\n"; 
+  $c = chop $headline;
+  $headline .= $c if $c ne "\r"; 
+
+  info("'$headline'");
+
+  my @colnames = split(',',$headline);
+  my @cols;
+
+  foreach $colname (@colnames) {
+    $colid = $col_unknown;
+    $colid = $col_serviceid if ($colname eq 'service_id');
+    $colid = $col_monday if ($colname eq 'monday');
+    $colid = $col_tuesday if ($colname eq 'tuesday');
+    $colid = $col_wednesday if ($colname eq 'wednesday');
+    $colid = $col_thursday if ($colname eq 'thursday');
+    $colid = $col_friday if ($colname eq 'friday');
+    $colid = $col_saturday if ($colname eq 'saturday');
+    $colid = $col_sunday if ($colname eq 'sunday');
+    $colid = $col_startdate if ($colname eq 'start_date');
+    $colid = $col_enddate if ($colname eq 'end_date');
+    push(@cols,$colid);
+  }
+  printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
+  warning("unknown fields") if (@cols < @colnames);
+
+  foreach $req ('service_id','monday','tuesday','wednesday','thursday','friday','saturday','sunday','start_date','end_date') {
+    error_exit("missing required $req",__LINE__) unless inarray($req,@colnames);
+  }
+
+  my @lines = readline($calfile);
+  close($calfile);
+  error_exit("$calfname is empty",__LINE__) unless (@lines > 0);
+  my $linno = 0;
+
+  my $linecnt = scalar(@lines);
+
+  info("$linecnt lines");
+
+  $linno = 0;
+  foreach $line (@lines) {
+    $c = chop $line;
+    $line .= $c if $c ne "\n";
+    $c = chop $line;
+    $line .= $c if $c ne "\r"; 
+
+    $linno++;
+
+    $line .= ',';
+
+    $service_id = ''; $t0 = ''; $t1 = '';
+    $dow[0] = $dow[1] = $dow[2] = $dow[3] = $dow[4] = $dow[5] = $dow[6] = 0;
+    foreach $col (@cols) {
+      $comma = index($line,',');
+      return error("line $linno: missing field",__LINE__) if $comma < 0;
+
+      if ($col == $col_serviceid) {
+        $service_id = substr($line,0,$comma);
+      } elsif ($col == $col_monday) {
+        $dow[6] = substr($line,0,$comma);
+      } elsif ($col == $col_tuesday) {
+        $dow[5] = substr($line,0,$comma);
+      } elsif ($col == $col_wednesday) {
+        $dow[4] = substr($line,0,$comma);
+      } elsif ($col == $col_thursday) {
+        $dow[3] = substr($line,0,$comma);
+      } elsif ($col == $col_friday) {
+        $dow[2] = substr($line,0,$comma);
+      } elsif ($col == $col_saturday) {
+        $dow[1] = substr($line,0,$comma);
+      } elsif ($col == $col_sunday) {
+        $dow[0] = substr($line,0,$comma);
+
+      } elsif ($col == $col_startdate) {
+        $t0 = substr($line,0,$comma);
+      } elsif ($col == $col_enddate) {
+        $t1 = substr($line,0,$comma);
+      }
+
+      $line = substr($line,$comma+1);
+
+    } # each col
+
+    if (length($service_id) == 0) {
+      warning("$linno: missing service id");
+      next;
+    }
+    if (exists($serviceids{$service_id})) {
+      warning("$linno: service id $service_id previously defined on line $serviceids{$service_id}");
+      next;
+    }
+    $dows = ''; $dow = 0;
+    foreach $day (@dow) {
+      return error("$linno: $day not 0 or 1",__LINE__) if $day ne '0' and $day ne '1';
+      $dow <<= 1;
+      $dow |= 1 if $day == 1;
+      $dows .= $day;
+    }
+
+    $sid = $linno;
+    $serviceids{$service_id} = $sid;
+    $servicedow{$sid} = $dow;
+    $servicet0{$sid} = $t0;
+    $servicet1{$sid} = $t1;
+
+  } # each line
+
+# dummy for unknown
+  $servicedow{0} = 0x7f;
+  $servicet0{0} = 20140101;
+  $servicet1{0} = 20150101;
+
+  $sidcnt = scalar(keys %serviceids);
+  info("$sidcnt services");
+
+  return 1;
+}
+
 sub readstoptimes($)
 {
   my ($dir) = @_;
 
   my ($stoptimes,$stoptimesname);
   my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$routeid,$trip_id,$arr_time,$dep_time,$stop_id,$stopid,$stop_seq,$dep);
+  my ($route_id,$routeid,$trip_id,$tripid,$arr_time,$dep_time,$stop_id,$stopid,$stop_seq,$dep);
   my ($route,$trip,$seq,$hop,$dep_id,$arr_id,$prvstop_id);
+  my ($service_id,$sid,$t0,$t1,$day,$dows);
   my ($concnt,$depcnt,$arrcnt,$parent,$parentid);
 
   return error("missing dir arg for import",__LINE__) unless defined $dir and length($dir);
@@ -692,7 +850,7 @@ sub readstoptimes($)
 
   open($stoptimes,'<',$stoptimesname) or return error("cannot open stop_times.txt:$!",__LINE__);
   my $headline = readline($stoptimes);
-  error_exit("stoptimes.txt is empty") unless defined $headline and length($headline);
+  error_exit("stoptimes.txt is empty",__LINE__) unless defined $headline and length($headline);
   $c = chop $headline;
   $headline .= $c if $c ne "\n"; 
   $c = chop $headline;
@@ -715,15 +873,15 @@ sub readstoptimes($)
     push(@cols,$colid);
   }
   printf("%u of %u recognised fields\n",scalar @cols,scalar @colnames);
-  error_exit("unknown fields") if (@cols < @colnames);
+  error_exit("unknown fields",__LINE__) if (@cols < @colnames);
 
   foreach $req ('trip_id','arrival_time','departure_time','stop_id','stop_sequence') {
-    error_exit("missing required $req") unless inarray($req,@colnames);
+    error_exit("missing required $req",__LINE__) unless inarray($req,@colnames);
   }
 
   my @lines = readline($stoptimes);
   close($stoptimes);
-  error_exit("stop_times.txt is empty") unless (@lines > 0);
+  error_exit("stop_times.txt is empty",__LINE__) unless (@lines > 0);
   my $linno = 0;
 
   my $linecnt = scalar(@lines);
@@ -774,11 +932,12 @@ sub readstoptimes($)
       warning("$linno: undefined trip id $trip_id");
       next;
     }
+    $tripid = $tripids{$trip_id};
 
     if (length($stop_seq) == 0) { warning("$linno: empty stop_seq for $stop_id"); next; }
     elsif ($stop_seq =~ $nondigits) { warning("$linno: stop_seq '$stop_seq' not numerical for $stop_id"); next; }
 
-    info("$linno: seq $stop_seq prv $prvseq") unless $stop_seq == $prvseq + 1 or $trip_id ne $prvtrip;
+    vrb("$linno: seq $stop_seq prv $prvseq") unless $stop_seq == $prvseq + 1 or $trip_id ne $prvtrip;
     $prvseq = $stop_seq;
     $prvtrip = $trip_id;
 
@@ -789,6 +948,21 @@ sub readstoptimes($)
     $routeid = $triproutes{$trip_id};
     $route_id = $routebyids{$routeid};
     next if exists $norouteids{$route_id}; # filtered
+
+    $service_id = $tripservice{$trip_id};
+    if (exists($serviceids{$service_id})) {
+      $sid = $serviceids{$service_id};
+#      $dows = $servicedow{$sid};
+#      $t0 = $servicet0{$sid};
+#      $t1 = $servicet1{$sid};
+    } else {
+      warning("$linno: undefined service id $service_id");
+      $sid = 0;
+#      $dows = '1111111';
+#      $t0 = '20140101';
+#      $t1 = '20150101';
+    }
+    $tripsids{$tripid} = $sid;
 
     $stopid = $stopids{$stop_id};
 
@@ -835,6 +1009,15 @@ sub readstoptimes($)
     while (($trip,$trid) = each %triproutes) {
       next if $trid ne $rid;
 
+      $tripid = $tripids{$trip};
+
+      if (defined $tripsids{$tripid}) {
+        $sid = $tripsids{$tripid};
+      } else {
+        warning("unknown service id for $trip") unless defined $tripsids{$tripid};
+        $sid = 0;
+      }
+
       $arr = -1;
       foreach $seq (sort {$a <=> $b} keys %{ $tripseq{$trip} } ) {
         if ($arr == -1) {
@@ -855,7 +1038,7 @@ sub readstoptimes($)
         $routeseqs{$deparr} = $seq;
         $stopdeps[$dep]++;
         $stoparrs[$arr]++;
-        push (@hops, join("\t",$dep,$arr,$rid,$hopcnt,$dref . '-' . $aref));
+        push (@hops, join("\t",$dep,$arr,$rid,$hopcnt,$sid,$dref . '-' . $aref));
         if ($rtype < 3) { $railstops{$dep} = 1; $railstops{$arr} = 1; }
         $hopcnt++;
       }
@@ -916,6 +1099,7 @@ sub import($)
   info("excluding metro") unless $include_metro;
 
   readstops($dir) or return 0;
+  readcalendar($dir) or return 0;
   readroutes($dir) or return 0;
   readtrips($dir) or return 0;
   readstoptimes($dir) or return 0;
@@ -959,6 +1143,18 @@ sub getdate()
   return sprintf("%u-%02u-%02u %u:%02u utc",$year+1900,$mon+1,$mday,$hour,$min);
 }
 
+sub iniext($$)
+{
+  my ($name,$cnt) = @_;
+
+  my $bckname = $name . '.bak';
+
+  info("writing $cnt items to $name");
+
+  unlink($bckname) if -f $bckname;
+  rename($name,$bckname) if -f $name;
+}
+
 sub writext($$)
 {
   my ($indir,$outdir) = @_;
@@ -966,23 +1162,22 @@ sub writext($$)
   my ($name,$portfile,$hopfile,$stop,@stopln,$stopid,$hop,@hopln,$route,$hopid);
   my ($dep_id,$arr_id,$dep,$arr,$fstopcnt,$depname,$arrname);
   my ($routeid,$rid,$rtype);
+  my ($cnt);
 
   info("writing tripover external format");
   return info("dryrun") if $dryrun;
 
-  $fstopcnt = 0;
+  $fstopcnt = $cnt = 0;
   for $stopid (values %stopids) {
     $fstopcnt++ if ($stopdeps[$stopid] > 0 or $stoparrs[$stopid] > 0);
   }
-
-  info("writing $fstopcnt of $stopcnt stops in $outdir");
+  $cnt = $stopcnt - $fstopcnt;
+  info("omitting $cnt unconnected ports") if $fstopcnt < $stopcnt;
 
   my $portname = $outdir . '/ports.txt';
-  my $oldportname = $portname . '.bak';
-  unlink($oldportname) if -f $oldportname;
-  rename($oldportname,$portname) if -f $portname;
+  iniext($portname,$fstopcnt);
 
-  open($portfile,'>',$portname) or error_exit("cannot create $portname:$!");
+  open($portfile,'>',$portname) or error_exit("cannot create $portname:$!",__LINE__);
 
   print($portfile "# ports.txt - tripover external port aka stops file\n\n");
   printf($portfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
@@ -1048,14 +1243,31 @@ sub writext($$)
   close($portfile);
   info("wrote $fstopcnt stops to $portcnt ports");
 
-  info("writing $hopcnt hops");
+  my $timefile;
+  my $timename = $outdir . '/times.txt';
+  my ($service_id,$sid,$t0,$t1,$day,$dow);
+
+  iniext($timename,$sidcnt);
+
+  open($timefile,'>',$timename) or error_exit("cannot create $timename:$!",__LINE__);
+  print($timefile "# times.txt - tripover external timetable aka calendar file\n\n");
+  printf($timefile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
+  printf($timefile "# %u entries from %s\n\n",$sidcnt,$indir);
+
+  print($timefile "# service_id\tsid\tdow\tstart\tend\t# \n\n");
+
+  while (($service_id,$sid) = each %serviceids) {
+    $dow = $servicedow{$sid};
+    $t0 = $servicet0{$sid};
+    $t1 = $servicet1{$sid};
+    printf($timefile "%s\t%x\t%x\t%u\t%u\n",$service_id,$sid,$dow,$t0,$t1);
+  }
+  close($timefile);
 
   my $hopname = $outdir . '/hops.txt';
-  my $oldhopname = $hopname . '.bak';
-  unlink($oldhopname) if -f $oldhopname;
-  rename($oldhopname,$hopname) if -f $hopname;
+  iniext($hopname,$hopcnt);
 
-  open($hopfile,'>',$hopname) or error_exit("cannot create ports.txt:$!");
+  open($hopfile,'>',$hopname) or error_exit("cannot create $hopname:$!",__LINE__);
   print($hopfile "# hops.txt - tripover external hops aka trips file\n\n");
   printf($hopfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($hopfile "# %u hops from %s/stoptimes.txt\n\n",$hopcnt,$indir);
@@ -1063,18 +1275,20 @@ sub writext($$)
   printf($hopfile ".variants\t%x\t%x\t0\t0\t0\t# possible route variants\n",$maxvariant,$hivariant);
   printf($hopfile ".walk_id\t%x\t0\t0\t0\t0\t# route ID for inferred walk\n\n",$rtype_walk);
 
-  print($hopfile "# routename\tID\tfrom\tto\ttype\tid\t# from-name to-name\n\n");
+  print($hopfile "# route\tID\tfrom\tto\ttype\ttid\trid\t# from-name to-name\n\n");
 
   my ($mark,$ref);
   my $xinfo = '';
 
   foreach $hop (@hops) {
     @hopln = split("\t",$hop);
+    error_exit("missing hop arguments",__LINE__) if (@hopln < 6);
     $dep = $hopln[0];
     $arr = $hopln[1];
     $rid = $hopln[2];
     $hopid = $hopln[3];
-    $ref = $hopln[4];
+    $sid = $hopln[4];
+    $ref = $hopln[5];
 
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
@@ -1094,7 +1308,7 @@ sub writext($$)
     $route = '.' . $route if (substr($route,0,1) eq '.');
     $xinfo = "\t# $mark $ref $depname,$arrname" if ($verbose_hops > 0);
 
-    printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x%s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$xinfo);
+    printf($hopfile "%s\t%x\t%x\t%x\t%x\tD%u\t%x%s\n",$route,$hopid,$dep,$arr,$rtype,$sid,$rid,$xinfo);
   }
   return 1;
 }
@@ -1132,7 +1346,7 @@ if (@args > 0) {
   init();
   $cmd = $args[0];
   if ($cmd eq 'import') {
-    error_exit("missing arg 'dir' for import") unless (@args > 1);
+    error_exit("missing arg 'dir' for import",__LINE__) unless (@args > 1);
     $indir = $args[1];
     $outdir = (@args > 2) ? $args[2] : '.';
     import($indir) and writext($indir,$outdir);

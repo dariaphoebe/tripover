@@ -101,6 +101,8 @@ struct hop {
   ub4 dep,arr;
   ub4 routeid,rid;
 
+  ub4 tid;
+
   ub4 compound;
 
   ub4 part;
@@ -126,7 +128,6 @@ struct route {
 struct carrier {
   ub4 magic;
   ub4 id;
-  struct carrierbase *base;
   // todo
 };
 
@@ -137,7 +138,13 @@ struct carrier {
 struct timetable {
   ub4 magic;
   ub4 id;
-  struct timetablebase *base;
+  ub4 sid;
+
+  char name[128];  // todo: use below structure instead
+  ub4 namelen;
+
+  ub4 dow;
+  ub4 t0,t1;
 
 //  todo unrolled aka expanded timetables
 
@@ -160,13 +167,11 @@ struct network {
 
   struct route *routes;
   struct carrier *carriers;  
-  struct timetable *timetables;  // [routecnt]
+  struct timetable *timetables;
 
 // access
   ub4 *g2pport;      // [gportcnt] global to partition port id
   ub4 *p2gport;      // [portcnt]
-
-  ub4 tthops[Hopcnt];   // index in timetables above
 
   ub4 fports2ports[Portcnt];
 
@@ -215,9 +220,11 @@ struct partition {
 struct gnetwork {
   ub4 portcnt;
   ub4 hopcnt;
+  ub4 timecnt;
 
   struct port *ports;
   struct hop *hops;
+  struct timetable *times;
 
   ub4 partcnt;
 

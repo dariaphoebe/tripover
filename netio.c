@@ -621,6 +621,194 @@ static int rdextports(netbase *net,const char *dir)
   return 0;
 }
 
+// service_id tid dow start end 
+static int rdexttimes(netbase *net,const char *dir)
+{
+  char fname[512];
+  struct myfile mf;
+  ub4 rawtimcnt,timcnt;
+  struct timebase *times,*tp;
+  ub4 tid,*sid2tids;
+  enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
+  enum states state;
+  int rv,newitem,iscmd;
+  char *buf,*p,*end,c,tab,nl;
+  ub4 len,linno,colno,x,val,namelen,valndx,id,idhi,maxsid = 0;
+  ub4 dow,t0,t1,sid;
+  char name[Maxname];
+  ub4 vals[Maxval];
+  ub4 namemax = min(Maxname,sizeof(times->name)) - 1;
+
+  fmtstring(fname,"%s/times.txt",dir);
+
+  rv = readfile(&mf,fname,1);
+  if (rv) return 1;
+
+  buf = mf.buf;
+  len = (ub4)mf.len;
+  rawtimcnt = linecnt(fname,buf, len);
+
+  if (rawtimcnt == 0) return warning(0,"%s is empty",fname);
+  timcnt = 0;
+
+  times = tp = mkblock(&net->timemem,rawtimcnt,struct timebase,Init0,"");
+
+  state = Out;
+  namelen = val = valndx = id = idhi = maxsid = 0;
+  newitem = iscmd = 0;
+
+  colno = 0;
+  linno = 1;
+  tab = '\t'; nl = '\n';
+
+  mkhexmap();
+
+  p = buf; end = buf + len;
+  while (p < end) {
+
+    c = *p++;
+
+//    info(0,"state %u %c",state,c);
+
+    switch(state) {
+
+    case Out:
+      valndx = 0;
+      iscmd = 0;
+      switch (c) {
+        case '#': state = Fls; break;
+        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
+        case '\n': break;
+        case ' ': break;
+        case '.': iscmd = 1; state = Cmd0; break;
+        default: name[0] = c; namelen = 1; state = Name;
+      }
+      break;
+
+    case Cmd0:
+      switch (c) {
+        case '#': state = Fls; break;
+        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
+        case '\n': return parserr(FLN,fname,linno,colno,"unexpected newline");
+        case '.': iscmd = 0; name[0] = '.'; namelen = 1; state = Name; break;
+        default: name[0] = c; namelen = 1; state = Name;
+      }
+      break;
+
+    case Name:
+      if (c == tab) { valndx = 0; aclear(vals); state = Num0; }
+      else if (c == nl) return parserr(FLN,fname,linno,colno,"missing dep arr");
+      else if (namelen + 2 < namemax) name[namelen++] = c;
+      else if (name[namemax] != '!') {
+        parsewarn(FLN,fname,linno,colno,"name exceeds %u",namemax);
+        name[namemax] = '!';
+      }
+      break;
+
+    case Num0:
+      switch(c) {
+        case '#': if (valndx > 2) newitem = 1; state = Fls; break;
+        case '\t': case ' ': break;
+        case 'D': state = Dec0; break;
+        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+          val = hexmap[(ub4)c];
+          state = Hex1;
+          break;
+        default: return parserr(FLN,fname,linno,colno,"expected digit, found '%c'",c);
+      }
+      break;
+
+    case Hex1:
+      if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
+      x = hexmap[(ub4)c];
+      if (x < 16) val = (val << 4) | x;
+      else if (x == 0x20) {
+        vals[valndx++] = val;
+        state = Num0;
+      } else if (x == 0xfe) { // newline
+        vals[valndx++] = val;
+        newitem = 1;
+        state = Out;
+      } else return parserr(FLN,fname,linno,colno,"expected whitespace after number, found %c",c);
+      break;
+
+    case Dec0:
+      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
+      val = c - '0';
+      state = Dec1;
+      break;
+
+    case Dec1:
+      if (c == tab || c == ' ') {
+        if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
+        vals[valndx++] = val;
+        state = Num0;
+      } else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
+      else if (c == nl) {
+        vals[valndx++] = val;
+        newitem = 1;
+        state = Out;
+      } else return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
+      break;
+
+    case Fls:
+      if (c == nl) { state = Out; } break;
+
+    }
+
+    if (newitem && iscmd) {
+      name[namelen] = 0;
+      iscmd = newitem = 0;
+      info(0,"ignore unknown cmd %s %u",name,vals[0]);
+    } else if (newitem) {
+      newitem = 0;
+      error_gt(timcnt+1,rawtimcnt);
+      if (valndx < 4) return parserr(FLN,fname,linno,colno,"missing args, only %u",valndx);
+      sid = vals[0];
+      dow = vals[1];
+      t0 = vals[2];
+      t1 = vals[3];
+
+//      info(0,"vals %u %u %u",vals[0],depid,arrid);
+      if (dow > 0x7f) return inerr(FLN,fname,linno,colno,"invalid dayofweek mask %x",dow);
+
+      tp->id  = id;
+      tp->sid = sid;
+      tp->dow = dow;
+      tp->t0 = t0;
+      tp->t1 = t1;
+
+      tp->namelen = namelen;
+      memcopy(tp->name,name,namelen);
+      maxsid = max(maxsid,sid);
+      tp++;
+      timcnt++;
+    } // newitem
+
+    if (c == '\n') { linno++; colno = 1; }
+    else colno++;
+
+  } // each input char
+
+  if (maxsid > 100 * 1000 * 1000) warning(0,"max service id %u",maxsid);
+  sid2tids = alloc(maxsid+1,ub4,0xff,"sid2tids",maxsid);
+  for (tid = 0; tid < timcnt; tid++) {
+    tp = times + tid;
+    sid = tp->sid;
+    if (sid2tids[sid] != hi32) warning(0,"service ID %u doubly defined", sid);
+    else sid2tids[sid] = tid;
+  }
+  net->sid2tids = sid2tids;
+
+  info(0,"read %u times from %s", timcnt, fname);
+  net->timecnt = timcnt;
+  net->times = times;
+  net->maxsid = maxsid;
+
+  return 0;
+}
+
 // name id dport.id aport.id route.seq (dow.hhmm.rep.t0.t1.dur dow.hhmm.rep)+ 
 static int rdexthops(netbase *net,const char *dir)
 {
@@ -634,11 +822,12 @@ static int rdexthops(netbase *net,const char *dir)
   struct portbase *ports,*pdep,*parr;
   struct subportbase *subports,*sp;
   ub4 *id2ports, *subid2ports;
+  ub4 tid,*sid2tids;
   enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
   enum states state;
   int rv,newitem,iscmd;
   char *buf,*p,*end,c,tab,nl;
-  ub4 len,linno,colno,x,val,namelen,valndx,id,idhi,maxid,maxrid;
+  ub4 len,linno,colno,x,val,namelen,valndx,id,sid,idhi,maxid,maxrid,maxsid;
   ub4 depid,arrid,dep,arr,pid,rtype,routeid;
   char name[Maxname];
   ub4 vals[Maxval];
@@ -669,6 +858,10 @@ static int rdexthops(netbase *net,const char *dir)
   id2ports = net->id2ports;
   subid2ports = net->subid2ports;
   maxportid = net->maxportid;
+
+  sid2tids = net->sid2tids;
+
+  maxsid = net->maxsid;
 
   state = Out;
   namelen = val = valndx = id = idhi = maxid = maxrid = 0;
@@ -795,13 +988,14 @@ static int rdexthops(netbase *net,const char *dir)
     } else if (newitem) {
       newitem = 0;
       error_gt(hopcnt+1,rawhopcnt);
-      if (valndx < 4) return parserr(FLN,fname,linno,colno,"missing dep,arr,type args, only %u",valndx);
+      if (valndx < 5) return parserr(FLN,fname,linno,colno,"missing dep,arr,type args, only %u",valndx);
       id = vals[0];
       depid = vals[1];
       arrid = vals[2];
       rtype = vals[3];
-      if (valndx > 4) {
-        routeid = vals[4];
+      sid   = vals[4];
+      if (valndx > 5) {
+        routeid = vals[5];
         if (routeid != hi32) maxrid = max(maxrid,routeid);
       } else routeid = hi32;
 
@@ -809,6 +1003,8 @@ static int rdexthops(netbase *net,const char *dir)
       if (depid == arrid) return inerr(FLN,fname,linno,colno,"dep id %u,%x equal to arr id",depid,depid);
       if (depid > maxportid) return inerr(FLN,fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
       else if (arrid > maxportid) return inerr(FLN,fname,linno,colno,"arr id %u above highest port id %u",arrid,maxportid);
+      if (sid > maxsid) return inerr(FLN,fname,linno,colno,"service id %u above highest id %u",sid,maxsid);
+      tid = sid2tids[sid];
 
       dep = id2ports[depid];
       if (dep == hi32) {
@@ -843,6 +1039,8 @@ static int rdexthops(netbase *net,const char *dir)
         hp->id  = id;
         hp->dep = dep;
         hp->arr = arr;
+
+        hp->tid = tid;
 
 // todo generalise
         if (rtype_walkline && rtype == rtype_walk) { hp->kind = Walk; kinds[Walk]++; routeid = hi32; }
@@ -912,6 +1110,9 @@ int readextnet(netbase *net,const char *dir)
 
   portcnt = net->portcnt;
   if (portcnt) net->portwrk = alloc(portcnt,ub4,0,"portwrk",portcnt);
+
+  rv = rdexttimes(net,dir);
+  if (rv) return rv;
 
   rv = rdexthops(net,dir);
   info(0,"done reading base net in external format, status %d",rv);
@@ -1049,15 +1250,18 @@ static ub4 addnetpdf(netbase *net, char *buf, ub4 len)
   ports, hops
   currently single page only
  */
+static ub4 maxcontent = 64 * 1024 * 1024;
+
 int net2pdf(netbase *net)
 {
-static char content[64 * 1024 * 1024];
 static char pagebuf[64 * 1024];
 
   int fd;
   ub4 pos,xpos,cpos,xrefpos,obj;
   ub4 plen = sizeof pagebuf;
   ub4 xref[16];
+  block contentblk;
+  char *content;
   enum objnos { pdfnil, pdfcat, pdftree,pdfnode,pdfcontent, pdflast };
   const char *name = "net.pdf";
 
@@ -1086,7 +1290,9 @@ static char pagebuf[64 * 1024];
   xpos = pos;
   if (filewrite(fd,pagebuf,pos,name)) return 1;
 
-  cpos = addnetpdf(net,content,sizeof content);
+  content = mkblock(&contentblk,maxcontent,char,Noinit,"pdf content buffer");
+
+  cpos = addnetpdf(net,content,maxcontent);
 
   pos = mysnprintf(pagebuf,0, plen,"%u 0 obj\n << /Length %u >>\nstream\n", pdfcontent, cpos);
   if (filewrite(fd,pagebuf,pos,name)) return 1;

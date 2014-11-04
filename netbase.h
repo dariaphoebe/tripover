@@ -93,6 +93,8 @@ struct hopbase {
   ub4 dep,arr;
   ub4 routeid;
 
+  ub4 tid;
+
   ub4 dist;
 
   ub4 carriercnt;
@@ -126,11 +128,21 @@ struct carrierbase {
 // a carrier has one or more services on a route
 // a service has a set of maps
 // each map has entries for each go
+// go contains one or more trips in a repeating pattern
 // multiple maps are made when needed for duration difference or not fitting in map
-struct timetablebase {
+struct timebase {
+  ub4 id;
+  ub4 sid;
+  ub4 cid;
+
+  char name[128];
+  ub4 namelen;
+
   ub4 carrier;
   ub4 route;
   ub4 service;
+
+  ub4 dow;
   ub4 t0,t1;      // tt validity in minutes utc since epoch
   ub4 dt;         // granularity of table in minutes
 
@@ -158,6 +170,7 @@ struct networkbase {
   ub4 portcnt;
   ub4 subportcnt;
   ub4 hopcnt;
+  ub4 timecnt;
   ub4 routecnt;
   ub4 carriercnt;
   ub4 timetablecnt;
@@ -165,6 +178,7 @@ struct networkbase {
   struct portbase *ports;
   struct subportbase *subports;
   struct hopbase *hops;
+  struct timebase *times;
   struct routebase *routes;
   struct carrierbase *carriers;  
   struct timetablebase *timetables;  // [routecnt]
@@ -172,6 +186,7 @@ struct networkbase {
   struct memblk portmem;
   struct memblk subportmem;
   struct memblk hopmem;
+  struct memblk timemem;
 
   ub4 latscale,lonscale;
   ub4 latrange[2];
@@ -187,9 +202,11 @@ struct networkbase {
   ub4 *id2ports;         // [maxid]
   ub4 *subid2ports;      // [maxid]
   ub4 *id2hops;          // [maxid]
+  ub4 *sid2tids;
   ub4 maxportid;
   ub4 maxsubportid;
   ub4 maxrouteid;
+  ub4 maxsid;
 
   ub4 maxvariants,routevarmask;
 

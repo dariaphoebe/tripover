@@ -119,10 +119,13 @@ int prepnet(netbase *basenet)
   struct gnetwork *gnet = getgnet();
   struct portbase *bports,*bpp,*bpdep,*bparr;
   struct hopbase *bhops,*bhp;
+  struct timebase *btimes,*btp;
   struct port *ports,*pports,*pdep,*parr,*pp,*gp;
   struct hop *hops,*phops,*hp,*ghp;
+  struct timetable *times,*tp;
   ub4 bportcnt,portcnt,xportcnt,bhopcnt,hopcnt,dep,arr,aport,depp,arrp;
-  ub4 nlen,cnt,acnt,dcnt,routeid,part,hpart,xmaplen;
+  ub4 btimecnt,timecnt;
+  ub4 nlen,cnt,acnt,dcnt,tid,routeid,part,hpart,xmaplen;
   ub4 pportcnt,phopcnt,partcnt,npart1;
   enum txkind kind;
   ub4 hop,port,phop,pport;
@@ -136,6 +139,7 @@ int prepnet(netbase *basenet)
 
   bhopcnt = basenet->hopcnt;
   bportcnt = basenet->portcnt;
+  btimecnt = basenet->timecnt;
   if (bportcnt == 0 || bhopcnt == 0) return 1;
 
   // filter unconnected ports
@@ -151,6 +155,23 @@ int prepnet(netbase *basenet)
   }
   info(0,"%u from %u ports",portcnt,bportcnt);
   ports = alloc(portcnt,struct port,0,"ports",portcnt);
+
+  timecnt = btimecnt;
+  times = alloc(timecnt,struct timetable,0,"times",timecnt);
+  btimes = basenet->times;
+  for (tid = 0; tid < btimecnt; tid++) {
+    btp = btimes + tid;
+    tp = times + tid;
+    tp->sid = btp->sid;
+    tp->t0 = btp->t0;
+    tp->t1 = btp->t1;
+    tp->dow = btp->dow;
+    nlen = btp->namelen;
+    if (nlen) {
+      memcpy(tp->name,btp->name,nlen);
+      tp->namelen = nlen;
+    }
+  }
 
   // filter nil hops
   hopcnt = 0;
@@ -214,6 +235,8 @@ int prepnet(netbase *basenet)
     arr = bparr->id;
     hp->dep = dep;
     hp->arr = arr;
+
+    hp->tid = bhp->tid;
 
     hopcnt++;
   }
@@ -288,8 +311,10 @@ int prepnet(netbase *basenet)
 
   gnet->portcnt = portcnt;
   gnet->hopcnt = hopcnt;
+  gnet->timecnt = timecnt;
   gnet->ports = ports;
   gnet->hops = hops;
+  gnet->times = times;
 
   gnet->partcnt = partcnt;
   gnet->portparts = portparts;
