@@ -22,8 +22,8 @@ my $ccmsg = '';
 local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
-my $version_min = 13;
-my $lastchanged = "4 nov 2014";
+my $version_min = 14;
+my $lastchanged = "8 nov 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -87,6 +87,11 @@ sub usage()
 my $rtype_walk = 1699;
 my $maxvariant = 16;
 my $hivariant = 0;
+
+my $fmt_prvsid = 1;
+my $fmt_diftid = 2;
+my $fmt_difdep = 4;
+my $fmt_difarr = 8;
 
 # use integer codes for fields
 my $col_enum = 1;
@@ -163,7 +168,9 @@ my $sidcnt = 0;
 my %tripids;
 my %tripseq;
 my %trippseq;
-my %triprefs;
+my %tripref;
+my @uniqids;
+
 my %triproutes;
 my %tripsids;
 my $walkroute;
@@ -676,10 +683,6 @@ sub readtrips($)
 
     if (exists($norouteids{$route_id})) {  # filtered
     } elsif (exists($routeids{$route_id})) {
-      my $seq = {};
-      my $pseq = {};
-      $tripseq{$trip_id} = $seq;
-      $trippseq{$trip_id} = $pseq;
       push(@trips,join("\t",$routeid,$service_id,$trip_id,$dirid));
       $tripservice{$trip_id} = $service_id;
     } else {
@@ -887,7 +890,14 @@ sub readstoptimes($)
   my $linecnt = scalar(@lines);
   my $ttcnt = 0;
   my $prvseq = 0;
-  my $prvtrip = '';
+  my $prvtrip = 0;
+  my $prvid = 0;
+  my $prvtdep = '';
+
+  my ($id,$uniqid,$hoptime,$rtype,$name);
+
+  my $hhmmpat = qr'^([0-9]+):([0-9]+)';
+  my ($thh,$tmm,$tdepmin,$tarrmin);
 
   info("$linecnt lines");
 
@@ -928,6 +938,9 @@ sub readstoptimes($)
 
     } # each col
 
+    next unless length $dep_time;
+    next unless length $arr_time;
+
     unless (exists($tripids{$trip_id})) {
       warning("$linno: undefined trip id $trip_id");
       next;
@@ -937,9 +950,8 @@ sub readstoptimes($)
     if (length($stop_seq) == 0) { warning("$linno: empty stop_seq for $stop_id"); next; }
     elsif ($stop_seq =~ $nondigits) { warning("$linno: stop_seq '$stop_seq' not numerical for $stop_id"); next; }
 
-    vrb("$linno: seq $stop_seq prv $prvseq") unless $stop_seq == $prvseq + 1 or $trip_id ne $prvtrip;
+    warning("$linno: seq $stop_seq prv $prvseq") if $stop_seq == $prvseq and $tripid == $prvtrip;
     $prvseq = $stop_seq;
-    $prvtrip = $trip_id;
 
     unless (exists($triproutes{$trip_id})) {
       warning("$linno: undefined route for trip id $trip_id");
@@ -949,102 +961,60 @@ sub readstoptimes($)
     $route_id = $routebyids{$routeid};
     next if exists $norouteids{$route_id}; # filtered
 
+    $rtype = $rtypes{$routeid};
+
     $service_id = $tripservice{$trip_id};
     if (exists($serviceids{$service_id})) {
       $sid = $serviceids{$service_id};
-#      $dows = $servicedow{$sid};
-#      $t0 = $servicet0{$sid};
-#      $t1 = $servicet1{$sid};
     } else {
       warning("$linno: undefined service id $service_id");
       $sid = 0;
-#      $dows = '1111111';
-#      $t0 = '20140101';
-#      $t1 = '20150101';
     }
     $tripsids{$tripid} = $sid;
 
     $stopid = $stopids{$stop_id};
 
-    my ($seq,$pseq);
     if (exists($parentbyid{$stopid})) {
       $parent = $parentbyid{$stopid};
       $parentid = $parentids{$parent};
-      $pseq = $trippseq{$trip_id};
-      $pseq->{$stop_seq} = $parentid unless exists $pseq->{$stop_seq};
-#      $trippseq{$trip_id} .= $parentid . ' ';
+      $id = $parentid;
+    } else { $id = $stopid; }
+
+    ($thh,$tmm) = ($dep_time =~ $hhmmpat);
+    unless (defined $thh and defined $tmm) {
+      warning("$linno: expected hh:mm, found $dep_time");
+      next;
     }
-    $seq = $tripseq{$trip_id};
-    unless (exists $seq->{$stop_seq}) {
-      $seq->{$stop_seq} = $stopid;
-      $triprefs{$trip_id}{$stop_seq} = $linno;
-#      info("add $stop_id seq $stop_seq") if $routeid == 0x3fa0;
-    } else { info("skip dup $stop_id seq $stop_seq"); }
+    $tdepmin = $thh * 60 + $tmm;
+    ($thh,$tmm) = ($arr_time =~ $hhmmpat);
+    $tarrmin = $thh * 60 + $tmm;
 
-#    push(@stentries,join("\t",$routeid,$trip_id,$stop_id,$stop_seq,$dep_time,$arr_time));
-    $ttcnt++;
-
-    info("line $linno of $linecnt") if ($linno % 100000) == 0;
-
-  } # each line
-
-  info("$ttcnt time entries");
-
-  my @das;
-  my @tripstops;
-  my ($tripstr,$varno,$rtype,$rid1,$pseq,$aref,$dref);
-  my ($id,$rid,$trid,$seqlen,$i,$seq2,$deparr,$arr,$depid,$arrid,$uniq,$routeno,$name);
-
-  # recognise and split routes
-  $routeno = 0;
-  while (($rid,$route_id) = each %routebyids) {
-    next if exists $norouteids{$route_id};
-
-    $rtype = $rtypes{$rid};
-
-    info("processing route $routeno of $routecnt * 2") if ($routeno++ % 50) == 0;
-
-    my %routeseqs;
-
-    while (($trip,$trid) = each %triproutes) {
-      next if $trid ne $rid;
-
-      $tripid = $tripids{$trip};
-
-      if (defined $tripsids{$tripid}) {
-        $sid = $tripsids{$tripid};
+    # actual hop derived from key lateron
+    $uniqid = join('_',$routeid,$prvid,$id);
+    if ($prvtrip == $tripid) {
+      if (exists($tripseq{$uniqid})) {
+        $tripseq{$uniqid} .= "\t" . join("\t",$sid,$tripid,$prvtdep,$tarrmin);
       } else {
-        warning("unknown service id for $trip") unless defined $tripsids{$tripid};
-        $sid = 0;
-      }
-
-      $arr = -1;
-      foreach $seq (sort {$a <=> $b} keys %{ $tripseq{$trip} } ) {
-        if ($arr == -1) {
-          $arr = $tripseq{$trip}{$seq};
-          $aref = $triprefs{$trip}{$seq};
-          next;
-        }
-        $dep = $arr;
-        $arr = $tripseq{$trip}{$seq};
-        if ($dep == $arr) {
-          vrb("route $route_id trip $trip dep $dep equals arr $stopnames{$dep}");
-          next;
-        }
-        $deparr = $dep . '_' . $arr;
-        $dref = $aref;
-        $aref = $triprefs{$trip}{$seq};
-        next if exists $routeseqs{$deparr};
-        $routeseqs{$deparr} = $seq;
-        $stopdeps[$dep]++;
-        $stoparrs[$arr]++;
-        push (@hops, join("\t",$dep,$arr,$rid,$hopcnt,$sid,$dref . '-' . $aref));
-        if ($rtype < 3) { $railstops{$dep} = 1; $railstops{$arr} = 1; }
+        $tripref{$uniqid} = $linno;
+        $tripseq{$uniqid} = join("\t",$sid,$tripid,$prvtdep,$tarrmin);
+        push @uniqids,$uniqid;
+        $stopdeps[$prvid]++;
+        $stoparrs[$id]++;
+        if ($rtype < 3) { $railstops{$prvid} = $railstops{$id} = 1; }
         $hopcnt++;
       }
     }
-  }
-  info("$hopcnt hops");
+    $prvtdep = $tdepmin;
+    $prvid = $id;
+    $prvtrip = $tripid;
+
+    $ttcnt++;
+
+    info("line $linno of $linecnt") if ($linno % 50000) == 0;
+
+  } # each line
+
+  info("$ttcnt time entries, $hopcnt hops");
 
   # show some connectivity stats
   if ($noroutecnt == 0) {
@@ -1159,7 +1129,7 @@ sub writext($$)
 {
   my ($indir,$outdir) = @_;
 
-  my ($name,$portfile,$hopfile,$stop,@stopln,$stopid,$hop,@hopln,$route,$hopid);
+  my ($name,$portfile,$hopfile,$stop,@stopln,$stopid,$hop,$route,$hopid);
   my ($dep_id,$arr_id,$dep,$arr,$fstopcnt,$depname,$arrname);
   my ($routeid,$rid,$rtype);
   my ($cnt);
@@ -1277,18 +1247,35 @@ sub writext($$)
 
   print($hopfile "# route\tID\tfrom\tto\ttype\ttid\trid\t# from-name to-name\n\n");
 
-  my ($mark,$ref);
+  my ($uniqid,$hoptime,$mark,$ref,$fmt,$timestr);
   my $xinfo = '';
+  my $hopno = 0;
+  my @hopln;
+  my @times;
+  my ($sid,$tid,$tdep,$tarr,$ztid,$ztdep,$ztarr,$prvsid,$prvtid,$prvtdep,$prvtarr);
+  my ($timendx,$timecnt);
 
-  foreach $hop (@hops) {
-    @hopln = split("\t",$hop);
-    error_exit("missing hop arguments",__LINE__) if (@hopln < 6);
-    $dep = $hopln[0];
-    $arr = $hopln[1];
-    $rid = $hopln[2];
-    $hopid = $hopln[3];
-    $sid = $hopln[4];
-    $ref = $hopln[5];
+  foreach $uniqid (@uniqids) {
+
+    $hoptime = $tripseq{$uniqid};
+
+    error_exit("invalid hop id $hopno",__LINE__) if ($hopno >= $hopcnt);
+
+    @hopln = split('_',$uniqid);
+    error_exit("missing hop arguments",__LINE__) if (@hopln < 3);
+
+    $rid = $hopln[0];
+    $dep = $hopln[1];
+    $arr = $hopln[2];
+
+    $hopid = $hopno;
+
+    @times = split("\t",$hoptime);
+    $timecnt = scalar @times;
+    return error("$timecnt not a multiple of 4",__LINE__) if $timecnt % 4;
+    $timecnt /= 4;
+
+    $ref = $tripref{$uniqid};
 
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
@@ -1302,14 +1289,43 @@ sub writext($$)
     warning("route $route not found") unless exists $routeids{$route};
 
     warning("$route type not found") unless exists $rtypes{$rid};
-#    info("$dep $arr $route");
     $rtype = $rtypes{$rid};
     $mark = ($rid eq $walkroute) ? 'walk ' : '';
     $route = '.' . $route if (substr($route,0,1) eq '.');
     $xinfo = "\t# $mark $ref $depname,$arrname" if ($verbose_hops > 0);
 
-    printf($hopfile "%s\t%x\t%x\t%x\t%x\tD%u\t%x%s\n",$route,$hopid,$dep,$arr,$rtype,$sid,$rid,$xinfo);
+    ($sid,$tid,$tdep,$tarr) = @times[0 .. 3];
+    $timestr = sprintf("0\t%x\t%x\t%x\t%x",$sid,$tid,$tdep,$tarr);
+
+    for ($timendx = 4; $timendx < $timecnt * 4; $timendx += 4) {
+      $prvsid = $sid; $prvtid = $tid; $prvtdep = $tdep; $prvtarr = $tarr;
+      ($sid,$tid,$tdep,$tarr) = @times[$timendx .. $timendx + 3];
+      $fmt = 0;
+      if ($tid >= $prvtid) {
+        $fmt |= $fmt_diftid;
+        $ztid = $tid - $prvtid;
+      } else { $ztid = $tid; }
+      if ($tdep >= $prvtdep) {
+        $fmt |= $fmt_difdep;
+        $ztdep = $tdep - $prvtdep;
+      } else { $ztdep = $tdep; }
+      if ($tarr >= $prvtarr) {
+        $fmt |= $fmt_difarr;
+        $ztarr = $tarr - $prvtarr;
+      } else { $ztarr = $tarr; }
+      if ($sid == $prvsid) {
+        $fmt |= $fmt_prvsid;
+        $timestr .= sprintf("\t%x\t%x\t%x\t%x",$fmt,$ztid,$ztdep,$ztarr);
+      } else {
+        $timestr .= sprintf("\t%x\t%x\t%x\t%x\t%x",$fmt,$sid,$ztid,$ztdep,$ztarr);
+      }
+
+    }
+    printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x\tD%u\t%s%s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$timecnt,$timestr,$xinfo);
+    $hopno++;
   }
+  return error("wrote 0 hops",__LINE__) if $hopno == 0;
+  info("wrote $hopno hops");
   return 1;
 }
 

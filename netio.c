@@ -102,6 +102,8 @@ enum stopopts { Stopopt_child = 1, Stopopt_parent = 2 };
 
 static const char *kindnames[Kindcnt] = { "unknown","air","rail","bus","walk" };
 
+enum extresult { Next, Newitem, Newcmd, Eof, Parserr };
+
 static int memeq(const char *s,const char *q,ub4 n) { return !memcmp(s,q,n); }
 
 // count non-empty and non-comment lines
@@ -138,7 +140,7 @@ static void mkhexmap(void)
   hexmap[0x20] = 0x20;
 }
 
-static int __attribute__ ((format (printf,5,6))) parserr(ub4 fln,const char *fname,ub4 linno,ub4 colno,const char *fmt, ...)
+static enum extresult __attribute__ ((format (printf,5,6))) parserr(ub4 fln,const char *fname,ub4 linno,ub4 colno,const char *fmt, ...)
 {
   va_list ap;
   char buf[1024];
@@ -150,7 +152,8 @@ static int __attribute__ ((format (printf,5,6))) parserr(ub4 fln,const char *fna
     myvsnprintf(buf,pos,len,fmt,ap);
     va_end(ap);
   }
-  return errorfln(fln,0,"%s",buf);
+  errorfln(fln,0,"%s",buf);
+  return Parserr;
 }
 
 static int __attribute__ ((format (printf,5,6))) inerr(ub4 fln,const char *fname,ub4 linno,ub4 colno,const char *fmt, ...)
@@ -181,6 +184,171 @@ static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *f
     va_end(ap);
   }
   return warningfln(fln,0,"%s",buf);
+}
+
+/* basic tab-separated ints parser.
+   first item is name, rest are integers
+   string starting with . is a command, double dot to escape a dot
+   # is comment
+   D prefix for decimal, no prefix for hex
+ */
+
+#define Maxval 4096
+#define Maxname 256
+
+enum extstates { Init,Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
+
+struct extfmt {
+  struct myfile mf;
+  ub4 pos;
+  enum extstates state;
+  ub4 linno,colno;
+  int iscmd;
+  char name[Maxname];
+  ub4 namelen;
+  ub4 val,valndx,vals[Maxval];
+};
+
+static enum extresult nextchar(struct extfmt *ef)
+{
+  char *fname,*name,c;
+  ub4 pos,len,linno,colno,x,valndx,namelen;
+  ub4 val,*vals;
+  ub4 namemax = Maxname - 2;
+  int newitem,iscmd;
+  enum extstates state;
+
+  len = (ub4)ef->mf.len;
+  pos = ef->pos;
+//  info(0,"pos %u len %u",pos,len);
+  if (pos >= len) return Eof;
+
+  // state
+  state = ef->state;
+  valndx = ef->valndx;
+  val = ef->val;
+  linno = ef->linno;
+  colno = ef->colno;
+  namelen = ef->namelen;
+  iscmd = ef->iscmd;
+
+  // convenience
+  name = ef->name;
+  fname = ef->mf.name;
+  vals = ef->vals;
+
+  c = ef->mf.buf[pos];
+  ef->pos = pos + 1;
+
+  newitem = 0;
+
+//    info(0,"state %u c %c",state,c);
+
+    switch(state) {
+
+    case Init: linno = 1; // cascade
+    case Out:
+      valndx = 0;
+      iscmd = 0;
+      switch (c) {
+        case '#': state = Fls; break;
+        case '\t': valndx = namelen = 0; state = Num0; break;
+        case '\n': break;
+        case ' ': break;
+        case '.': iscmd = 1; state = Cmd0; break;
+        default: name[0] = c; namelen = 1; state = Name;
+      }
+      break;
+
+    case Cmd0:
+      switch (c) {
+        case '#': state = Fls; break;
+        case '\t': valndx = namelen = 0; state = Num0; break;
+        case '\n': return parserr(FLN,fname,linno,colno,"unexpected newline");
+        case '.': iscmd = 0; name[0] = '.'; namelen = 1; state = Name; break;
+        default: name[0] = c; namelen = 1; state = Name;
+      }
+      break;
+
+    case Name:
+      if (c == '\t') {
+        if (namelen + 2 < namemax) name[namelen] = 0;
+        valndx = 0; state = Num0;
+      }
+      else if (c == '\n') return parserr(FLN,fname,linno,colno,"missing dep arr");
+      else if (namelen + 2 < namemax) name[namelen++] = c;
+      else if (name[namemax] != '!') {
+        parsewarn(FLN,fname,linno,colno,"name exceeds %u",namemax);
+        name[namemax] = '!';
+      }
+      break;
+
+    case Num0:
+      switch(c) {
+        case '#': if (valndx > 2) newitem = 1; state = Fls; break;
+        case '\t': case ' ': break;
+        case 'D': state = Dec0; break;
+        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+          val = hexmap[(ub4)c];
+          state = Hex1;
+          break;
+        default: return parserr(FLN,fname,linno,colno,"expected digit, found '%c'",c);
+      }
+      break;
+
+    case Hex1:
+      if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
+      x = hexmap[(ub4)c];
+      if (x < 16) val = (val << 4) | x;
+      else if (x == 0x20) {
+        vals[valndx++] = val;
+        state = Num0;
+      } else if (x == 0xfe) { // newline
+        vals[valndx++] = val;
+        newitem = 1;
+        state = Out;
+      } else return parserr(FLN,fname,linno,colno,"expected whitespace after number, found %c",c);
+      break;
+
+    case Dec0:
+      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
+      val = c - '0';
+      state = Dec1;
+      break;
+
+    case Dec1:
+      if (c == '\t' || c == ' ') {
+        if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
+        vals[valndx++] = val;
+        state = Num0;
+      } else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
+      else if (c == '\n') {
+        vals[valndx++] = val;
+        newitem = 1;
+        state = Out;
+      } else return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
+      break;
+
+    case Fls:
+      if (c == '\n') { state = Out; } break;
+
+    }
+
+  if (c == '\n') { linno++; colno = 1; }
+  else colno++;
+
+  ef->state = state;
+
+  ef->valndx = valndx;
+  ef->val = val;
+  ef->linno = linno;
+  ef->colno = colno;
+  ef->namelen = namelen;
+  ef->iscmd = iscmd;
+
+  if (newitem) return iscmd ? Newcmd : Newitem;
+  else return Next;
 }
 
 static int showconstats(struct portbase *ports,ub4 portcnt)
@@ -233,35 +401,37 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
     n = arrstats[narr];
     if (n) info(0,"%u port\as with %u%s arr", n,narr,narr == arrivs ? "+" : "");
   }
+
   pp = ports + hidport;
   info(0,"port %u deps %u arrs %u %s",hidport,hidep,pp->narr,pp->name);
   pp = ports + hiaport;
   info(0,"port %u deps %u arrs %u %s",hiaport,pp->ndep,hiarr,pp->name);
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    ndep = pp->ndep; narr = pp->narr;
+    if (ndep > hidep / 2 || narr > hiarr / 2) info(0,"port %u deps %u arrs %u %s", port,ndep,narr,pp->name);
+  }
 
   return 0;
 }
 
-#define Maxval 32
-
-#define Maxname 256
-
 // name id subid lat lon  # comment
 static int rdextports(netbase *net,const char *dir)
 {
-  char fname[512];
-  struct myfile mf;
+  enum extresult res;
+  struct extfmt eft;
+  const char *fname;
+
   ub4 rawportcnt,extportcnt,portcnt,port;
   struct portbase *ports,*pp;
-  enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
-  enum states state;
-  int rv,iscmd,newitem;
-  char *buf,*p,*end,c,tab,nl;
-  ub4 len,linno,colno,x,namelen,idhi,subidhi,maxid;
+  int rv;
+  char *buf;
+  ub4 len,linno,colno,namelen,idhi,subidhi,maxid;
   ub4 lat,lon,id,subid,opts;
   ub4 lolon,lolat,hilon,hilat;
-  char name[Maxname];
-  ub4 namemax = min(Maxname,sizeof(ports->name)) - 2;
-  ub4 val,valndx,vals[Maxval];
+  char *name;
+  ub4 namemax = sizeof(ports->name) - 1;
+  ub4 valndx,*vals;
   ub4 latscale,latscaleline;
   ub4 lonscale,lonscaleline;
 
@@ -279,14 +449,16 @@ static int rdextports(netbase *net,const char *dir)
   };
   struct extport *extports,*ep,*pep;
 
-  aclear(name);
-  fmtstring(fname,"%s/ports.txt",dir);
+  oclear(eft);
 
-  rv = readfile(&mf,fname,1);
+  fmtstring(eft.mf.name,"%s/ports.txt",dir);
+  fname = eft.mf.name;
+
+  rv = readfile(&eft.mf,fname,1);
   if (rv) return 1;
 
-  buf = mf.buf;
-  len = (ub4)mf.len;
+  buf = eft.mf.buf;
+  len = (ub4)eft.mf.len;
   rawportcnt = linecnt(fname,buf, len);
 
   if (rawportcnt == 0) return warning(0,"%s is empty",fname);
@@ -294,121 +466,26 @@ static int rdextports(netbase *net,const char *dir)
   extportcnt = 0;
   extports = ep = alloc(rawportcnt,struct extport,0,"ext ports",rawportcnt);
 
-  state = Out;
-  namelen = val = valndx = id = idhi = subidhi = maxid = 0;
-  iscmd = newitem = 0;
+  id = idhi = subidhi = maxid = 0;
   latscaleline = lonscaleline = 0;
 
   lolat = lolon = hi32;
   hilat = hilon = 0;
 
-  colno = 0;
-  linno = 1;
-  tab = '\t'; nl = '\n';
+  vals = eft.vals;
+  name = eft.name;
 
-  mkhexmap();
+  do {
+    res = nextchar(&eft);
 
-  p = buf; end = buf + len;
-  while (p < end) {
-
-    c = *p++;
-
-    if (c == nl) { linno++; colno = 1; }
-    else colno++;
-
-//    info(0,"state %u c %c",state,c);
-
-    switch(state) {
-
-    case Out:
-      valndx = 0;
-      iscmd = 0;
-      switch (c) {
-        case '#': state = Fls; break;
-        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
-        case '\n': break;
-        case ' ': break;
-        case '.': iscmd = 1; state = Cmd0; break;
-        default: name[0] = c; namelen = 1; state = Name;
-      }
-      break;
-
-    case Cmd0:
-      switch (c) {
-        case '#': state = Fls; break;
-        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
-        case '\n': return parserr(FLN,fname,linno,colno,"unexpected newline");
-        case '.': iscmd = 0; name[0] = '.'; namelen = 1; state = Name; break;
-        default: name[0] = c; namelen = 1; state = Name;
-      }
-      break;
-
-    case Name:
-      if (c == tab) { valndx = 0; aclear(vals); state = Num0; }
-      else if (c == nl) return parserr(FLN,fname,linno,colno,"missing dep arr");
-      else if (namelen + 2 < namemax) name[namelen++] = c;
-      else if (name[namemax] != '!') {
-        parsewarn(FLN,fname,linno,colno,"name exceeds %u",namemax);
-        name[namemax] = '!';
-      }
-      break;
-
-    case Num0:
-      switch(c) {
-        case '#': if (valndx > 2) newitem = 1; state = Fls; break;
-        case '\t': case ' ': break;
-        case 'D': state = Dec0; break;
-        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
-        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
-          val = hexmap[(ub4)c];
-          state = Hex1;
-          break;
-        default: return parserr(FLN,fname,linno,colno,"expected digit, found '%c'",c);
-      }
-      break;
-
-    case Hex1:
-      if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
-      x = hexmap[(ub4)c];
-      if (x < 16) val = (val << 4) | x;
-      else if (x == 0x20) {
-        vals[valndx++] = val;
-        state = Num0;
-      } else if (x == 0xfe) { // newline
-        vals[valndx++] = val;
-        newitem = 1;
-        state = Out;
-      } else return parserr(FLN,fname,linno,colno,"expected whitespace after number, found %c",c);
-      break;
-
-    case Dec0:
-      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
-      val = c - '0';
-      state = Dec1;
-      break;
-
-    case Dec1:
-      if (c == tab || c == ' ') {
-        if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
-        vals[valndx++] = val;
-        state = Num0;
-      } else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
-      else if (c == nl) {
-        vals[valndx++] = val;
-        newitem = 1;
-        state = Out;
-      } else return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
-      break;
-
-    case Fls:
-      if (c == nl) { state = Out; } break;
-
-    }
-
-    if (newitem && iscmd) {
-      name[namelen] = 0;
-      iscmd = newitem = 0;
+    switch(res) {
+    case Newcmd:
+      namelen = eft.namelen;
+      valndx = eft.valndx;
+      linno = eft.linno;
+      colno = eft.colno;
       if (namelen == 8 && memeq(name,"latscale",namelen)) {
+        if (valndx < 1) return parserr(FLN,fname,linno,colno,"missing args, only %u",valndx);
         if (latscaleline) parsewarn(FLN,fname,linno,colno,"ignore %s previously defined at %u",name,latscaleline);
         else {
           latscaleline = linno;
@@ -416,6 +493,7 @@ static int rdextports(netbase *net,const char *dir)
           info(0,"%s : %u",name,latscale);
         }
       } else if (namelen == 8 && memeq(name,"lonscale",namelen)) {
+        if (valndx < 1) return parserr(FLN,fname,linno,colno,"missing args, only %u",valndx);
         if (lonscaleline) parsewarn(FLN,fname,linno,colno,"ignore %s previously defined at %u",name,lonscaleline);
         else {
           lonscaleline = linno;
@@ -423,9 +501,13 @@ static int rdextports(netbase *net,const char *dir)
           info(0,"%s : %u",name,lonscale);
         }
       } else info(0,"ignore unknown cmd %s %u",name,vals[0]);
+      break;
 
-    } else if (newitem) {
-      newitem = 0;
+      case Newitem:
+      namelen = eft.namelen;
+      valndx = eft.valndx;
+      linno = eft.linno;
+      colno = eft.colno;
       error_ge(extportcnt,rawportcnt);
       if (valndx < 4) return parserr(FLN,fname,linno,colno,"missing id,subid,lat,lon args, only %u",valndx);
 
@@ -454,13 +536,23 @@ static int rdextports(netbase *net,const char *dir)
       hilat = max(hilat,lat);
       lolon = min(lolon,lon);
       hilon = max(hilon,lon);
+
+      if (namelen > namemax) {
+        parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
+        namelen = namemax;
+      }
       ep->namelen = namelen;
       if (namelen) memcpy(ep->name,name,namelen);
       else { parsewarn(FLN,fname,linno,colno,"port %u has no name",id); }
       extportcnt++;
       ep++;
+      break;  // newitem
+
+    case Next: break;
+    case Eof: case Parserr: break;
     }
-  }
+
+  } while (res < Eof);  // each input char
 
   ub4 pid,subofs,seq;
   ub4 cnt,extport,subport,subportcnt;
@@ -563,7 +655,7 @@ static int rdextports(netbase *net,const char *dir)
         error_ge(subofs,subportcnt);
         pp->subcnt = cnt;
         pp->subofs = subofs;
-      } else if (ep->parent) info(0,"parent station %u has no stops %s",id,ep->name);
+      } else if (ep->parent) info(0,"parent station %u has no member stops %s",id,ep->name);
       port++;
     } else { // sub
       pid = id2ports[id];
@@ -624,28 +716,31 @@ static int rdextports(netbase *net,const char *dir)
 // service_id tid dow start end 
 static int rdexttimes(netbase *net,const char *dir)
 {
-  char fname[512];
-  struct myfile mf;
+  enum extresult res;
+  struct extfmt eft;
+  const char *fname;
+
   ub4 rawtimcnt,timcnt;
   struct timebase *times,*tp;
-  ub4 tid,*sid2tids;
-  enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
-  enum states state;
-  int rv,newitem,iscmd;
-  char *buf,*p,*end,c,tab,nl;
-  ub4 len,linno,colno,x,val,namelen,valndx,id,idhi,maxsid = 0;
-  ub4 dow,t0,t1,sid;
-  char name[Maxname];
-  ub4 vals[Maxval];
-  ub4 namemax = min(Maxname,sizeof(times->name)) - 1;
+  ub4 rsid,sid,*rsid2sids;
+  int rv;
+  char *buf;
+  ub4 len,linno,colno,namelen,valndx,id,idhi,maxsid = 0;
+  ub4 dow,t0,t1;
+  char *name;
+  ub4 *vals;
+  ub4 namemax = sizeof(times->name) - 1;
 
-  fmtstring(fname,"%s/times.txt",dir);
+  oclear(eft);
 
-  rv = readfile(&mf,fname,1);
+  fmtstring(eft.mf.name,"%s/times.txt",dir);
+  fname = eft.mf.name;
+
+  rv = readfile(&eft.mf,fname,1);
   if (rv) return 1;
 
-  buf = mf.buf;
-  len = (ub4)mf.len;
+  buf = eft.mf.buf;
+  len = (ub4)eft.mf.len;
   rawtimcnt = linecnt(fname,buf, len);
 
   if (rawtimcnt == 0) return warning(0,"%s is empty",fname);
@@ -653,116 +748,24 @@ static int rdexttimes(netbase *net,const char *dir)
 
   times = tp = mkblock(&net->timemem,rawtimcnt,struct timebase,Init0,"");
 
-  state = Out;
-  namelen = val = valndx = id = idhi = maxsid = 0;
-  newitem = iscmd = 0;
+  id = idhi = maxsid = 0;
 
-  colno = 0;
-  linno = 1;
-  tab = '\t'; nl = '\n';
+  vals = eft.vals;
+  name = eft.name;
 
-  mkhexmap();
+  do {
+    res = nextchar(&eft);
 
-  p = buf; end = buf + len;
-  while (p < end) {
+    switch(res) {
 
-    c = *p++;
-
-//    info(0,"state %u %c",state,c);
-
-    switch(state) {
-
-    case Out:
-      valndx = 0;
-      iscmd = 0;
-      switch (c) {
-        case '#': state = Fls; break;
-        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
-        case '\n': break;
-        case ' ': break;
-        case '.': iscmd = 1; state = Cmd0; break;
-        default: name[0] = c; namelen = 1; state = Name;
-      }
-      break;
-
-    case Cmd0:
-      switch (c) {
-        case '#': state = Fls; break;
-        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
-        case '\n': return parserr(FLN,fname,linno,colno,"unexpected newline");
-        case '.': iscmd = 0; name[0] = '.'; namelen = 1; state = Name; break;
-        default: name[0] = c; namelen = 1; state = Name;
-      }
-      break;
-
-    case Name:
-      if (c == tab) { valndx = 0; aclear(vals); state = Num0; }
-      else if (c == nl) return parserr(FLN,fname,linno,colno,"missing dep arr");
-      else if (namelen + 2 < namemax) name[namelen++] = c;
-      else if (name[namemax] != '!') {
-        parsewarn(FLN,fname,linno,colno,"name exceeds %u",namemax);
-        name[namemax] = '!';
-      }
-      break;
-
-    case Num0:
-      switch(c) {
-        case '#': if (valndx > 2) newitem = 1; state = Fls; break;
-        case '\t': case ' ': break;
-        case 'D': state = Dec0; break;
-        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
-        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
-          val = hexmap[(ub4)c];
-          state = Hex1;
-          break;
-        default: return parserr(FLN,fname,linno,colno,"expected digit, found '%c'",c);
-      }
-      break;
-
-    case Hex1:
-      if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
-      x = hexmap[(ub4)c];
-      if (x < 16) val = (val << 4) | x;
-      else if (x == 0x20) {
-        vals[valndx++] = val;
-        state = Num0;
-      } else if (x == 0xfe) { // newline
-        vals[valndx++] = val;
-        newitem = 1;
-        state = Out;
-      } else return parserr(FLN,fname,linno,colno,"expected whitespace after number, found %c",c);
-      break;
-
-    case Dec0:
-      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
-      val = c - '0';
-      state = Dec1;
-      break;
-
-    case Dec1:
-      if (c == tab || c == ' ') {
-        if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
-        vals[valndx++] = val;
-        state = Num0;
-      } else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
-      else if (c == nl) {
-        vals[valndx++] = val;
-        newitem = 1;
-        state = Out;
-      } else return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
-      break;
-
-    case Fls:
-      if (c == nl) { state = Out; } break;
-
-    }
-
-    if (newitem && iscmd) {
-      name[namelen] = 0;
-      iscmd = newitem = 0;
+    case Newcmd:
       info(0,"ignore unknown cmd %s %u",name,vals[0]);
-    } else if (newitem) {
-      newitem = 0;
+      break;
+    case Newitem:
+      namelen = eft.namelen;
+      valndx = eft.valndx;
+      linno = eft.linno;
+      colno = eft.colno;
       error_gt(timcnt+1,rawtimcnt);
       if (valndx < 4) return parserr(FLN,fname,linno,colno,"missing args, only %u",valndx);
       sid = vals[0];
@@ -779,27 +782,32 @@ static int rdexttimes(netbase *net,const char *dir)
       tp->t0 = t0;
       tp->t1 = t1;
 
+      if (namelen > namemax) {
+        parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
+        namelen = namemax;
+      }
       tp->namelen = namelen;
       memcopy(tp->name,name,namelen);
       maxsid = max(maxsid,sid);
       tp++;
       timcnt++;
-    } // newitem
+      break;
 
-    if (c == '\n') { linno++; colno = 1; }
-    else colno++;
+    case Next: break;
+    case Eof: case Parserr: break;
+    }
 
-  } // each input char
+  } while (res < Eof);  // each input char
 
   if (maxsid > 100 * 1000 * 1000) warning(0,"max service id %u",maxsid);
-  sid2tids = alloc(maxsid+1,ub4,0xff,"sid2tids",maxsid);
-  for (tid = 0; tid < timcnt; tid++) {
-    tp = times + tid;
-    sid = tp->sid;
-    if (sid2tids[sid] != hi32) warning(0,"service ID %u doubly defined", sid);
-    else sid2tids[sid] = tid;
+  rsid2sids = alloc(maxsid+1,ub4,0xff,"sid2tids",maxsid);
+  for (sid = 0; sid < timcnt; sid++) {
+    tp = times + sid;
+    rsid = tp->sid;
+    if (rsid2sids[rsid] != hi32) warning(0,"service ID %u doubly defined", rsid);
+    else rsid2sids[rsid] = sid;
   }
-  net->sid2tids = sid2tids;
+  net->rsid2sids = rsid2sids;
 
   info(0,"read %u times from %s", timcnt, fname);
   net->timecnt = timcnt;
@@ -809,11 +817,19 @@ static int rdexttimes(netbase *net,const char *dir)
   return 0;
 }
 
+// match with gtfstool
+#define Fmt_prvsid 1
+#define Fmt_diftid 2
+#define Fmt_diftdep 4
+#define Fmt_diftarr 8
+
 // name id dport.id aport.id route.seq (dow.hhmm.rep.t0.t1.dur dow.hhmm.rep)+ 
 static int rdexthops(netbase *net,const char *dir)
 {
-  char fname[512];
-  struct myfile mf;
+  enum extresult res;
+  struct extfmt eft;
+  const char *fname;
+
   ub4 rawhopcnt,hopcnt;
   ub4 portcnt,subportcnt;
   ub4 maxportid;
@@ -822,29 +838,33 @@ static int rdexthops(netbase *net,const char *dir)
   struct portbase *ports,*pdep,*parr;
   struct subportbase *subports,*sp;
   ub4 *id2ports, *subid2ports;
-  ub4 tid,*sid2tids;
-  enum states { Out,Num0,Hex1,Dec0,Dec1,Name,Cmd0,Fls};
-  enum states state;
-  int rv,newitem,iscmd;
-  char *buf,*p,*end,c,tab,nl;
-  ub4 len,linno,colno,x,val,namelen,valndx,id,sid,idhi,maxid,maxrid,maxsid;
-  ub4 depid,arrid,dep,arr,pid,rtype,routeid;
-  char name[Maxname];
-  ub4 vals[Maxval];
-  ub4 namemax = min(Maxname,sizeof(hops->name)) - 1;
+  ub4 rsid,sid,*rsid2sids;
+  int rv;
+  char *buf;
+  ub4 len,linno,colno,val,namelen,valndx,id,idhi,maxid,maxrid,maxsid;
+  ub4 depid,arrid,dep,arr,pid,rtype,routeid,timecnt;
+  char *name;
+  ub4 *vals;
+  ub4 namemax = sizeof(hops->name) - 1;
   ub4 kinds[Kindcnt];
   enum txkind kind;
 
+  ub4 tid,tdep,tarr,prvsid,prvtid,prvtdep,prvtarr;
+  ub4 fmt,vndx,tndx;
+
   aclear(kinds);
+  oclear(eft);
 
-  fmtstring(fname,"%s/hops.txt",dir);
+  fmtstring(eft.mf.name,"%s/hops.txt",dir);
+  fname = eft.mf.name;
 
-  rv = readfile(&mf,fname,1);
+  info(0,"reading hops from %s",fname);
+  rv = readfile(&eft.mf,fname,1);
   if (rv) return 1;
 
-  buf = mf.buf;
-  len = (ub4)mf.len;
-  rawhopcnt = linecnt(fname,buf, len);
+  buf = eft.mf.buf;
+  len = (ub4)eft.mf.len;
+  rawhopcnt = linecnt(fname,buf,len);
 
   if (rawhopcnt == 0) return warning(0,"%s is empty",fname);
   hopcnt = 0;
@@ -859,152 +879,88 @@ static int rdexthops(netbase *net,const char *dir)
   subid2ports = net->subid2ports;
   maxportid = net->maxportid;
 
-  sid2tids = net->sid2tids;
+  rsid2sids = net->rsid2sids;
 
   maxsid = net->maxsid;
 
-  state = Out;
-  namelen = val = valndx = id = idhi = maxid = maxrid = 0;
-  newitem = iscmd = 0;
+  id = idhi = maxid = maxrid = 0;
 
-  colno = 0;
-  linno = 1;
-  tab = '\t'; nl = '\n';
+  vals = eft.vals;
+  name = eft.name;
 
-  mkhexmap();
+  do {
+    res = nextchar(&eft);
+//    info(0,"res %u",res);
+    switch(res) {
 
-  p = buf; end = buf + len;
-  while (p < end) {
-
-    c = *p++;
-
-//    info(0,"state %u %c",state,c);
-
-    switch(state) {
-
-    case Out:
-      valndx = 0;
-      iscmd = 0;
-      switch (c) {
-        case '#': state = Fls; break;
-        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
-        case '\n': break;
-        case ' ': break;
-        case '.': iscmd = 1; state = Cmd0; break;
-        default: name[0] = c; namelen = 1; state = Name;
-      }
-      break;
-
-    case Cmd0:
-      switch (c) {
-        case '#': state = Fls; break;
-        case '\t': valndx = namelen = 0; aclear(vals); state = Num0; break;
-        case '\n': return parserr(FLN,fname,linno,colno,"unexpected newline");
-        case '.': iscmd = 0; name[0] = '.'; namelen = 1; state = Name; break;
-        default: name[0] = c; namelen = 1; state = Name;
-      }
-      break;
-
-    case Name:
-      if (c == tab) { valndx = 0; aclear(vals); state = Num0; }
-      else if (c == nl) return parserr(FLN,fname,linno,colno,"missing dep arr");
-      else if (namelen + 2 < namemax) name[namelen++] = c;
-      else if (name[namemax] != '!') {
-        parsewarn(FLN,fname,linno,colno,"name exceeds %u",namemax);
-        name[namemax] = '!';
-      }
-      break;
-
-    case Num0:
-      switch(c) {
-        case '#': if (valndx > 2) newitem = 1; state = Fls; break;
-        case '\t': case ' ': break;
-        case 'D': state = Dec0; break;
-        case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
-        case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
-          val = hexmap[(ub4)c];
-          state = Hex1;
-          break;
-        default: return parserr(FLN,fname,linno,colno,"expected digit, found '%c'",c);
-      }
-      break;
-
-    case Hex1:
-      if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
-      x = hexmap[(ub4)c];
-      if (x < 16) val = (val << 4) | x;
-      else if (x == 0x20) {
-        vals[valndx++] = val;
-        state = Num0;
-      } else if (x == 0xfe) { // newline
-        vals[valndx++] = val;
-        newitem = 1;
-        state = Out;
-      } else return parserr(FLN,fname,linno,colno,"expected whitespace after number, found %c",c);
-      break;
-
-    case Dec0:
-      if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
-      val = c - '0';
-      state = Dec1;
-      break;
-
-    case Dec1:
-      if (c == tab || c == ' ') {
-        if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
-        vals[valndx++] = val;
-        state = Num0;
-      } else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
-      else if (c == nl) {
-        vals[valndx++] = val;
-        newitem = 1;
-        state = Out;
-      } else return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
-      break;
-
-    case Fls:
-      if (c == nl) { state = Out; } break;
-
-    }
-
-    if (newitem && iscmd) {
-      name[namelen] = 0;
-      iscmd = newitem = 0;
+    case Newcmd:
+      namelen = eft.namelen;
+      linno = eft.linno;
+      colno = eft.colno;
       if (namelen == 8 && memeq(name,"variants",namelen)) {
         if (variantsline) parsewarn(FLN,fname,linno,colno,"ignore %s previously defined at %u",name,variantsline);
         else {
           variantsline = linno;
           variants = vals[0];
-          info(0,"%s : %u",name,variants);
+          info(0,"var %s : %u",name,variants);
         }
       } else if (namelen == 7 && memeq(name,"walk_id",namelen)) {
         if (rtype_walkline) parsewarn(FLN,fname,linno,colno,"ignore %s previously defined at %u",name,rtype_walkline);
         else {
           rtype_walkline = linno;
           rtype_walk = vals[0];
-          info(0,"%s : %u",name,rtype_walk);
+          info(0,"var %s : %u",name,rtype_walk);
         }
       } else info(0,"ignore unknown cmd %s %u",name,vals[0]);
-    } else if (newitem) {
-      newitem = 0;
+    break;
+
+    case Newitem:
+      namelen = eft.namelen;
+      valndx = eft.valndx;
+
+      vrb(0,"%u values",valndx);
+      linno = eft.linno;
+      colno = eft.colno;
+      if (namelen > namemax) {
+        parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
+        namelen = namemax;
+      }
       error_gt(hopcnt+1,rawhopcnt);
-      if (valndx < 5) return parserr(FLN,fname,linno,colno,"missing dep,arr,type args, only %u",valndx);
+      if (valndx < 6) return parserr(FLN,fname,linno,colno,"missing dep,arr,type args, only %u",valndx);
       id = vals[0];
       depid = vals[1];
       arrid = vals[2];
       rtype = vals[3];
-      sid   = vals[4];
-      if (valndx > 5) {
-        routeid = vals[5];
-        if (routeid != hi32) maxrid = max(maxrid,routeid);
-      } else routeid = hi32;
+      routeid = vals[4];
+      if (routeid != hi32) maxrid = max(maxrid,routeid);
+
+      timecnt = vals[5];
+
+      if (timecnt * 4 > valndx - 6) return parserr(FLN,fname,linno,colno,"%u time entries, but only %u args",timecnt,valndx);
+
+      tndx = 0; vndx = 6;
+      rsid = tid = tdep = tarr = 0;
+      while (vndx + 4 < valndx && tndx < timecnt) {
+        prvsid = rsid; prvtid = tid; prvtdep = tdep; prvtarr = tarr;
+        fmt = vals[vndx++];
+        if (fmt & Fmt_prvsid) rsid = prvsid;
+        else rsid = vals[vndx++];
+        tid = vals[vndx];
+        tdep = vals[vndx+1];
+        tarr = vals[vndx+2];
+        vndx += 3;
+        if (fmt & Fmt_diftid) tid += prvtid;
+        if (fmt & Fmt_diftdep) tdep += prvtdep;
+        if (fmt & Fmt_diftarr) tarr += prvtarr;
+        if (rsid > maxsid) return inerr(FLN,fname,linno,colno,"service id %u above highest id %u",rsid,maxsid);
+        sid = rsid2sids[rsid];
+        tndx++;
+      }
 
 //      info(0,"vals %u %u %u",vals[0],depid,arrid);
       if (depid == arrid) return inerr(FLN,fname,linno,colno,"dep id %u,%x equal to arr id",depid,depid);
       if (depid > maxportid) return inerr(FLN,fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
       else if (arrid > maxportid) return inerr(FLN,fname,linno,colno,"arr id %u above highest port id %u",arrid,maxportid);
-      if (sid > maxsid) return inerr(FLN,fname,linno,colno,"service id %u above highest id %u",sid,maxsid);
-      tid = sid2tids[sid];
 
       dep = id2ports[depid];
       if (dep == hi32) {
@@ -1040,8 +996,6 @@ static int rdexthops(netbase *net,const char *dir)
         hp->dep = dep;
         hp->arr = arr;
 
-        hp->tid = tid;
-
 // todo generalise
         if (rtype_walkline && rtype == rtype_walk) { hp->kind = Walk; kinds[Walk]++; routeid = hi32; }
         else if (rtype == 0 || rtype == 1 || rtype == 2) { hp->kind = Rail; kinds[Rail]++; }
@@ -1055,13 +1009,13 @@ static int rdexthops(netbase *net,const char *dir)
         hp++;
         hopcnt++;
       }
-    } // newitem
+     break;  // newitem
 
-    if (c == '\n') { linno++; colno = 1; }
-    else colno++;
+    case Next: break;
+    case Eof: case Parserr: break;
+    }
 
-  } // each input char
-
+  } while (res < Eof);
 
   for (kind = 0; kind < Kindcnt; kind++) {
     val = kinds[kind];
@@ -1325,4 +1279,5 @@ void ininetio(void)
 {
   msgfile = setmsgfile(__FILE__);
   iniassert();
+  mkhexmap();
 }

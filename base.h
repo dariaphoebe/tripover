@@ -47,7 +47,7 @@ typedef int sb4;
 
 #define strcopy(dst,src) strncpy((dst),(src),sizeof (dst) )
 
-enum Runlvl { Runread,Runprep,Runmknet,Runcondense,Runcompound,Runnet0,Runnetn,Runserver,Runcnt };
+enum Runlvl { Runread,Runbaseprep,Runprep,Runmknet,Runcondense,Runcompound,Runnet0,Runnetn,Runserver,Runcnt };
 
 // program-wide global vars go here
 extern struct globs {
