@@ -88,12 +88,12 @@ struct hopbase {
 
 //  struct gname name;
 
+  ub1 valid;
+
   enum txkind kind;
 
   ub4 dep,arr;
   ub4 routeid;
-
-  ub4 tid;
 
   ub4 dist;
 
@@ -202,7 +202,7 @@ struct networkbase {
   ub4 *id2ports;         // [maxid]
   ub4 *subid2ports;      // [maxid]
   ub4 *id2hops;          // [maxid]
-  ub4 *sid2tids;
+  ub4 *rsid2sids;
   ub4 maxportid;
   ub4 maxsubportid;
   ub4 maxrouteid;

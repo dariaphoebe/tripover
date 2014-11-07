@@ -140,7 +140,7 @@ int prepnet(netbase *basenet)
   bhopcnt = basenet->hopcnt;
   bportcnt = basenet->portcnt;
   btimecnt = basenet->timecnt;
-  if (bportcnt == 0 || bhopcnt == 0) return 1;
+  if (bportcnt == 0 || bhopcnt == 0) return error(0,"prepnet: %u ports, %u hops",bportcnt,bhopcnt);
 
   // filter unconnected ports
   portcnt = 0;
@@ -173,7 +173,7 @@ int prepnet(netbase *basenet)
     }
   }
 
-  // filter nil hops
+  // filter nil and disabled hops
   hopcnt = 0;
   bhops = basenet->hops;
   for (hop = 0; hop < bhopcnt; hop++) {
@@ -185,8 +185,10 @@ int prepnet(netbase *basenet)
     if (dep == arr) {
       bpp = bports + dep;
       warning(0,"nil hop %u %s at %u",dep,bpp->name,bhp->cid);
-    } else hopcnt++;
+    } else if (bhp->valid) hopcnt++;
   }
+  if (hopcnt == 0) return error(0,"nil hops out of %u",bhopcnt);
+
   hops = alloc(hopcnt,struct hop,0,"hops",hopcnt);
 
   portcnt = 0;
@@ -213,6 +215,7 @@ int prepnet(netbase *basenet)
   hopcnt = 0;
   for (hop = 0; hop < bhopcnt; hop++) {
     bhp = bhops + hop;
+    if (bhp->valid == 0) continue;
     dep = bhp->dep;
     arr = bhp->arr;
     if (dep == arr) continue;
@@ -235,8 +238,6 @@ int prepnet(netbase *basenet)
     arr = bparr->id;
     hp->dep = dep;
     hp->arr = arr;
-
-    hp->tid = bhp->tid;
 
     hopcnt++;
   }
@@ -447,7 +448,6 @@ int prepnet(netbase *basenet)
     hp = phops;
     phop = hpcnt2 = hxcnt2 = 0;
     for (hop = 0; hop < hopcnt; hop++) {
-      if (phop >= phopcnt) info(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
       ghp = hops + hop;
       hpart = ghp->part;
       dep = ghp->dep;
@@ -461,6 +461,7 @@ int prepnet(netbase *basenet)
       error_z(dpcnt,hop);
       error_z(apcnt,hop);
       if (hpart == part) { // this part to this part
+        if (phop >= phopcnt) warning(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
         error_ge(phop,phopcnt);
         hpcnt2++;
         error_gt(hpcnt2,hpcnt);
@@ -478,6 +479,7 @@ int prepnet(netbase *basenet)
       } else if (dpcnt == 1 && apcnt == 1) { // other part to same other part: skip
       } else if (dpcnt > 1 || apcnt > 1) {   // possible interpart
         if (portparts[dep * partcnt + part] == 0 && portparts[arr * partcnt + part] == 0) continue;
+        if (phop >= phopcnt) info(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
         error_ge(phop,phopcnt);
         hxcnt2++;
         error_gt(hxcnt2,hxcnt);

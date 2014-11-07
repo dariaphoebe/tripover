@@ -68,16 +68,13 @@ int compound(struct network *net)
 
   docompound = dorun(Runcompound);
 
+  if (docompound == 0) return info0(0,"compound not enabled");
+
   if (hopcnt > 1000 * 1000) return info(0,"no compound for \ah%u hops",hopcnt);
 
   maxrid = net->maxrouteid;
 
   if (maxrid > 1000 * 1000 * 100) return info(0,"no compound for max route ID \ah%u",maxrid);
-
-  if (docompound == 0) {
-    info(0,"no compound for %u ports",portcnt);
-    return 0;
-  }
 
   info(0,"compounding %u ports %u hops",portcnt,hopcnt);
 
@@ -98,11 +95,11 @@ int compound(struct network *net)
     arr = hp->arr;
     error_eq(dep,arr);
 
-    cnt2 = rrid2hopcnt[rrid];
-    cnt2++;
-    limit(cnt2,maxroutelen,rrid);
-    if (cnt2 > maxcnt) { maxcnt = cnt2; rid4max = rrid; }
-    rrid2hopcnt[rrid] = cnt2;
+    cnt = rrid2hopcnt[rrid];
+    cnt++;
+    limit_gt(cnt,maxroutelen,rrid);
+    if (cnt > maxcnt) { maxcnt = cnt; rid4max = rrid; }
+    rrid2hopcnt[rrid] = (ub2)cnt;
   }
 
   // estimate #compound hops
@@ -242,6 +239,7 @@ int compound(struct network *net)
       rportarrs[rarr]++;
     }
 
+// todo: leave out a-c if exist a-b-c but merge times afterwards
     for (pos = 0; pos < cnt; pos++) {
       hop = rhp[pos];
       hp = hops + hop;
@@ -329,7 +327,7 @@ int compound(struct network *net)
     // start with departure terminus
     port = rp->dtermport;
     if (port == hi32) {
-      warning(0,"route %u.%x nil dterm",part,rrid);
+      warning(0,"route %u.%x nil dterm %s",part,rrid,rp->name);
       continue; // later
     }
     if (port == rp->atermport) {

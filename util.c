@@ -65,6 +65,14 @@ void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln)
   else memcpy(dst,src,len);
 }
 
+int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln)
+{
+  vrbfln(fln,0,"");
+  if (a == NULL) return errorfln(fln,Exit,"strcmp(%s:nil,%s",sa,sb);
+  else if (b == NULL) return errorfln(fln,Exit,"strcmp(%s,%s:nil",sa,sb);
+  else return strcmp(a,b);
+}
+
 int filecreate(const char *name)
 {
   int fd = oscreate(name);
@@ -109,17 +117,25 @@ int dorun(enum Runlvl stage)
   info(0,"dorun stage %u stopat %u",stage, globs.stopat);
   if (stage >= globs.stopat) return 0;
   else if (stage >= Runcnt) return 1;
-  else return globs.doruns[stage];
+  else {
+    info(0,"dorun stage %u %u",stage, globs.doruns[stage]);
+    return globs.doruns[stage];
+  }
 }
 
 int readfile(struct myfile *mf,const char *name, int mustexist)
 {
-  int fd = osopen(name);
+  int fd;
   char *buf;
   size_t len;
   long nr;
 
-  clear(mf);
+  mf->len = 0;
+  mf->buf = mf->localbuf;
+
+  error_zp(name,0);
+  if (*name == 0) return errorfln(FLN,0,"empty filename %p passed to readfile",name);
+  fd = osopen(name);
   if (fd == -1) {
     if (mustexist) return oserror(0,"cannot open %s",name);
     else return info(0,"optional %s is not present",name);

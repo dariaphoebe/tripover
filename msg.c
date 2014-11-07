@@ -680,10 +680,14 @@ int __attribute__ ((format (printf,3,4))) oserrorfln(ub4 line,ub4 code,const cha
   return errorfln(line,code,"%s: %s",buf,errstr);
 }
 
-int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim, ub4 fln)
+ub4 limit_gt_fln(ub4 x,ub4 lim,ub4 arg,const char *sx,const char *slim,const char *sarg,ub4 fln)
 {
-  if (x <= lim) return x;
-  warningfln(fln,0,"limiting %s:%u to %s:%u",sx,x,slim,lim);
+  if (lim == 0) assertfln(fln,Exit,"zero limit %s for %s",sx,slim);
+  if (x < lim - 1) return x;
+  if (x == lim - 1) {
+    warningfln(fln,0,"limiting %s:%u to %s:%u for %s:%u",sx,x,slim,lim,sarg,arg);
+    return x;
+  }
   return lim;
 }
 

@@ -39,6 +39,7 @@ int inicfg(void)
   iniassert();
 
   lvlnames[Runread] = "readnet";
+  lvlnames[Runbaseprep] = "prepbase";
   lvlnames[Runprep] = "prepnet";
   lvlnames[Runmknet] = "mknet";
   lvlnames[Runnet0] = "mknet0";
@@ -54,12 +55,14 @@ int inicfg(void)
 int inicfgcl(void)
 {
   enum Runlvl l,lvl = 0;
-  ub4 pos;
+  ub4 pos,v;
   char buf[1024];
   char *stagename = globs.stopatstr;
 
   if (*stagename) {
-    while (lvl < Runcnt && strcmp(globs.stopatstr,lvlnames[lvl])) lvl++;
+    if (str2ub4(stagename,&v) == 0) lvl = v;
+    else { while (lvl < Runcnt && strcomp(globs.stopatstr,lvlnames[lvl])) lvl++; }
+
     if (lvl >= Runcnt) {
       pos = fmtstring(buf,"%u known stages:\n   ", Runcnt);
       for (l = 0; l < Runcnt; l++) pos += mysnprintf(buf,pos,sizeof(buf),"%s ",lvlnames[l]);

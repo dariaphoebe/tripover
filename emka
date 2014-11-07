@@ -43,7 +43,7 @@
 
 # author: Joris van der Geer
 
-# last changed:  15 oct 2014
+# last changed:  8 oct 2014
 
 use 5.008;
 use integer;
@@ -568,11 +568,6 @@ sub read_dir($) {
       next;
     }
     if (S_ISREG($mode)) {
-      if ($size == 0) {
-        info("skip empty $path");
-        next;
-      }
-
       my $info = {};
       $info = $files{$path} if exists $files{$path};
 
@@ -604,6 +599,11 @@ sub read_dir($) {
         vrb("skip unknown $name");
         next;
       }
+      if ($size == 0) {
+        info("skip empty $path");
+        next;
+      }
+
       vrb("add $name in $dir $mtime $itertime");
       warning("$name is in the future") if $mtime > $itertime;
       if ($itertime - $mtime < $newlimit) {

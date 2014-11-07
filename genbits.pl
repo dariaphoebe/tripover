@@ -60,6 +60,7 @@ sub filetime2yyyymmddhhmm($) {
 error_exit("usage: genbits in out") unless (@ARGV > 1);
 
 my ($in,$out,$infh,$outfh,$line,$linno,$fieldpos,$fieldname,$fieldbits,$fieldmax,$packname);
+my ($fln);
 
 $in  = $ARGV[0];
 $out = $ARGV[1];
@@ -83,6 +84,7 @@ while($line = readline $infh) {
   next if index($line,'//') == 0;
   next if index($line,"\n") == 0;
 
+  $fln = $in . ':' . $linno . ': ';
   vrb("$line");
 
   $fieldbits = 0;
@@ -96,16 +98,16 @@ while($line = readline $infh) {
     if ((1 << $fieldbits) < $fieldmax) {
       close $outfh;
       unlink $out;
-      error_exit("$packname.$fieldname overflows $fieldmax");
+      error_exit("$fln $packname.$fieldname overflows $fieldmax");
     }
-    warning("$packname.$fieldname oversizes $fieldmax") if (1 << ($fieldbits-1)) > $fieldmax;
+    warning("$fln $packname.$fieldname oversizes $fieldmax") if (1 << ($fieldbits-1)) > $fieldmax;
   } elsif ($line =~ $halffield) {
     $fieldname = $2;
     $fieldmax = 0;
     $fieldbits = $3;
   } elsif (index($line,'};') == 0) {
     printf($outfh "typedef %s %s; // %u bits\n\n", $fieldpos > 32 ? 'ub8' : 'ub4', $packname,$fieldpos);
-  } else { warning("skipping unknown $line"); }
+  } else { warning("$fln skipping unknown $line"); }
 
   if ($fieldbits) {
 # TODO   printf('#define %s_%s_mask 0x%x\n',$packname,$fieldname,(1 << $fieldbits) - 1);

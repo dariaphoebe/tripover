@@ -101,8 +101,6 @@ struct hop {
   ub4 dep,arr;
   ub4 routeid,rid;
 
-  ub4 tid;
-
   ub4 compound;
 
   ub4 part;
@@ -113,6 +111,9 @@ struct hop {
 struct route {
   ub4 magic;
   ub4 id;
+
+  char name[128];  // todo: use below structure instead
+  ub4 namelen;
 
   enum txkind kind;
 

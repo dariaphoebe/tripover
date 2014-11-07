@@ -98,7 +98,7 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 
 #define error_ovf(a,b) error_ovf_fln((a),sizeof(b),#a,#b,FLN)
 
-#define limit_gt(x,lim) (x) = limit_gt_fln((x),(lim),#x,#lim,FLN)
+#define limit_gt(x,lim,arg) (x) = limit_gt_fln((x),(lim),(arg),#x,#lim,#arg,FLN)
 
 extern int genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 extern void vrbfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
@@ -111,7 +111,7 @@ extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((fo
 
 extern int info0fln(ub4 fln, ub4 code, const char *s);
 
-extern int limit_gt_fln(ub4 x,ub4 lim,const char *sx,const char *slim,ub4 fln);
+extern ub4 limit_gt_fln(ub4 x,ub4 lim,ub4 arg,const char *sx,const char *slim,const char *sarg,ub4 fln);
 
 extern void error_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,const char *cc,ub4 line,const char *fmt,...);
 

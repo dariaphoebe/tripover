@@ -1350,6 +1350,8 @@ int mknet(ub4 maxstop)
   struct gnetwork *gnet = getgnet();
   struct network *net;
 
+  if (dorun(Runmknet) == 0) return 0;
+
   partcnt = gnet->partcnt;
   if (partcnt == 0) return info0(0,"skip init zero-partition net");
 
@@ -1374,7 +1376,7 @@ int mknet(ub4 maxstop)
       if (mknet0(net)) return 1;
     } else continue;
 
-    limit_gt(maxstop,Nstop);
+    limit_gt(maxstop,Nstop,0);
 
     if (dorun(Runnetn)) {
       for (nstop = 1; nstop <= maxstop; nstop++) {

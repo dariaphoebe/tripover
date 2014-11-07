@@ -271,7 +271,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   return 0;
 }
 
-// todo
+// merge services and time ranges for each route
 int prepbasenet(void)
 {
   struct portbase *ports;
@@ -290,6 +290,7 @@ int prepbasenet(void)
     arr = hp->arr;
     error_ge(dep,portcnt);
     error_ge(arr,portcnt);
+    hp->valid = 1;
   }
 
   return 0;

@@ -92,12 +92,17 @@ static int getbasenet(void)
     if (dorun(Runread)) {
       rv = readextnet(basenet,globs.netdir);
       if (rv) return rv;
+      if (dorun(Runbaseprep)) rv = prepbasenet();
+      if (rv) return rv;
       if (dorun(Runprep)) rv = prepnet(basenet);
+      info(0,"rv %d",rv);
       return rv;
     } else return 0;
   }
   info(0,"generate random %u port %u hop net", globs.maxports, globs.maxhops);
   rv = mkrandnet(portcnt,hopcnt);
+  if (rv) return rv;
+  if (dorun(Runbaseprep)) rv = prepbasenet();
   if (rv) return rv;
   if (dorun(Runprep)) rv = prepnet(basenet);
 //  net2pdf(net);
