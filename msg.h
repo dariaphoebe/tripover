@@ -132,7 +132,7 @@ static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 lin
 {
   if (a == b) return;
 
-  assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu", sa,a,sb,b);
+  assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu dif %lu", sa,a,sb,b,a > b ? a-b : b-a);
 }
 
 static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)

@@ -119,13 +119,13 @@ int prepnet(netbase *basenet)
   struct gnetwork *gnet = getgnet();
   struct portbase *bports,*bpp,*bpdep,*bparr;
   struct hopbase *bhops,*bhp;
-  struct timebase *btimes,*btp;
+  struct sidbase *bsids,*bsp;
   struct port *ports,*pports,*pdep,*parr,*pp,*gp;
   struct hop *hops,*phops,*hp,*ghp;
-  struct timetable *times,*tp;
+  struct sidtable *sids,*sp;
   ub4 bportcnt,portcnt,xportcnt,bhopcnt,hopcnt,dep,arr,aport,depp,arrp;
-  ub4 btimecnt,timecnt;
-  ub4 nlen,cnt,acnt,dcnt,tid,routeid,part,hpart,xmaplen;
+  ub4 bsidcnt,sidcnt;
+  ub4 nlen,cnt,acnt,dcnt,sid,routeid,part,hpart,xmaplen;
   ub4 pportcnt,phopcnt,partcnt,npart1;
   enum txkind kind;
   ub4 hop,port,phop,pport;
@@ -139,7 +139,7 @@ int prepnet(netbase *basenet)
 
   bhopcnt = basenet->hopcnt;
   bportcnt = basenet->portcnt;
-  btimecnt = basenet->timecnt;
+  bsidcnt = basenet->sidcnt;
   if (bportcnt == 0 || bhopcnt == 0) return error(0,"prepnet: %u ports, %u hops",bportcnt,bhopcnt);
 
   // filter unconnected ports
@@ -156,20 +156,20 @@ int prepnet(netbase *basenet)
   info(0,"%u from %u ports",portcnt,bportcnt);
   ports = alloc(portcnt,struct port,0,"ports",portcnt);
 
-  timecnt = btimecnt;
-  times = alloc(timecnt,struct timetable,0,"times",timecnt);
-  btimes = basenet->times;
-  for (tid = 0; tid < btimecnt; tid++) {
-    btp = btimes + tid;
-    tp = times + tid;
-    tp->sid = btp->sid;
-    tp->t0 = btp->t0;
-    tp->t1 = btp->t1;
-    tp->dow = btp->dow;
-    nlen = btp->namelen;
+  sidcnt = bsidcnt;
+  sids = alloc(sidcnt,struct sidtable,0,"sids",sidcnt);
+  bsids = basenet->sids;
+  for (sid = 0; sid < bsidcnt; sid++) {
+    bsp = bsids + sid;
+    sp = sids + sid;
+    sp->sid = bsp->sid;
+    sp->t0 = bsp->t0;
+    sp->t1 = bsp->t1;
+    sp->dow = bsp->dow;
+    nlen = bsp->namelen;
     if (nlen) {
-      memcpy(tp->name,btp->name,nlen);
-      tp->namelen = nlen;
+      memcpy(sp->name,bsp->name,nlen);
+      sp->namelen = nlen;
     }
   }
 
@@ -312,10 +312,10 @@ int prepnet(netbase *basenet)
 
   gnet->portcnt = portcnt;
   gnet->hopcnt = hopcnt;
-  gnet->timecnt = timecnt;
+  gnet->sidcnt = sidcnt;
   gnet->ports = ports;
   gnet->hops = hops;
-  gnet->times = times;
+  gnet->sids = sids;
 
   gnet->partcnt = partcnt;
   gnet->portparts = portparts;

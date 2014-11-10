@@ -11,8 +11,9 @@
 //  Syntax is like C for checking purposes.
 //  Digits in the field names indicate desired range and is checked
 
+// describe repeating pattern: set bits for day and hour
 struct datetime {
-  int dow:7;      // day of week mon-sun utc
-  int hod:5;      // hours of day
-  int mih:6;      // minute in hour
+  int dow:7;      // mask: day of week mon-sun utc
+  int hod_24:5;   // mask: hours of day
+  int mih_60:6;      // value: minute in hour
 };

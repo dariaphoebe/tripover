@@ -43,7 +43,6 @@ typedef int sb4;
 
 #define clear(p) memset((p),0,sizeof (*p) )
 #define aclear(p) memset((p),0,sizeof (p) )
-#define oclear(p) memset(&(p),0,sizeof (p) )
 
 #define strcopy(dst,src) strncpy((dst),(src),sizeof (dst) )
 

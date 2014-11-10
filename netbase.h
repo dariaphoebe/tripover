@@ -95,6 +95,11 @@ struct hopbase {
   ub4 dep,arr;
   ub4 routeid;
 
+  ub4 timespos;
+  ub4 timecnt;
+  ub4 evcnt;
+  ub4 t0,t1;   // overall date range of timetable : t1 exclusive
+
   ub4 dist;
 
   ub4 carriercnt;
@@ -130,8 +135,8 @@ struct carrierbase {
 // each map has entries for each go
 // go contains one or more trips in a repeating pattern
 // multiple maps are made when needed for duration difference or not fitting in map
-struct timebase {
-  ub4 id;
+struct sidbase {
+  ub4 rsid;
   ub4 sid;
   ub4 cid;
 
@@ -144,7 +149,10 @@ struct timebase {
 
   ub4 dow;
   ub4 t0,t1;      // tt validity in minutes utc since epoch
+  ub4 t0wday;
   ub4 dt;         // granularity of table in minutes
+
+  ub4 refcnt;
 
   ub2 duration;   // minutes
   ub2 gocnt;      // # entries below
@@ -170,27 +178,35 @@ struct networkbase {
   ub4 portcnt;
   ub4 subportcnt;
   ub4 hopcnt;
-  ub4 timecnt;
+  ub4 sidcnt;
   ub4 routecnt;
   ub4 carriercnt;
   ub4 timetablecnt;
 
+  ub4 timescnt;
+
   struct portbase *ports;
   struct subportbase *subports;
   struct hopbase *hops;
-  struct timebase *times;
+  struct sidbase *sids;
   struct routebase *routes;
   struct carrierbase *carriers;  
   struct timetablebase *timetables;  // [routecnt]
+  ub4 *timesbase;
+  ub4 *events;
 
   struct memblk portmem;
   struct memblk subportmem;
   struct memblk hopmem;
-  struct memblk timemem;
+  struct memblk sidmem;
+  struct memblk timesmem;
+  struct memblk eventmem;
 
   ub4 latscale,lonscale;
   ub4 latrange[2];
   ub4 lonrange[2];
+
+  ub4 t0,t1;
 
 // workspace
   ub4 *portwrk;   // [portcnt]
@@ -214,8 +230,6 @@ struct networkbase {
   sb2 *faremaps;
 };
 typedef struct networkbase netbase;
-
-extern int portintrip(ub4 *legs,ub4 nleg,ub4 dep,ub4 mid,ub4 arr);
 
 extern netbase *getnetbase(void);
 extern int mkrandnet(ub4 portcnt,ub4 hopcnt);

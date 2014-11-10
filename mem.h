@@ -31,6 +31,16 @@ struct memblk {
 };
 typedef struct memblk block;
 
+// global name.
+struct gname {
+  spool *strpool;  // vars below index here 
+  ub4 name;        // common name
+  ub4 code;        // formal coded name, e.g. IATA
+  ub4 locname;     // name in local language
+  ub4 intname;     // international name
+  ub4 descr;
+};
+
 enum Blkopts { Noinit, Init0, Init1 };
 
 #define Maxmem (1024UL * 1024 * 1024 * 12)

@@ -136,7 +136,7 @@ struct carrier {
 // a service has a set of maps
 // each map has entries for each go
 // multiple maps are made when needed for duration difference or not fitting in map
-struct timetable {
+struct sidtable {
   ub4 magic;
   ub4 id;
   ub4 sid;
@@ -161,14 +161,14 @@ struct network {
 
   ub4 routecnt;
   ub4 carriercnt;
-  ub4 timetablecnt;
+  ub4 sidcnt;
 
   struct port *ports, *allports;
   struct hop *hops,*allhops;
 
   struct route *routes;
   struct carrier *carriers;  
-  struct timetable *timetables;
+  struct sidtable *sids;
 
 // access
   ub4 *g2pport;      // [gportcnt] global to partition port id
@@ -221,11 +221,11 @@ struct partition {
 struct gnetwork {
   ub4 portcnt;
   ub4 hopcnt;
-  ub4 timecnt;
+  ub4 sidcnt;
 
   struct port *ports;
   struct hop *hops;
-  struct timetable *times;
+  struct sidtable *sids;
 
   ub4 partcnt;
 

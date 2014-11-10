@@ -26,16 +26,6 @@ struct cmdarg { // commandline arg defines
   int (*fn)(struct cmdval *cp);
 };
 
-// global name.
-struct gname {
-  spool *strpool;  // vars below index here 
-  ub4 name;        // common name
-  ub4 code;        // formal coded name, e.g. IATA
-  ub4 locname;     // name in local language
-  ub4 intname;     // international name
-  ub4 descr;
-};
-
 extern int filecreate(const char *name);
 extern int filewrite(int fd, const void *buf,ub4 len,const char *name);
 extern int fileread(int fd,void *buf,ub4 len,const char *name);
@@ -53,6 +43,9 @@ extern int strcompfln(const char *a,const char *b,const char *sa,const char *sb,
 
 extern int str2ub4(const char *s, ub4 *pv);
 extern int hex2ub4(const char *s, ub4 *pv);
+
+#define oclear(p) do_clear(&(p),sizeof(p))
+extern void do_clear(void *p,ub4 len);
 
 // #define limit(a,b,c) if ((a) > (b)) { (a) = (b); warningfln(FLN,0,"limit %s:%u to %s:%u for %s:%u",#a,(a),#b,(b),#c,(c)); }
 

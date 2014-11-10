@@ -23,7 +23,7 @@ local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
 my $version_min = 14;
-my $lastchanged = "8 nov 2014";
+my $lastchanged = "11 nov 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -60,6 +60,10 @@ sub vrb($) {
 sub max($$) {
   my ($a,$b) = @_;
   return ($a > $b ? $a : $b);
+}
+sub min($$) {
+  my ($a,$b) = @_;
+  return ($a < $b ? $a : $b);
 }
 
 sub trimws($) {
@@ -189,7 +193,7 @@ my %rtypes;
 
 my %uniqhops;
 
-# my @stentries;
+my $sumtimes = 0;
 
 my @trip_ids;
 my @dep_times;
@@ -201,6 +205,9 @@ my $hopcnt = 0;
 my $tripcnt = 0;
 my $routecnt = 0;
 my $noroutecnt = 0;
+
+my $mint0 = 20200101;
+my $maxt1 = 0;
 
 my $nondigits = qr'[^0-9]';
 
@@ -814,21 +821,24 @@ sub readcalendar($)
       $dows .= $day;
     }
 
+    warning("$linno: end time $t1 before start time $t0") if $t1 < $t0;
+
     $sid = $linno;
     $serviceids{$service_id} = $sid;
     $servicedow{$sid} = $dow;
     $servicet0{$sid} = $t0;
     $servicet1{$sid} = $t1;
-
+    $mint0 = min($t0,$mint0);
+    $maxt1 = max($t1,$maxt1);
   } # each line
 
 # dummy for unknown
   $servicedow{0} = 0x7f;
-  $servicet0{0} = 20140101;
-  $servicet1{0} = 20150101;
+  $servicet0{0} = $mint0;
+  $servicet1{0} = $maxt1;
 
   $sidcnt = scalar(keys %serviceids);
-  info("$sidcnt services");
+  info("$sidcnt services, overall period $mint0 to $maxt1");
 
   return 1;
 }
@@ -992,6 +1002,7 @@ sub readstoptimes($)
     # actual hop derived from key lateron
     $uniqid = join('_',$routeid,$prvid,$id);
     if ($prvtrip == $tripid) {
+      $sumtimes++;
       if (exists($tripseq{$uniqid})) {
         $tripseq{$uniqid} .= "\t" . join("\t",$sid,$tripid,$prvtdep,$tarrmin);
       } else {
@@ -1224,13 +1235,15 @@ sub writext($$)
   printf($timefile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($timefile "# %u entries from %s\n\n",$sidcnt,$indir);
 
+  printf($timefile ".timebox\t.%u\t.%u\t# time span\n\n",$mint0,$maxt1);
+
   print($timefile "# service_id\tsid\tdow\tstart\tend\t# \n\n");
 
   while (($service_id,$sid) = each %serviceids) {
     $dow = $servicedow{$sid};
     $t0 = $servicet0{$sid};
     $t1 = $servicet1{$sid};
-    printf($timefile "%s\t%x\t%x\t%u\t%u\n",$service_id,$sid,$dow,$t0,$t1);
+    printf($timefile "%s\t%x\t%x\t.%u\t.%u\n",$service_id,$sid,$dow,$t0,$t1);
   }
   close($timefile);
 
@@ -1242,8 +1255,9 @@ sub writext($$)
   printf($hopfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($hopfile "# %u hops from %s/stoptimes.txt\n\n",$hopcnt,$indir);
 
-  printf($hopfile ".variants\t%x\t%x\t0\t0\t0\t# possible route variants\n",$maxvariant,$hivariant);
-  printf($hopfile ".walk_id\t%x\t0\t0\t0\t0\t# route ID for inferred walk\n\n",$rtype_walk);
+  printf($hopfile ".variants\t%x\t%x\t# possible route variants\n",$maxvariant,$hivariant);
+  printf($hopfile ".walk_id\t%x\t# route ID for inferred walk\n",$rtype_walk);
+  printf($hopfile ".sumtimes\t%x\t# total number of time entries\n\n",$sumtimes);
 
   print($hopfile "# route\tID\tfrom\tto\ttype\ttid\trid\t# from-name to-name\n\n");
 

@@ -174,7 +174,7 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   else if (opts & Init1) memset(p, 0xff, n);
 
   totalMB += nm;
-  if (nm > 64) info(0,"alloc %u MB for %s, total %u", nm, desc, totalMB);
+  if (nm > 64) infofln(fln,0,"alloc %u MB for %s, total %u", nm, desc, totalMB);
 
   addsum(fln,desc,nm);
 

@@ -9,6 +9,26 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
+#define Epochyear 2000
+
+// 1-1-2000 = sat
+#define Epochwday 5
+
+// time horizon
+#define Erayear 2020
+
+#if defined  __STDC_VERSION__ && __STDC_VERSION__ >= 201101
+  _Static_assert(Epochyear > 1969,"time before 1970 not handled");
+  _Static_assert(Epochyear < 2100,"time after  2100 not handled");
+  _Static_assert(Epochyear < Erayear,"must have a time span");
+  _Static_assert(Erayear - Epochyear < 100,"time span too large");
+  _Static_assert(Erayear > Epochyear,"time span too small");
+#endif
+
 extern ub4 gettime_sec(void);
 extern void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen);
-extern void initime(void);
+extern void mintoyymmdd(ub4 min, char *dst, ub4 dstlen);
+extern ub4 yymmdd2min(ub4 cd);
+extern ub4 min2wday(ub4 min);
+
+extern void initime(int iter);

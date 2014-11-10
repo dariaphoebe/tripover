@@ -46,20 +46,28 @@ static int streq(const char *s,const char *q) { return !strcmp(s,q); }
 
 static int init0(char *progname)
 {
+  char nowstr[64];
+
   setsigs();
 
   inimsg(progname,"tripover.log",Msg_init|Msg_stamp|Msg_pos|Msg_type);
   msgfile = setmsgfile(__FILE__);
   iniassert();
 
-  info(User,"tripover %u.%u %s\n%s\n", Version_maj,Version_min,Version_phase,copyright);
+#ifdef NOW
+  sec70toyymmdd(NOW,nowstr,sizeof(nowstr));
+#else
+  strcopy(nowstr,__DATE__);
+#endif
+
+  info(User,"tripover %u.%u %s %s\n%s\n", Version_maj,Version_min,Version_phase,nowstr,copyright);
 
   if (iniutil()) return 1;
   if (inicfg()) return 1;
-  initime();
   inimem();
   inios();
   iniserver();
+  initime(0);
   inimath();
   ininetbase();
   ininet();
@@ -68,6 +76,9 @@ static int init0(char *progname)
   inicondense();
   inicompound();
   inisearch();
+
+  sec70toyymmdd(gettime_sec(),nowstr,sizeof(nowstr));
+  info(0,"starting at %s utc",nowstr);
 
   return 0;
 }
@@ -182,6 +193,7 @@ int main(int argc, char *argv[])
   if (inicfgcl()) return 1;
 
   oslimits();
+  initime(1);
 
   if (readcfg(globs.cfgfile)) return 1;
 

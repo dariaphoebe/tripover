@@ -65,6 +65,8 @@ void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln)
   else memcpy(dst,src,len);
 }
 
+void do_clear(void *p,ub4 len) { memset(p,0,len); }
+
 int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln)
 {
   vrbfln(fln,0,"");
@@ -212,14 +214,17 @@ static int showvers(struct cmdval *cv)
   char ccstr[256];
   ub4 ccmaj,ccmin;
   char nowstr[64];
+  const char *tz;
 
 #ifdef NOW
   sec70toyymmdd(NOW,nowstr,sizeof(nowstr));
+  tz = "utc";
 #else
   strcopy(nowstr,__DATE__);
+  tz = "localtime";
 #endif
 
-  info(User,"tripover server version %u.%u  %s utc", Version_maj,Version_min,nowstr);
+  info(User,"tripover server version %u.%u  %s %s", Version_maj,Version_min,nowstr,tz);
 
 #if defined(__clang__) && defined(__clang_major__) && defined(__clang_minor__)
   ccmaj = __clang_major__; ccmin = __clang_minor__;

@@ -464,7 +464,7 @@ static void msginfo(ub4 fln)
     filename = xfile;
   } else filename = filenames[fileno].name;
 
-  len = fmtstring(buf,"X  %03u.%04u %9s %4u\n",(ub4)dsec,(ub4)d100usec,filename,line);
+  len = fmtstring(buf,"X  %03u.%04u  %9s %4u\n",(ub4)dsec,(ub4)d100usec,filename,line);
   setmsginfo(buf,len);
 }
 
