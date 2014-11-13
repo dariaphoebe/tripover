@@ -324,6 +324,9 @@ int prepnet(netbase *basenet)
   gnet->maxvariants = variants = basenet->maxvariants;
   gnet->routevarmask = varmask = basenet->routevarmask;
 
+  gnet->eventmem = &basenet->eventmem;
+  gnet->evmapmem = &basenet->evmapmem;
+
   ub4 partstats[8];
   ub4 iv,xmap,partivs = Elemcnt(partstats) - 1;
   aclear(partstats);

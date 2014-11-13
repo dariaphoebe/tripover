@@ -11,6 +11,13 @@
 
 /* Logic dealing with wall-clock time
    Conversions, formatting, timezones
+
+   Internal standard is minutes UTC since Epoch, typ 2000
+   This is kept in an unsigned 32 bit integer
+   UTC offset is minutes plus 12 hours kept as an unsigned integer.
+   weekdays start at monday = 0 .. sunday = 6
+
+   in some places a 'coded decimal' unsigned integer is used for a date
  */
 
 #include <time.h>
@@ -26,8 +33,6 @@ static ub4 msgfile;
 #include "os.h"
 
 static ub4 epochmin,eramin;
-
-// todo utc-based
 
 static ub4 daysinmon[12] = {31,28,31,30,31,30,30,31,30,31,30,31};
 static ub4 daysinmon2[12] = {31,29,31,30,31,30,30,31,30,31,30,31};
@@ -45,6 +50,9 @@ void initime(int iter)
 
   msgfile = setmsgfile(__FILE__);
   iniassert();
+
+  // create calendar dates to minute table, supporting typically 10 years around now
+  // mktime() is hardly useful as it refers to a fixed system TZ.
   if (iter == 0) {
     years = Erayear - Epochyear;
     months = years * 12;
@@ -68,6 +76,22 @@ void initime(int iter)
   }
 }
 
+// add utcofs
+ub4 min2lmin(ub4 min,ub4 utcofs)
+{
+  if (min <= utcofs) { warning(0,"time %u for utc offset %u before Epoch UTC",min,utcofs); return min; }
+  else if (utcofs < 12 * 60) return min - (utcofs - 12 * 60);
+  else return min + (12 * 60 - utcofs);
+}
+
+// sub utcofs
+ub4 lmin2min(ub4 lmin,ub4 utcofs)
+{
+  if (lmin <= utcofs) { warning(0,"time %u at utc offset %u before Epoch UTC",lmin,utcofs); return lmin; }
+  else if (utcofs < 12 * 60) return lmin + (12 * 60 - utcofs);
+  else return lmin - (utcofs - 12 * 60);
+}
+
 void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen)
 {
   time_t t = (time_t)secs;
@@ -82,15 +106,28 @@ void mintoyymmdd(ub4 min, char *dst, ub4 dstlen)
   mysnprintf(dst,0,dstlen,"%04u-%02u-%02u %02u:%02u", tp->tm_year+1900, tp->tm_mon+1,tp->tm_mday,tp->tm_hour,tp->tm_min);
 }
 
-// 20140226 to minutes since epoch
-ub4 yymmdd2min(ub4 cd)
+// minutes since epoch localtime to decimal-coded 20140522
+ub4 lmin2cd(ub4 min)
+{
+  ub4 yr,mon,day;
+
+  time_t t = (time_t)(min + epochmin) * 60;
+  struct tm *tp = gmtime(&t);
+  yr = tp->tm_year+1900;
+  mon = tp->tm_mon+1;
+  day = tp->tm_mday;
+  return (yr * 10000 + mon * 100 + day);
+}
+
+// 20140226 localtime to minutes utc since epoch
+ub4 yymmdd2min(ub4 cd,ub4 utcofs)
 {
   struct tm tm;
   ub4 d,m,y,mm,yy,dm,days;
+  ub4 lmin;
 
   oclear(tm);
 
-//  info(0,"cd time %u",cd);
   d = cd % 100;
   if (d == 0) { warning(0,"day in %u zero",cd); d = 1; }
   else if (d > 31) { warning(0,"day %u above 31",d); d = 31; }
@@ -112,7 +149,8 @@ ub4 yymmdd2min(ub4 cd)
   mm = m - 1;
   days = yymm2daytab[yy * 12 + mm] + (d - 1);
 
-  return (days * 1440);
+  lmin = days * 1440;
+  return lmin2min(lmin,utcofs);
 }
 
 // weekday of minute time

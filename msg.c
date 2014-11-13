@@ -222,11 +222,13 @@ static ub4 ecnv(char *dst, double x)
   return n;
 }
 
-/* supports a basic, yet compatible subset of printf :
+/* supports a basic subset of printf plus compatible extensions :
    %c %d %u %x %e %s %p %03u %-12.6s %ld %*s
    extensions are led in by '\a' preceding a conversion :
-   \ah%u  makes the integer formatted 'human readable' like 123.8 M for 123800000
-   \av%u%p interprets the pointer arg '%p' as an array of '%u' integers. thus :  
+   h+%u  makes the integer formatted 'human readable' like 123.8 M for 123800000
+   d+%u  minute utc to date 20140912
+   u+%d  utc offset +0930   -1100
+   v+%u%p interprets the pointer arg '%p' as an array of '%u' integers. thus :  
    int arr[] = { 23,65,23,54 };  printf("\av%u%p", 4, arr ); 
     shows  '[23 65 23 54]'
  */
@@ -235,9 +237,10 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
   const char *p = fmt;
   ub4 n = 0,x;
   ub4 wid,prec,plen;
-  unsigned int uval=0,vlen=0,*puval;
+  ub4 hh,mm;
+  unsigned int uval=0,vlen=0,cdval,*puval;
   unsigned long luval,lx;
-  int ival,alt,padleft,do_U = 0,do_vec = 0;
+  int ival,alt,padleft,do_U = 0,do_vec = 0,do_mindate = 0,do_utcofs = 0;
   long lival;
   double dval;
   char *pval;
@@ -252,6 +255,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
       switch(*p++) {
         case 'h': do_U = 1; break;
         case 'v': do_vec = 1; break;
+        case 'u': do_utcofs = 1; break;
+        case 'd': do_mindate = 1; break;
         case 's': if (uval != 1) dst[n++] = 's'; break;
         case '%': dst[n++] = c1; c1 = '%'; break;
         default: dst[n++] = c1;
@@ -314,6 +319,23 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         switch(c2) {
         case 'u': uval = va_arg(ap,unsigned int);
                   if (do_vec) { vlen = uval; break; }
+                  else if (do_mindate) {
+                    do_mindate = 0;
+                    cdval = lmin2cd(uval);
+                    n += ucnv(dst + n,cdval,wid,pad);
+                    uval %= 1440;
+                    if (uval) { dst[n++] = '.'; n += ucnv(dst + n,uval,0,' '); }
+                    break;
+                  } else if (do_utcofs) {
+                    do_utcofs = 0;
+                    if (uval > (14 + 12) * 60) { dst[n++] = '!'; uval = (14+12) * 60; }
+                    hh = uval / 60;
+                    mm = uval % 60;
+                    if (uval < 12 * 60) { dst[n++] = '-'; uval = (12 - hh) * 100 - mm; } // todo
+                    else { dst[n++] = '+'; uval = (hh - 12) * 100 + mm; }
+                    n += ucnv(dst + n,uval,4,0);
+                    break;
+                  }
                   if (len - n <= 10) break;
                   if (do_U && uval >= 1024U * 10) {
                     x = uval;
@@ -733,6 +755,8 @@ void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4
   ub4 perc;
   char buf[256];
   ub4 pos,len = sizeof(buf);
+
+  vrbfln(fln,CC,"progress %u of %u",cur,end);
 
   va_start(ap,fmt);
 

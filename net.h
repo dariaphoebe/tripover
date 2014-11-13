@@ -87,6 +87,24 @@ struct port {
   ub2 depcnts[Nstop];
 };
 
+struct timepat {
+  ub4 hop;
+  ub4 utcofs;
+  ub4 ht0,ht1; // min utc overall validity range
+  ub4 tdays;
+  ub4 t0,t1;   // relative to above actual event range
+  ub4 evcnt;
+  ub4 genevcnt;
+  ub4 evofs;
+  ub4 dayofs;
+
+  ub4 hispans[4];
+  ub4 hireps[4];
+  ub8 hisums[4];
+  ub4 hit0s[4];
+  ub4 hit1s[4];
+};
+
 struct hop {
   ub4 magic;
   ub4 id;
@@ -100,6 +118,8 @@ struct hop {
 
   ub4 dep,arr;
   ub4 routeid,rid;
+
+  struct timepat tp;
 
   ub4 compound;
 
@@ -239,6 +259,10 @@ struct gnetwork {
   block xpartmap;
   ub2 *xpartbase;
   ub4 xpartlen;
+
+// timetables
+  block *eventmem;
+  block *evmapmem;
 
   ub4 maxrouteid;
   ub4 maxvariants,routevarmask;

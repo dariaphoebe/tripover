@@ -28,7 +28,10 @@
 extern ub4 gettime_sec(void);
 extern void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen);
 extern void mintoyymmdd(ub4 min, char *dst, ub4 dstlen);
-extern ub4 yymmdd2min(ub4 cd);
+extern ub4 yymmdd2min(ub4 cd,ub4 utcofs);
+extern ub4 lmin2cd(ub4 min);
 extern ub4 min2wday(ub4 min);
+extern ub4 min2lmin(ub4 min,ub4 utcofs);
+extern ub4 lmin2min(ub4 lmin,ub4 utcofs);
 
 extern void initime(int iter);

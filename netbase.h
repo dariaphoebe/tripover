@@ -79,6 +79,24 @@ struct subportbase {
   ub4 seq;
 };
 
+struct timepatbase {
+  ub4 hop;
+  ub4 utcofs;
+  ub4 ht0,ht1; // min utc overall validity range
+  ub4 tdays;
+  ub4 t0,t1;   // relative to above actual event range
+  ub4 evcnt;
+  ub4 genevcnt;
+  ub4 evofs;
+  ub4 dayofs;
+
+  ub4 hispans[4];
+  ub4 hireps[4];
+  ub8 hisums[4];
+  ub4 hit0s[4];
+  ub4 hit1s[4];
+};
+
 struct hopbase {
   ub4 magic;
   ub4 id;       // index in net.hops
@@ -95,9 +113,12 @@ struct hopbase {
   ub4 dep,arr;
   ub4 routeid;
 
+  struct timepatbase tp;
+
   ub4 timespos;
   ub4 timecnt;
   ub4 evcnt;
+  ub4 zevcnt;
   ub4 t0,t1;   // overall date range of timetable : t1 exclusive
 
   ub4 dist;
@@ -151,6 +172,7 @@ struct sidbase {
   ub4 t0,t1;      // tt validity in minutes utc since epoch
   ub4 t0wday;
   ub4 dt;         // granularity of table in minutes
+  ub4 utcofs;     // minutes east from utc + 12h
 
   ub4 refcnt;
 
@@ -192,8 +214,10 @@ struct networkbase {
   struct routebase *routes;
   struct carrierbase *carriers;  
   struct timetablebase *timetables;  // [routecnt]
+
   ub4 *timesbase;
   ub4 *events;
+  ub2 *evmaps;
 
   struct memblk portmem;
   struct memblk subportmem;
@@ -201,6 +225,7 @@ struct networkbase {
   struct memblk sidmem;
   struct memblk timesmem;
   struct memblk eventmem;
+  struct memblk evmapmem;
 
   ub4 latscale,lonscale;
   ub4 latrange[2];

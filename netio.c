@@ -377,9 +377,12 @@ static struct cmdvars hopvars[] = {
 };
 
 static ub4 timebox[2];
+static ub4 utcofs12 = 1000 + 1200; // coded decimal + 12h
+static ub4 utcofs;  // minutes east from utc + 12h
 
 static struct cmdvars timevars[] = {
   {"timebox",7,2,timebox,0},
+  {"utcofs",6,1,&utcofs12,0},
   {"",0,0,NULL,0}
 };
 
@@ -439,18 +442,18 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
   genmsg(nodeparr ? Info : Vrb,0,"%u of %u ports without connection",nodeparr,portcnt);
   if (nodep) info(0,"%u of %u ports without departures",nodep,portcnt);
   if (noarr) info(0,"%u of %u ports without arrivals",noarr,portcnt);
-  for (ndep = 0; ndep < 4; ndep++) {
-    for (narr = 0; narr < 4; narr++) {
+  for (ndep = 0; ndep < 3; ndep++) {
+    for (narr = 0; narr < 3; narr++) {
       n = constats[(ndep << 4) | narr];
       if (n) info(0,"%u port\as with %u dep + %u arr", n,ndep,narr);
     }
   }
 
-  for (ndep = 0; ndep <= depivs; ndep++) {
+  for (ndep = 0; ndep <= min(depivs,16); ndep++) {
     n = depstats[ndep];
     if (n) info(0,"%u port\as with %u%s dep", n,ndep,ndep == depivs ? "+" : "");
   }
-  for (narr = 0; narr <= arrivs; narr++) {
+  for (narr = 0; narr <= min(arrivs,16); narr++) {
     n = arrstats[narr];
     if (n) info(0,"%u port\as with %u%s arr", n,narr,narr == arrivs ? "+" : "");
   }
@@ -780,10 +783,12 @@ static int rdexttimes(netbase *net,const char *dir)
   char *buf;
   ub4 len,linno,colno,namelen,valndx,id,idhi,maxsid = 0;
   ub4 dow,t0,t1,t0_cd,t1_cd;
+  ub4 hh,mm;
   ub4 t0lo = hi32,t1hi = 0;
   char *name;
   ub4 *vals;
   ub4 namemax = sizeof(sids->name) - 1;
+  int initvars = 0;
 
   oclear(eft);
 
@@ -821,6 +826,15 @@ static int rdexttimes(netbase *net,const char *dir)
       break;
 
     case Newitem:
+      if (initvars == 0) {
+        if (utcofs12 < 1200) { warning(0,"UTCoffset %d below lowest -1100", utcofs12 - 1200); utcofs12 = 1200; }
+        else if (utcofs12 > 1400 + 1200) { warning(0,"UTCoffset %u above highest +1400", utcofs12 - 1200); utcofs12 = 1200; }
+        hh = utcofs12 / 100;
+        mm = utcofs12 % 100;
+        utcofs = hh * 60 + mm;
+        initvars = 1;
+        info(0,"UTC offset %u from %u:%u - 12:00",utcofs - 12 * 60,hh,mm);
+      }
       namelen = eft.namelen;
       valndx = eft.valndx;
       linno = eft.linno;
@@ -834,8 +848,8 @@ static int rdexttimes(netbase *net,const char *dir)
 
       if (dow > 0x7f) return inerr(FLN,fname,linno,colno,"invalid dayofweek mask %x",dow);
 
-      t0 = yymmdd2min(t0_cd);
-      t1 = yymmdd2min(t1_cd);
+      t0 = yymmdd2min(t0_cd,utcofs);
+      t1 = yymmdd2min(t1_cd,utcofs);
       t0lo = min(t0lo,t0);
       t1hi = max(t1hi,t1);
 
@@ -844,7 +858,8 @@ static int rdexttimes(netbase *net,const char *dir)
       sp->dow = dow;
       sp->t0 = t0;
       sp->t1 = t1;
-      sp->t0wday = min2wday(t0);
+      sp->t0wday = min2wday(min2lmin(t0,utcofs));
+      sp->utcofs = utcofs;
 
       if (namelen > namemax) {
         parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
@@ -881,8 +896,8 @@ static int rdexttimes(netbase *net,const char *dir)
   ub4 gt0,gt1;
 
   if (timebox[0] && timebox[1]) {
-    gt0 = yymmdd2min(timebox[0]);
-    gt1 = yymmdd2min(timebox[1]);
+    gt0 = yymmdd2min(timebox[0],utcofs);
+    gt1 = yymmdd2min(timebox[1],utcofs);
     if (gt0 != t0lo) { warning(0,"overall start %u != %u",gt0,t0lo); gt0 = t0lo; }
     if (gt1 != t1hi) { warning(0,"overall end %u != %u",gt1,t1hi); gt1 = t1hi; }
     if (gt1 <= gt0) { warning(0,"overall start %u beyond end %u",gt0,gt1); gt1 = gt0 + 1; }
@@ -1042,12 +1057,10 @@ static int rdexthops(netbase *net,const char *dir)
         sp = sids + sid;
         sp->refcnt++;
 
-        if (hopcnt == 28) info(0,"sid %u rsid %x tid %x dep %x arr %x",sid,rsid,tid,tdep,tarr);
-
         t0 = sp->t0;
         t1 = sp->t1;
-        error_nz(t0 % 1440,hopcnt);
-        error_nz(t1 % 1440,hopcnt);
+        if (hopcnt == 0) info(0,"sid %u rsid %x tid %x dep %x arr %x \ad%u-\ad%u",sid,rsid,tid,tdep,tarr,t0,t1);
+
         ht0 = min(ht0,t0);
         ht1 = max(ht1,t1);
 
@@ -1143,7 +1156,7 @@ static int rdexthops(netbase *net,const char *dir)
     if (sp->refcnt) sidrefs++;
     else info(0,"sid %x not referenced %s",sp->sid,sp->name);
   }
-  if (sidrefs < sidcnt) warning(0,"%u sid\as not referenced",sidcnt - sidrefs);
+  if (sidrefs < sidcnt) info(0,"%u sid\as not referenced",sidcnt - sidrefs); // todo filter ?
 
   ub4 hop,*id2hops;
   ub4 varmask;
