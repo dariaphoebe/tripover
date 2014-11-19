@@ -432,10 +432,13 @@ sub run($$$$) {
   }
   my $rc = ($rv >> 8);
   if ($rc) {
-    error_exit("$cmd returned $rc") unless $loop;
-    return error("$cmd returned $rc");
+    if ($loop) {
+      return 0;
+    } else {
+      error_exit("$cmd returned $rc");
+    }
   }
-#  info('OK');
+  info('OK') if $loop;
   return 1;
 }
 

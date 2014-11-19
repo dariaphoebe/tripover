@@ -52,7 +52,7 @@ static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
   memcpy(up->id,desc,idlen);
   up->fln = fln;
   up->sum += mbcnt;
-  if (up->sum > 4) infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
+  if (up->sum > 32) infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
 }
 
 static void showsums(void)

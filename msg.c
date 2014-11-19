@@ -40,7 +40,10 @@ struct filecoord {
   char name[16];
 };
 
-static struct filecoord filenames[64];
+#define Maxmsgline 4096
+#define Maxmsgfile 64
+
+static struct filecoord filenames[Maxmsgfile];
 static ub4 filendx = 1;
 
 static enum Msglvl msglvl = Vrb;
@@ -60,15 +63,22 @@ static const char *msgnames_long[Msglvl_last] = {
   "info",
   "verbose" };
 
-#define MSGLEN 4096
+#define MSGLEN 2048
 static char msgbuf[MSGLEN];
 static char ccbuf[MSGLEN];
 static char ccbuf2[MSGLEN];
+static char himsgbuf[MSGLEN];
+static char himsgbuf2[MSGLEN];
 static char lastwarn[MSGLEN];
 static char lasterr[MSGLEN];
 static ub4 cclen,ccfln;
 
+static char prefix[128];
+static ub4 prefixlen;
+
 static ub4 oserrcnt;
+
+static ub4 hicnt,hicnt2,hifln,hifln2;
 
 static ub8 progstart;
 
@@ -303,8 +313,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         case 'p': luval = va_arg(ap,unsigned long);
                   uval = (ub4)min(luval,hi32);
                   if (len - n <= 10) break;
+                  if (luval > hi32) n += xcnv(dst + n,(ub4)(luval >> 32));
                   n += xcnv(dst + n,(ub4)luval);
-                  n += xcnv(dst + n,(ub4)(luval >> 32));
                   break;
         case 'd': lival = va_arg(ap,long);
                   if (lival == 1) uval = 1;
@@ -499,17 +509,18 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   ub8 now_usec,dusec,dsec,d100usec;
   char lvlnam;
   ub4 iterndx,itercnt;
-  static ub4 itercnts[65536];
+  static ub4 itercnts[Maxmsgline];
+  static ub4 himsgcnt[Maxmsgline * Maxmsgfile];
 
   if (code & User) {
     code &= ~User;
     opts = 0;
   } else opts = msgopts;
 
-  iterndx = fline & 0xffff;
+  iterndx = min(fline & hi16,Maxmsgline-1);
   itercnt = itercnts[iterndx];
   if (code & Iter) {
-    if (itercnt < 65535) itercnts[iterndx] = itercnt + 1;
+    if (itercnt < hi16) itercnts[iterndx] = itercnt + 1;
     if (itercnt > 100) return;
   } else {
     if (itercnt > 100) {
@@ -544,14 +555,18 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   }
   if (opts & Msg_type) {
     if (lvl >= Vrb) pos += mysnprintf(msgbuf, pos, maxlen, "%c%u ",lvlnam,sublvl);
-    else pos += mysnprintf(msgbuf, pos, maxlen, "%c  ",lvlnam);
+    else pos += mysnprintf(msgbuf, pos, maxlen, "%c ",lvlnam);
   } else if (lvl <= Warn) pos += mysnprintf(msgbuf, pos, maxlen, "%s ",msgnames_long[lvl]);
 
-  if (opts & Msg_stamp) pos += mysnprintf(msgbuf, pos, maxlen, "%03u.%04u  ",(ub4)dsec,(ub4)d100usec);
+  if (opts & Msg_stamp) pos += mysnprintf(msgbuf, pos, maxlen, "%03u.%04u ",(ub4)dsec,(ub4)d100usec);
   if (opts & Msg_pos) {
     pos += msgfln(msgbuf,pos,maxlen,fline,9);
   }
 
+  if (prefixlen && pos + prefixlen < maxlen) {
+    memcpy(msgbuf + pos,prefix,prefixlen);
+    pos += prefixlen;
+  }
   if (code & Ind) {
     n = min(code & Indent, maxlen - pos);
     if (n) memset(msgbuf + pos,' ',n);
@@ -561,6 +576,22 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert\n  ");
   pos += vsnprint(msgbuf, pos, maxlen, fmt, ap);
   pos = min(pos,maxlen-1);
+
+  ub4 cnt,fileno = min(fline >> 16,Maxmsgfile-1);
+  cnt = himsgcnt[fileno * Maxmsgline | iterndx] + 1;
+  himsgcnt[fileno * Maxmsgline | iterndx] = cnt;
+  if (cnt > hicnt) {
+    hicnt = cnt;
+    hifln = fline;
+    memcpy(himsgbuf,msgbuf,pos);
+    himsgbuf[pos] = 0;
+  } else if (cnt > hicnt2) {
+    hicnt2 = cnt;
+    hifln2 = fline;
+    memcpy(himsgbuf2,msgbuf,pos);
+    himsgbuf2[pos] = 0;
+  }
+
   if (lvl == Warn) { memcpy(lastwarn,msgbuf,pos); lastwarn[pos] = 0; }
   else if (lvl < Warn && !(code & Exit)) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
   msgbuf[pos++] = '\n';
@@ -584,6 +615,18 @@ int __attribute__ ((format (printf,4,5))) genmsgfln(ub4 fln,enum Msglvl lvl,ub4 
   msg(lvl, 0, fln, code, fmt, ap);
   va_end(ap);
   return (lvl < Warn);
+}
+
+int __attribute__ ((format (printf,2,3))) msgprefix(int rv,const char *fmt, ...)
+{
+  va_list ap;
+
+  if (fmt == NULL || *fmt == 0) { prefixlen = 0; return rv; }
+
+  va_start(ap, fmt);
+  prefixlen = vsnprint(prefix,0,sizeof(prefix),fmt,ap);
+  va_end(ap);
+  return rv;
 }
 
 void __attribute__ ((format (printf,3,4))) vrbfln(ub4 fln, ub4 code, const char *fmt, ...)
@@ -809,6 +852,9 @@ void inimsg(char *progname, const char *logname, ub4 opts)
 
 void eximsg(void)
 {
+  prefixlen = 0;
+  if (hicnt > 100) infofln(hifln,User,"%s *%u",himsgbuf,hicnt);
+  if (hicnt2 > 100) infofln(hifln2,User,"%s *%u",himsgbuf2,hicnt2);
   if (warncnt) info(0,"%u warning\as\n%s",warncnt,lastwarn);
   if (errcnt) info(0,"%u error\as\n%s",errcnt,lasterr);
   if (oserrcnt) info(0,"%u I/O error\as",oserrcnt);

@@ -105,6 +105,8 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
   char buf[245];
   ub4 pos;
   size_t adr,nearby;
+  int code;
+  const char *codestr = "";
 
   if (msginfolen) oswrite(2,msginfo,msginfolen);
 
@@ -121,6 +123,17 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
     adr = (size_t)si->si_addr;
     nearby = nearblock(adr);
     pos = mysnprintf(buf,0,sizeof buf,"\nsigsegv at %lx near %lx\npid %u\n", (unsigned long)adr,(unsigned long)nearby,mypid);
+    oswrite(2,buf,pos);
+    pause();
+
+  case SIGFPE:
+    code = si->si_code;
+    switch(code) {
+    case FPE_INTDIV: codestr = "int div"; break;
+    case FPE_INTOVF: codestr = "int ovf"; break;
+    }
+    pos = mysnprintf(buf,0,sizeof buf,"\nsigfpe errno %d code %d %s\npid %u\n",
+      si->si_errno,code,codestr,mypid);
     oswrite(2,buf,pos);
     pause();
 
@@ -143,6 +156,7 @@ int setsigs(void)
   sa.sa_flags = SA_SIGINFO;
 
   sigaction(SIGSEGV, &sa,NULL);
+  sigaction(SIGFPE, &sa,NULL);
   return 0;
 }
 

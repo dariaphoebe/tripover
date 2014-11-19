@@ -66,6 +66,8 @@ extern ub4 mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...) __attri
 
 #define fmtstring(dst,fmt,...) mysnprintf((dst),0,sizeof (dst),(fmt),__VA_ARGS__)
 
+int msgprefix(int rv,const char *fmt, ...) __attribute__ ((format (printf,2,3)));
+
 extern ub4 setmsgfile(const char *filename);
 extern ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid);
 extern void msg_write(const char *buf,ub4 len);
@@ -145,8 +147,8 @@ static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 lin
 static void error_ge_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a < b) return;
-
-  assertfln(line,Exit,"%s:\ah%lu >= %s:\ah%lu", sa,a,sb,b);
+  else if (a == b) assertfln(line,Exit,"%s:\ah%lu == %s:\ah%lu", sa,a,sb,b);
+  else assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu by %lu", sa,a,sb,b,a-b);
 }
 
 static void error_lt_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
