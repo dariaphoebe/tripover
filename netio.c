@@ -40,6 +40,8 @@ static ub4 lon2pdf(ub4 lon,ub4 lolon,ub4 dlon) { return (lon - lolon) * pdfscale
 static const ub4 pdfmaxports = 1000;
 static const ub4 pdfmaxhops = 1000;
 
+static const ub4 hop2watch = hi32;
+
 /* tripover external format: easy manual editing, typical from single gtfs
 
 files contain tab-separated columns
@@ -368,11 +370,15 @@ struct cmdvars {
 static ub4 variants;
 static ub4 sumtimes;
 static ub4 rtype_walk;
+static ub4 rawtripcnt;
+static ub4 hitripid;
 
 static struct cmdvars hopvars[] = {
   {"variants",8,1,&variants,0},
   {"walk_id",7,1,&rtype_walk,0},
   {"sumtimes",8,1,&sumtimes,0},
+  {"trips",5,1,&rawtripcnt,0},
+  {"hitrip",6,1,&hitripid,0},
   {"",0,0,NULL,0}
 };
 
@@ -605,7 +611,8 @@ static int rdextports(netbase *net,const char *dir)
       break;  // newitem
 
     case Next: break;
-    case Eof: case Parserr: break;
+    case Eof: break;
+    case Parserr: return 1;
     }
 
   } while (res < Eof);  // each input char
@@ -873,7 +880,8 @@ static int rdexttimes(netbase *net,const char *dir)
       break;
 
     case Next: break;
-    case Eof: case Parserr: break;
+    case Eof: break;
+    case Parserr: return 1;
     }
 
   } while (res < Eof);  // each input char
@@ -920,13 +928,16 @@ static int rdexthops(netbase *net,const char *dir)
   struct extfmt eft;
   const char *fname;
 
-  ub4 rawhopcnt,hopcnt;
+  ub4 hop,rawhopcnt,hopcnt;
   ub4 portcnt,subportcnt;
+  ub4 chain,chaincnt;
   ub4 maxportid;
   struct hopbase *hops,*hp;
   struct portbase *ports,*pdep,*parr;
   struct subportbase *subports,*sbp;
   struct sidbase *sids,*sp;
+  struct chainbase *chains = NULL,*cp;
+  ub4 *rtid2tid = NULL,*rtidrefs = NULL;
   ub4 *id2ports, *subid2ports;
   ub4 rsid,sid,sidcnt,*rsid2sids;
   int rv;
@@ -941,7 +952,7 @@ static int rdexthops(netbase *net,const char *dir)
 
   ub4 *tbp,*timesbase = NULL;
   ub4 timespos = 0;
-  ub4 tid,tdep,tarr,prvsid,prvtid,prvtdep,prvtarr;
+  ub4 rtid,tid,tdep,tarr,prvsid,prvtid,prvtdep,prvtarr;
   ub4 t0,t1,ht0,ht1;
   ub4 fmt,vndx,tndx;
 
@@ -960,7 +971,7 @@ static int rdexthops(netbase *net,const char *dir)
   rawhopcnt = linecnt(fname,buf,len);
 
   if (rawhopcnt == 0) return warning(0,"%s is empty",fname);
-  hopcnt = 0;
+  hop = chain = 0;
 
   hops = hp = mkblock(&net->hopmem,rawhopcnt,struct hopbase,Init0,"");
 
@@ -984,6 +995,8 @@ static int rdexthops(netbase *net,const char *dir)
   name = eft.name;
 
   int inited = 0;
+  ub4 cumhoprefs = 0;
+  chaincnt = 0;
 
   do {
     res = nextchar(&eft);
@@ -1001,7 +1014,10 @@ static int rdexthops(netbase *net,const char *dir)
       if (inited == 0) {
         if (sumtimes) {
           timesbase = net->timesbase = mkblock(&net->timesmem,sumtimes * 4,ub4,Init0,"time timebase %u",sumtimes);
-          net->timescnt = sumtimes;
+        }
+        if (rawtripcnt) {
+          rtid2tid = alloc(hitripid + 1,ub4,0xff,"chain tripids",hitripid);
+          rtidrefs = alloc(hitripid + 1,ub4,0,"chain triprefs",hitripid);
         }
         inited = 1;
       }
@@ -1016,7 +1032,7 @@ static int rdexthops(netbase *net,const char *dir)
         parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
         namelen = namemax;
       }
-      error_gt(hopcnt+1,rawhopcnt);
+      error_gt(hop+1,rawhopcnt);
       if (valndx < 6) return parserr(FLN,fname,linno,colno,"missing dep,arr,type args, only %u",valndx);
       id = vals[0];
       depid = vals[1];
@@ -1028,7 +1044,9 @@ static int rdexthops(netbase *net,const char *dir)
       timecnt = vals[5];
 
       if (timecnt && !sumtimes) return inerr(FLN,fname,linno,colno,"hop %u-%u has %u times, sumtimes var zero",depid,arrid,timecnt);
-      if (timespos + timecnt > sumtimes) return inerr(FLN,fname,linno,colno,"%u time entries at hop %u-%u, sumtimes %u",timespos,depid,arrid,sumtimes);
+      if (timespos + timecnt > sumtimes) {
+        warning(0,"%s.%u: hop %u has %u time entries, sum %u",fname,linno,hop,timecnt,sumtimes);
+      }
       error_zp(timesbase,0);
       if (timecnt * 4 > valndx - 6) return parserr(FLN,fname,linno,colno,"%u time entries, but only %u args",timecnt,valndx);
 
@@ -1036,20 +1054,34 @@ static int rdexthops(netbase *net,const char *dir)
       tbp = timesbase + timespos * 4;
 
       tndx = 0; vndx = 6;
-      rsid = tid = tdep = tarr = 0;
+      rsid = rtid = tdep = tarr = 0;
       ht0 = hi32; ht1 = 0;
       while (vndx + 4 <= valndx && tndx < timecnt) {
-        prvsid = rsid; prvtid = tid; prvtdep = tdep; prvtarr = tarr;
+        prvsid = rsid; prvtid = rtid; prvtdep = tdep; prvtarr = tarr;
         fmt = vals[vndx++];
         if (fmt & Fmt_prvsid) rsid = prvsid;
         else rsid = vals[vndx++];
-        tid = vals[vndx];
+        rtid = vals[vndx];
         tdep = vals[vndx+1];
         tarr = vals[vndx+2];
         vndx += 3;
-        if (fmt & Fmt_diftid) tid += prvtid;
+        if (fmt & Fmt_diftid) rtid += prvtid;
+
+        error_gt(rtid,hitripid);
+        if (rawtripcnt) {
+          tid = rtid2tid[rtid];
+          if (tid == hi32) {
+            error_ge(chaincnt,rawtripcnt);
+            tid = chaincnt++;
+            rtid2tid[rtid] = tid;
+          }
+          rtidrefs[rtid]++;
+        } else tid = hi32;
+        cumhoprefs++;
+
         if (fmt & Fmt_diftdep) tdep += prvtdep;
         if (fmt & Fmt_diftarr) tarr += prvtarr;
+
         if (rsid > maxsid) return inerr(FLN,fname,linno,colno,"service id %u above highest id %u",rsid,maxsid);
         sid = rsid2sids[rsid];
 
@@ -1059,7 +1091,7 @@ static int rdexthops(netbase *net,const char *dir)
 
         t0 = sp->t0;
         t1 = sp->t1;
-        if (hopcnt == 0) info(0,"sid %u rsid %x tid %x dep %x arr %x \ad%u-\ad%u",sid,rsid,tid,tdep,tarr,t0,t1);
+        if (hop == hop2watch) info(0,"sid %u rsid %x tid %x dep %x arr %x \ad%u-\ad%u",sid,rsid,tid,tdep,tarr,t0,t1);
 
         ht0 = min(ht0,t0);
         ht1 = max(ht1,t1);
@@ -1122,7 +1154,7 @@ static int rdexthops(netbase *net,const char *dir)
         else if (rtype == 3) { hp->kind = Bus; kinds[Bus]++; }
         else { hp->kind = Unknown; kinds[Unknown]++; }
 
-        hp->routeid = routeid;
+        hp->rrid = routeid;
         hp->namelen = namelen;
         memcopy(hp->name,name,namelen);
         maxid = max(maxid,id);
@@ -1130,24 +1162,26 @@ static int rdexthops(netbase *net,const char *dir)
         hp->timecnt = timecnt;
         timespos += timecnt;
         hp++;
-        hopcnt++;
+        hop++;
       }
      break;  // newitem
 
     case Next: break;
-    case Eof: case Parserr: break;
+    case Eof: break;
+    case Parserr: return 1;
     }
 
   } while (res < Eof);
 
-  error_gt(timespos,sumtimes);
+  net->timescnt = timespos;
 
   for (kind = 0; kind < Kindcnt; kind++) {
     val = kinds[kind];
     if (val) info(0,"%u %s hop\as",val,kindnames[kind]);
   }
+  hopcnt = hop;
 
-  info(0,"%u time entries",sumtimes);
+  info(0,"%u hops, %u time entries",hopcnt,sumtimes);
 
   ub4 sidrefs = 0;
 
@@ -1158,7 +1192,7 @@ static int rdexthops(netbase *net,const char *dir)
   }
   if (sidrefs < sidcnt) info(0,"%u sid\as not referenced",sidcnt - sidrefs); // todo filter ?
 
-  ub4 hop,*id2hops;
+  ub4 *id2hops;
   ub4 varmask;
 
   if (maxid > 100 * 1000 * 1000) warning(0,"max hop id %u",maxid);
@@ -1176,7 +1210,7 @@ static int rdexthops(netbase *net,const char *dir)
   info(0,"read %u hops from %s", hopcnt, fname);
   net->hopcnt = hopcnt;
   net->hops = hops;
-  net->maxrouteid = maxrid;
+  net->hirrid = maxrid;
 
   // lower routeid bits are variants
   if (variants) varmask = ~(1 << variants);  // add lsb for direction
@@ -1185,6 +1219,24 @@ static int rdexthops(netbase *net,const char *dir)
 
   net->maxvariants = variants;
   net->routevarmask = varmask;
+
+  ub4 nilchains = 0;
+  chains = alloc(chaincnt,struct chainbase,0,"chain",chaincnt);
+  for (rtid = 0; rtid <= hitripid; rtid++) {
+    tid = rtid2tid[rtid];
+    if (tid == hi32) continue;
+    cp = chains + tid;
+    cp->hoprefs = rtidrefs[rtid];
+    if (cp->hoprefs == 0) nilchains++;
+    cp->rtid = rtid;
+  }
+  afree(rtid2tid,"rtid2tid");
+  info(0,"%u of %u chains with hops",chaincnt - nilchains,chaincnt);
+
+  net->hitripid = hitripid;
+  net->rawchaincnt = chaincnt;
+  net->chainhopcnt = cumhoprefs;
+  net->chains = chains;
 
   return 0;
 }

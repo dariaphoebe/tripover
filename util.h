@@ -33,6 +33,9 @@ extern int fileclose(int fd,const char *name);
 
 extern int readfile(struct myfile *mf,const char *name, int mustexist);
 
+extern ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc);
+extern ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc);
+
 extern int cmdline(int argc, char *argv[], struct cmdarg *cap);
 
 #define memcopy(d,s,n) memcopyfln((d),(s),(n),FLN)
@@ -47,7 +50,7 @@ extern int hex2ub4(const char *s, ub4 *pv);
 #define oclear(p) do_clear(&(p),sizeof(p))
 extern void do_clear(void *p,ub4 len);
 
-// #define limit(a,b,c) if ((a) > (b)) { (a) = (b); warningfln(FLN,0,"limit %s:%u to %s:%u for %s:%u",#a,(a),#b,(b),#c,(c)); }
+#define limit(a,b,c) if ((a) > (b)) { (a) = (b); warningfln(FLN,0,"limit %s:%u to %s:%u for %s:%u",#a,(a),#b,(b),#c,(c)); }
 
 extern int dorun(enum Runlvl stage);
 

@@ -121,12 +121,12 @@ static int mknet0(struct network *net)
   ports = net->ports;
   hops = net->hops;
 
+  portsbyhop = net->portsbyhop;
+
   con0cnt = alloc(port2, ub2,0,"net0 concnt",portcnt);
   con0ofs = alloc(port2, ub4,0xff,"net0 conofs",portcnt);
 
   con0lst = mkblock(net->conlst,hopcnt,ub4,Init1,"net0 0-stop conlst");
-
-  portsbyhop = alloc(hopcnt * 2, ub4,0xff,"net0 conofs",portcnt);
 
   // geographical direct-line distance
   dist0 = alloc(port2, ub4,0,"net0 geodist",portcnt);
@@ -178,7 +178,7 @@ static int mknet0(struct network *net)
     dname = pdep->name;
     aname = parr->name;
     if (dep == arr) {
-      if (dep < net->pportcnt) warning(0,"hop %u %s dep == arr %u %s",hop,hp->name,dep,dname);
+      if (dep < net->pportcnt) warning(0,"%chop %u %s dep == arr %u %s",hp->compound ? 'c' : ' ',hop,hp->name,dep,dname);
       continue;
     }
     for (watch = 0; watch < watches; watch++) {
@@ -187,8 +187,6 @@ static int mknet0(struct network *net)
       }
     }
 
-    portsbyhop[hop * 2] = dep;
-    portsbyhop[hop * 2 + 1] = arr;
     da = dep * portcnt + arr;
     concnt = con0cnt[da];
     if (dep >= pportcnt && arr >= pportcnt) cntlim = cnt0lim_xpart2;
@@ -239,7 +237,7 @@ static int mknet0(struct network *net)
 
         hp = hops + hop;
         if (hp->dep != dep || hp->arr != arr) {
-          warning(0,"hop %u %s not %u-%u",hop,hp->name,dep,arr);
+          warning(0,"hop %u %s %u-%u not %u-%u",hop,hp->name,hp->dep,hp->arr,dep,arr);
           continue;
         }
         error_ge(ofs,hopcnt);
@@ -297,7 +295,6 @@ static int mknet0(struct network *net)
 
   net->dist0 = dist0;
   net->hopdist = hopdist;
-  net->portsbyhop = portsbyhop;
 
   net->con0cnt = con0cnt;
   net->con0ofs = con0ofs;
@@ -1003,7 +1000,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
   pdep = ports + lodep;
   leftcnt = portcnt - loarrcon - 1;
-  if (leftcnt) info(0,"port %u lacks %u onnection\as %s",lodep,(ub4)leftcnt,pdep->name);
+  if (leftcnt) info(0,"port %u lacks %u connection\as %s",lodep,(ub4)leftcnt,pdep->name);
 
   for (nda = 0; nda < ndacnt; nda++) {
     deparr = lodeparrs[nda];
@@ -1134,14 +1131,15 @@ static ub2 hasxcon(ub4 callee,ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
       if (xpart != apart) { // use xmap to check reach
 
         if (xpart >= partcnt) {
-          warning(0,"xarr %u pport %u",xarr,pportcnt); // todo
+          info(0,"xarr %u pport %u",xarr,pportcnt); // todo
           return 0;
         }
         xnet = cgetnet(caller,xpart);
         xpp = xnet->ports + xarr;
         xpi = 0;
         while (xpi < xpp->partcnt && xpi < Nxpart && xpp->partnos[xpi] != apart) xpi++;
-        if (xpp->partnos[xpi] != apart) {
+        if (xpi == Nxpart) break; // todo
+        else if (xpp->partnos[xpi] != apart) {
           xapart = hi32;
           stats[4]++;  // stat
           for (xpi = 0; xpi < min(xpp->partcnt,Nxpart); xpi++) {
@@ -1366,21 +1364,23 @@ int mknet(ub4 maxstop)
     if (allportcnt == 0) { info0(0,"skip mknet on 0 ports"); continue; }
     if (allhopcnt == 0) { info0(0,"skip mknet on 0 hops"); continue; }
 
+    msgprefix(0,"s%u ",part);
+
     rv = condense(net);
-    if (rv) return 1;
+    if (rv) return msgprefix(1,NULL);
 
     rv = compound(net);
-    if (rv) return 1;
+    if (rv) return msgprefix(1,NULL);
 
     if (dorun(Runnet0)) {
-      if (mknet0(net)) return 1;
+      if (mknet0(net)) return msgprefix(1,NULL);
     } else continue;
 
     limit_gt(maxstop,Nstop,0);
 
     if (dorun(Runnetn)) {
       for (nstop = 1; nstop <= maxstop; nstop++) {
-        if (mknetn(net,nstop)) return 1;
+        if (mknetn(net,nstop)) return msgprefix(1,NULL);
         net->maxstop = nstop;
         chkgconn(gnet);
         if (net->lstlen[nstop] == 0) {
@@ -1391,6 +1391,8 @@ int mknet(ub4 maxstop)
     } else info(0,"partition %u skipped static network init",part);
 
   } // each part
+
+  msgprefix(0,NULL);
 
   dogconn(caller,gnet);
 

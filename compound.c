@@ -13,7 +13,11 @@
  a route is defined here as in public transport : ports are visited in succession
  without actual tranfers.
 
+ such compound hop points to its first and last actual hop.
+ These in turn contain the depart and arrive times.
+
  at network read time, these routes are ignored, yet the ID is marked.
+ Note that the 'trip', the complete sequences, are stored. IDs of these are in the time tables
  after condense, reconstruct the 'direct' hops that do not need a physical transfer
  */
 
@@ -34,9 +38,9 @@ static ub4 msgfile;
 
 #undef hdrstop
 
-static ub2 maxroutelen = 100;
+#define Maxchainports 128
 
-static ub4 rid2log = 0x3ec1;
+static ub4 rid2log = hi32;
 
 void inicompound(void)
 {
@@ -44,387 +48,253 @@ void inicompound(void)
   iniassert();
 }
 
+// check if all deps from hop1 exist at hop2 as well.
+// todo
+static int setgos(struct network *net,struct hop *nhp,ub4 hop1,ub4 hop2,ub4 dep,ub4 arr)
+{
+  struct hop *hops,*hp1,*hp2;
+  struct timepat *tp1,*tpn;
+  struct chain *cp,*chains = net->chains;
+  ub4 *evs,*events = net->events;
+  ub8 *chp,*chainhops = net->chainhops;
+
+  ub4 hopndx,tid,tdep,ccnt;
+
+  hops = net->hops;
+
+  hp1 = hops + hop1;
+  hp2 = hops + hop2;
+  error_ne(hp1->dep,dep);
+  error_ne(hp2->arr,arr);
+
+  tp1 = &hp1->tp;
+
+  tpn = &nhp->tp;
+
+  *tpn = *tp1;
+
+  ub4 cnt = 0,tidno = 0;
+  evs = events + tp1->evofs;
+
+  while(cnt < tp1->evcnt) {
+    tid = evs[cnt * 2 + 1];
+    if (tid == 0) { cnt++; continue; }
+
+    cp = chains + tid;
+    hopndx = tdep = 0;
+    chp = chainhops + cp->hopofs;
+    ccnt = cp->hopcnt;
+    while (hopndx < ccnt && (chp[hopndx] & hi32) != hop1) {
+      if ( (chp[hopndx] & hi32) == hop2) tdep = chp[hopndx] >> 32;
+      hopndx++;
+    }
+    if (hopndx == ccnt) return error(0,"hop %u tid %x not in chain",hop1,tid);
+    else if (tdep) {
+      tidno++;
+    }
+    cnt++;
+  }
+  return 0;
+}
+
 // add compound hops
 int compound(struct network *net)
 {
   ub4 part = net->part;
-  ub4 port,rportcnt,port2,portcnt = net->portcnt;
-  ub4 hop,newhop,newhopcnt,addhopcnt,hopcnt = net->hopcnt;
-  struct port *parr,*pdep,*ports = net->ports;
-  struct hop *hp,*nhp,*newhops,*hops = net->hops;
+  ub4 rportcnt,port2,rport2,portcnt = net->portcnt;
+  ub4 hop,ghop,nhop,newhopcnt,hopcnt = net->hopcnt;
+  ub4 rid,pridcnt,ridcnt = net->ridcnt;
+  ub4 chain,chaincnt;
+  struct hop *nhp,*newhops,*hops = net->hops;
   struct route *routes,*rp;
-  enum txkind kind;
-  ub4 dep,arr,ndep,narr,lodep,loarr,hidep,hiarr;
-  ub2 rdep,rarr,rport;
-  ub4 pos,n;
-  ub4 rid,rrid,maxrid,rid4max,cnt,maxcnt,routecnt,routesum;
-  ub2 cnt2;
+  struct chain *chains,*cp;
+  ub8 *chp,*chainhops = net->chainhops;
+  ub4 dep,arr,ndep,narr;
+  ub2 rdep,rarr;
+  ub4 hcnt,unicnt,dupci;
+  ub8 code;
   int docompound;
-  enum Msglvl lvl = Vrb;
+  ub2 rarrs[Maxchainports];
+  ub1 rdeparr[Maxchainports * Maxchainports];
+  ub4 rport2port[Maxchainports];
+  ub4 maxchainlen = Maxchainports - 1;
 
-  if (portcnt == 0) return info0(0,"skip compound on 0 ports");
-  if (hopcnt == 0) return info0(0,"skip compound on 0 hops");
+  if (portcnt < 3) return info(0,"skip compound on %u port\as",portcnt);
+  if (hopcnt < 2) return info(0,"skip compound on %u hop\as",hopcnt);
   port2 = portcnt * portcnt;
 
   docompound = dorun(Runcompound);
 
   if (docompound == 0) return info0(0,"compound not enabled");
 
-  if (hopcnt > 1000 * 1000) return info(0,"no compound for \ah%u hops",hopcnt);
-
-  maxrid = net->maxrouteid;
-
-  if (maxrid > 1000 * 1000 * 100) return info(0,"no compound for max route ID \ah%u",maxrid);
-
   info(0,"compounding %u ports %u hops",portcnt,hopcnt);
 
-  ub2 *rrid2hopcnt = alloc(maxrid+1,ub2,0,"cmp rrid2hopcnt",maxrid);
-  ub4 *rrid2rid = alloc(maxrid+1,ub4,0,"cmp rrid2rid",maxrid);
+  ub4 *rcp,*routechains  = net->routechains;
 
-  // count #hops per route
-  maxcnt = rid4max = 0;
-  for (hop = 0; hop < hopcnt; hop++) {
-    hp = hops + hop;
-    rrid = hp->routeid;
-    if (rrid == hi32) continue;
+  ub4 *g2phop = net->g2phop;
 
-    error_ne(hp->part,part);
+  ub4 rawcmphopcnt = 0;
+  ub2 *port2rport = alloc(portcnt,ub2,0xff,"port2rport",portcnt);
 
-    error_gt(rrid,maxrid);
-    dep = hp->dep;
-    arr = hp->arr;
-    error_eq(dep,arr);
+  routes = net->routes;
+  chains = net->chains;
+  chaincnt = net->chaincnt;
 
-    cnt = rrid2hopcnt[rrid];
-    cnt++;
-    limit_gt(cnt,maxroutelen,rrid);
-    if (cnt > maxcnt) { maxcnt = cnt; rid4max = rrid; }
-    rrid2hopcnt[rrid] = (ub2)cnt;
-  }
+  error_zp(routes,part);
+  error_zp(chains,part);
 
-  // estimate #compound hops
-  routecnt = routesum = addhopcnt = rid = 0;
-  for (rrid = 0; rrid <= maxrid; rrid++) {
-    cnt = rrid2hopcnt[rrid];
-    if (cnt == 0) continue;
-    rrid2rid[rrid] = rid++;
-    routesum += cnt;
-    if (cnt > 2) addhopcnt += cnt * (cnt - 1);
-  }
-  routecnt = rid;
-
-  info(0,"%u hops in %u routes, max len %u at rid %x",routesum,routecnt,maxcnt,rid4max);
-  info(0,"\ah%u tentative new hops",addhopcnt);
-
-  ub2 *rid2hopcnt = alloc(routecnt,ub2,0,"rid2hopcnt",routecnt);
-  routes = alloc(routecnt,struct route,0,"routes",routecnt);
-
-  ub2 *port2rport = alloc(portcnt,ub2,0,"port2rport",portcnt);
-  ub4 *rport2port = alloc(portcnt,ub4,0,"rport2port",portcnt);
-
-  ub2 *portdeps = alloc(portcnt,ub2,0,"portdeps",portcnt);
-  ub2 *portarrs = alloc(portcnt,ub2,0,"portarrs",portcnt);
-  ub2 *rportdeps = alloc(portcnt,ub2,0,"rportdeps",portcnt);
-  ub2 *rportarrs = alloc(portcnt,ub2,0,"rportarrs",portcnt);
-
-  ub1 *rduphops = alloc(port2,ub1,0,"cmp duphops",port2);
-
-  // resequence
-  for (rrid = 0; rrid <= maxrid; rrid++) {
-    cnt2 = rrid2hopcnt[rrid];
-    if (cnt2 == 0) continue;
-    rid = rrid2rid[rrid];
+  pridcnt = 0;
+  for (rid = 0; rid < ridcnt; rid++) {
     rp = routes + rid;
-    rp->routeid = rrid;
-    rp->hopcnt = cnt2;
-    rid2hopcnt[rid] = cnt2;
+    if (rp->part != part) continue;
+    pridcnt++;
+    hcnt = rp->hichainlen;
+    rawcmphopcnt += hcnt * hcnt;  // = (portcnt-1)^2
   }
+  info(0,"%u of %u routes in part %u",pridcnt,ridcnt,part);
+  rawcmphopcnt = rawcmphopcnt * 4 / 6; // rough estimate is 1/2
 
-  for (hop = 0; hop < hopcnt; hop++) {
-    hp = hops + hop;
-    rrid = hp->routeid;
-    if (rrid != hi32) hp->rid = rrid2rid[rrid];
-    else hp->rid = hi32;
-  }
+  info(0,"estimated \ah%u compound hops",rawcmphopcnt);
 
-  newhopcnt = hopcnt + addhopcnt;
+  newhopcnt = hopcnt + rawcmphopcnt;
   newhops = alloc(newhopcnt,struct hop,0,"cmp newhops",newhopcnt);
 
   memcpy(newhops,hops,hopcnt * sizeof(struct hop));
 
-  ub4 *rhp,*ridhops = alloc(routecnt * maxcnt,ub4,0,"cmp ridhops",maxcnt);
+  nhp = newhops + hopcnt;
+  nhop = hopcnt;
 
-  newhop = hopcnt;
-  nhp = newhops + newhop;
+  ub4 *orgportsbyhop = net->portsbyhop;
+  ub4 *portsbyhop = alloc(newhopcnt * 2,ub4,0,"cmp portsbyhop",newhopcnt);
+  memcpy(portsbyhop,orgportsbyhop,hopcnt * 2 * sizeof(ub4));
 
-  // fill hops per route
-  for (rid = 0; rid < routecnt; rid++) {
-    cnt = rid2hopcnt[rid];
-    if (cnt < 3) continue;
-    rhp = ridhops + rid * maxcnt;
-    pos = 0;
-    for (hop = 0; hop < hopcnt; hop++) {
-      hp = hops + hop;
-      if (hp->rid == rid) rhp[pos++] = hop;
-    }
+  ub4 ci,chcnt,hi,a2no,da,cdep,carr,arr2;
+  ub4 hichaincnt = 0;
+  for (rid = 0; rid < ridcnt; rid++) {
+    rp = routes + rid;
+    if (rp->part != part) continue;
+    hichaincnt = max(hichaincnt,rp->chaincnt);
   }
 
-  ub2 *rdp = alloc(maxcnt,ub2,0,"cmp reseq dep",maxcnt);
-  ub2 *rap = alloc(maxcnt,ub2,0,"cmp reseq arr",maxcnt);
-  ub2 *rdp2 = alloc(maxcnt,ub2,0,"cmp reseq dep",maxcnt);
-  ub2 *rap2 = alloc(maxcnt,ub2,0,"cmp reseq arr",maxcnt);
-  ub2 *spp = alloc(maxcnt * 2,ub2,0,"cmp reseq port",maxcnt * 2);
+  ub8 *unichains = alloc(hichaincnt,ub8,0,"cmp tmp",hichaincnt);
 
-  ub4 spos,spos1;
-  ub4 termroutes = 0;
-  ub4 constats[256];
-
-  // reconstruct routes
-  for (rid = 0; rid < routecnt; rid++) {
+  for (rid = 0; rid < ridcnt; rid++) {
     rp = routes + rid;
-    rrid = rp->routeid;
-    lvl = (rrid == rid2log ? Info : Vrb);
-    cnt = rid2hopcnt[rid];
-    if (cnt == 0) { info(0,"no hops for route %u %x",rid,rrid); continue; }
-    else if (cnt < 2) { info(0,"skipping %u hop route %u %x",cnt,rid,rrid); continue; }
+    if (rp->part != part) continue;
 
-    rhp = ridhops + rid * maxcnt;
-    memset(portdeps,0,portcnt * sizeof(ub2));
-    memset(portarrs,0,portcnt * sizeof(ub2));
-    hp = hops + rhp[0];
-    rp->kind = kind = hp->kind;
-    for (pos = 0; pos < cnt; pos++) {
-      hop = rhp[pos];
-      hp = hops + hop;
-      dep = hp->dep;
-      arr = hp->arr;
-      pdep = ports + dep;
-      parr = ports + arr;
-      genmsg(lvl,0,"route %x hop %u %u-%u %s to %s",rrid,hop,dep,arr,pdep->name,parr->name);
-      portdeps[dep]++;
-      portarrs[arr]++;
-    }
+    chcnt = rp->chaincnt;
+    rcp = routechains + rp->chainofs;
+    memset(unichains,0,chcnt * sizeof(ub8));
+    memset(port2rport,0xff,portcnt * sizeof(ub2));
+    memset(rport2port,0,sizeof(rport2port));
 
-    // resequence ports per route
-    rport = 0;
-    lodep = loarr = hi32; hidep = hiarr = 0;
-    for (port = 0; port < portcnt; port++) {
-      ndep = portdeps[port];
-      narr = portarrs[port];
-      if (ndep == 0 && narr == 0) continue;
-      lodep = min(lodep,ndep); loarr = min(loarr,narr);
-      hidep = max(hidep,ndep); hiarr = max(hiarr,narr);
-      pdep = ports + port;
-      genmsg(lvl,0,"port %u at #%u: %u deps %u arrs %s",port,rport,ndep,narr,pdep->name);
-      port2rport[port] = rport;
-      rport2port[rport] = port;
-      rport++;
-    }
-    rportcnt = rp->portcnt = rport;
-    if (rportcnt < 3) { info(0,"skip %u-port route %u %x",rportcnt,rid,rrid); continue; }
-    genmsg(lvl,0,"route %x %u ports deps %u-%u arrs %u-%u",rrid,rport,lodep,hidep,loarr,hiarr);
+    rportcnt = unicnt = 0;
+    for (ci = 0; ci < chcnt; ci++) {
+      chain = rcp[ci];
+      error_ge(chain,chaincnt);
+      cp = chains + chain;
+      hcnt = cp->hopcnt;
+      if (hcnt < 3) continue;
+      limit(hcnt,maxchainlen,chain);
 
-    memset(rportdeps,0,rportcnt * sizeof(ub2));
-    memset(rportarrs,0,rportcnt * sizeof(ub2));
+      // filter out chains with identical sequence
+      code = cp->code;
+      dupci = 0;
+      while (dupci < unicnt && (unichains[dupci] & hi32) != code) dupci++;
+      if (dupci < unicnt) continue;
+      unichains[unicnt++] = ((ub8)chain << 32) | code;
+      cp->uni = 1;
 
-    // filter out variants
-    for (pos = 0; pos < cnt; pos++) {
-      hop = rhp[pos];
-      hp = hops + hop;
-      dep = hp->dep;
-      arr = hp->arr;
-      rdep = port2rport[dep];
-      rarr = port2rport[arr];
-      rportdeps[rdep]++;
-      rportarrs[rarr]++;
-    }
+      // pass 1: create relative portlist per route
+      chp = chainhops + cp->hopofs;
+      for (hi = 0; hi < hcnt; hi++) {
+        ghop = (ub4)chp[hi];
+        hop = g2phop[ghop];
+        dep = portsbyhop[hop * 2];
+        arr = portsbyhop[hop * 2 + 1];
+        if (dep == arr) warning(0,"dep %u == arr",dep);
+        if (port2rport[dep] == hi16) {
+          port2rport[dep] = (ub2)rportcnt;
+          rport2port[rportcnt++] = dep;
+        }
+        if (port2rport[arr] == hi16) {
+          port2rport[arr] = (ub2)rportcnt;
+          rport2port[rportcnt++] = arr;
+        }
+      }
+    } // each chain
+    rp->portcnt = rportcnt;
+    if (rportcnt != rp->hichainlen + 1) info(0,"route %u hi portcnt %u hi chainlen %u",rid,rportcnt,rp->hichainlen+1);
+    rport2 = rportcnt * rportcnt;
+    memset(rdeparr,0,rport2);
 
-// todo: leave out a-c if exist a-b-c but merge times afterwards
-    for (pos = 0; pos < cnt; pos++) {
-      hop = rhp[pos];
-      hp = hops + hop;
-      dep = hp->dep;
-      arr = hp->arr;
-      rdep = port2rport[dep];
-      rarr = port2rport[arr];
-      pdep = ports + dep;
-      parr = ports + arr;
-      if (rportdeps[rdep] > 1 && rportarrs[rarr] > 1) {
-        info(0,"route %x omit %u-%u %s to %s",rrid,dep,arr,pdep->name,parr->name);
-        rportdeps[rdep]--;
-        rportarrs[rarr]--;
-        rhp[pos] = hi32;
+    for (ci = 0; ci < chcnt; ci++) {
+      chain = rcp[ci];
+      cp = chains + chain;
+      hcnt = min(cp->hopcnt,maxchainlen);
+      if (hcnt < 3 || cp->uni == 0) continue;
+
+      // pass 2
+      chp = chainhops + cp->hopofs;
+      for (hi = 0; hi < hcnt; hi++) {
+        ghop = (ub4)chp[hi];
+        hop = g2phop[ghop];
+        arr = portsbyhop[hop * 2 + 1];
+        rarr = port2rport[arr];
+        rarrs[hi] = rarr;
+      }
+      for (hi = 0; hi < hcnt; hi++) {
+        ghop = (ub4)chp[hi];
+        hop = g2phop[ghop];
+        dep = portsbyhop[hop * 2];
+        arr = portsbyhop[hop * 2 + 1];
+        rdep = port2rport[dep];
+        rarr = port2rport[arr];
+        rarrs[hi] = rarr;
+        rdeparr[rdep * rportcnt + rarr] = 1;
+        for (a2no = hi+1; a2no < hcnt; a2no++) {
+          arr2 = rarrs[a2no];
+          da = rdep * rportcnt + arr2;
+          if (rdeparr[da] != 1) rdeparr[da] = 2;
+        }
       }
     }
 
-    memset(rduphops,0,rportcnt * rportcnt);
-
-    // detect terminus
-    aclear(constats);
-    rp->dtermport = rp->atermport = hi32;
-    for (rport = 0; rport < rportcnt; rport++) {
-      port = rport2port[rport];
-      pdep = ports + port;
-      ndep = rportdeps[rport];
-      narr = rportarrs[rport];
-
-      if (ndep < 4 && narr < 4) constats[ (ndep << 4) | narr]++;
-      else constats[0x44]++;
-
-      if (ndep == 0 && narr == 0) {
-        warning(0,"route %x port %u is not connected",rrid,port);
-      } else if (rp->dtermport == hi32 && ndep && narr == loarr && loarr != hiarr) {
-        genmsg(lvl,0,"route %x dep term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
-        rp->dtermport = port;
-      } else if (rp->atermport == hi32 && narr && ndep == lodep && lodep != hidep) {
-        genmsg(lvl,0,"route %x arr term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
-        rp->atermport = port;
-      } else if (rp->dtermport != hi32 && ndep && narr == loarr && loarr != hiarr) {
-        genmsg(lvl,0,"route %x extra dep term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
-      } else if (rp->atermport != hi32 && narr && ndep == lodep && lodep != hidep) {
-        genmsg(lvl,0,"route %x extra arr term port %u %s with %u deps %u arrs",rrid,port,pdep->name,ndep,narr);
-      } else if (ndep > 3 || narr > 3) info(0,"route %x port %u with %u deps %u arrs",rrid,port,ndep,narr);
-      else genmsg(lvl,0,"route %x port %u with %u deps %u arrs %s",rrid,port,ndep,narr,pdep->name);
-    }
-    if (rp->dtermport != hi32) termroutes++;
-    else info(0,"route %x has no dep terms", rrid);
-
-    for (ndep = 0; ndep < 3; ndep++) {
-      for (narr = 0; narr < 3; narr++) {
-        n = constats[(ndep << 4) | narr];
-        if (n) genmsg(lvl,0,"%u port\as with %u deps + %u arrs", n,ndep,narr);
-      }
-    }
-
-    // resequence route 1
-    memset(rportdeps,0,rportcnt * sizeof(ub2));
-    memset(rportarrs,0,rportcnt * sizeof(ub2));
-    for (pos = 0; pos < cnt; pos++) {
-      hop = rhp[pos];
-      if (hop == hi32) continue;
-      hp = hops + hop;
-      dep = hp->dep;
-      arr = hp->arr;
-      rdep = port2rport[dep];
-      rarr = port2rport[arr];
-      error_ge(rdep,rportcnt);
-      error_ge(rarr,rportcnt);
-      rduphops[rdep * rportcnt + rarr] = 1;
-      ndep = rportdeps[rdep];
-      narr = rportarrs[rarr];
-      if (ndep && narr) {
-        rdep = rarr = hi16; // only store if dep and arr unique
-        pdep = ports + dep; parr = ports + arr;
-        info(0,"skip extra %u-%u %s to %s",dep,arr,pdep->name,parr->name);
-      } else {
-        rportdeps[rdep] = (ub2)ndep + 1;
-        rportarrs[rarr] = (ub2)narr + 1;
-      }
-      rdp[pos] = rdp2[pos] = rdep;
-      rap[pos] = rap2[pos] = rarr;
-    }
-
-    // start with departure terminus
-    port = rp->dtermport;
-    if (port == hi32) {
-      warning(0,"route %u.%x nil dterm %s",part,rrid,rp->name);
-      continue; // later
-    }
-    if (port == rp->atermport) {
-      pdep = ports + port;
-      warning(0,"route %u.%x dterm = aterm port %u.%u %s",part,rrid,pdep->part,port,pdep->name);
-    }
-
-    pdep = ports + port;
-    rport = port2rport[port];
-
-    // resequence route 2
-    spos = pos = 0;
-    while (spos < rportcnt - 1) {
-      pos = 0;
-      if (port == rp->atermport) {
-        warning(0,"route %u.%x arr %u into term port %u.%u %s",part,rrid,port,pdep->partcnt,pdep->part,pdep->name);
-        break;
-      }
-      while (pos < cnt && rdp[pos] != rport) pos++;
-      if (pos == cnt) {
-        warning(0,"route %u.%x port %u.%u.%u %s not found",part,rrid,pdep->partcnt,pdep->part,port,pdep->name);
-        break;
-      }
-      genmsg(lvl,0,"found %u at pos %u, seq %u %s",port,pos,spos,pdep->name);
-      spp[spos++] = rport;
-      rdp[pos] = hi16;
-      rport = rap[pos];
-      port = rport2port[rport];
-      pdep = ports + port;
-    }
-    if (pos == cnt) continue;
-
-    port = rp->atermport;
-    if (port != hi32 && spos < rportcnt) {
-      parr = ports + port;
-      rport = port2rport[port];
-      pos = 0;
-      while (pos < cnt && rap[pos] != rport) pos++;
-      if (pos == cnt) {
-        warning(0,"route %x arr term port %u %s not found",rrid,port,parr->name);
-        rportcnt = spos;
-      } else {
-        genmsg(lvl,0,"found %u at pos %u, seq %u %s",port,pos,spos,pdep->name);
-        spp[spos++] = rport;
-      }
-    }
-
-    // generate compounds
-    for (spos = 0; spos < rportcnt; spos++) {
-      rdep = spp[spos];
-      dep = rport2port[rdep];
-      for (spos1 = spos+2; spos1 < rportcnt; spos1++) {
-        rarr = spp[spos1];
+    for (rdep = 0; rdep < rportcnt; rdep++) {
+      for (rarr = 0; rarr < rportcnt; rarr++) {
         if (rdep == rarr) continue;
-        if (rduphops[rdep * rportcnt + rarr]) continue;
+        if (rdeparr[rdep * rportcnt + rarr] != 2) continue;
 
-        rduphops[rdep * rportcnt + rarr] = 1;
+        // generate compound
+        narr = ndep = 0;
+        while (narr < rportcnt && rdeparr[rdep * rportcnt + narr] != 1) narr++;
+        while (ndep < rportcnt && rdeparr[ndep * rportcnt + rarr] != 1) ndep++;
+        if (narr == rportcnt) { warning(0,"no first arr for compound %u-%u route %u",rdep,rarr,rid); continue; }
+        if (ndep == rportcnt) { warning(0,"no first dep for compound %u-%u route %u",rdep,rarr,rid); continue; }
+        dep = rport2port[rdep];
         arr = rport2port[rarr];
-        pos = 0;
-        while (pos < cnt && !(rdp2[pos] == rdep && rap2[pos] == rarr) ) pos++; // skip existing
-        if (pos < cnt) continue;
-
-        error_ge(newhop,newhopcnt);
-
-        pdep = ports + dep;
-        parr = ports + arr;
-        genmsg(lvl,0,"add compound %u-%u %s to %s",dep,arr,pdep->name,parr->name);
-        error_ge(newhop,newhopcnt);
+        if (dep == arr) { warning(0,"chop %u dep %u == arr",nhop,dep); continue; }
+        cdep = rport2port[ndep];
+        carr = rport2port[narr];
         nhp->dep = dep;
         nhp->arr = arr;
-        nhp->kind = kind;
-        nhp->rid = rid;
-        nhp->routeid = rrid;
-        nhp->compound = spos1 - spos;
-//          fmtstring(nhp->name,"%s to %s",port->name,port1->name);
+        nhp->cdep = cdep;
+        nhp->carr = carr;
+        error_ge(nhop,newhopcnt);
+        portsbyhop[nhop * 2] = dep;
+        portsbyhop[nhop * 2 + 1] = arr;
+        fmtstring(nhp->name,"chop %u %u-%u",nhop,dep,arr);
         nhp++;
-        newhop++;
+        nhop++;
       }
     }
-
-  } // each route
-  info(0,"%u of %u routes with terminus",termroutes,routecnt);
-  info(0,"%u of %u estimated compound hops",newhop - net->hopcnt,newhopcnt);
-  newhopcnt = newhop;
-
-  for (rid = 0; rid < routecnt; rid++) {
-    cnt = rid2hopcnt[rid];
-    if (cnt < 3) continue;
-    rp = routes + rid;
-    rrid = rp->routeid;
-    rhp = ridhops + rid * maxcnt;
   }
 
-  net->routecnt = routecnt;
+  info(0,"%u of %u estimated compound hops",nhop,newhopcnt);
 
-  net->hopcnt = newhopcnt;
+  net->hopcnt = nhop;
   net->hops = newhops;
+  net->portsbyhop = portsbyhop;
 
   return 0;
 }

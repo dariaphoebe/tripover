@@ -87,6 +87,14 @@ struct port {
   ub2 depcnts[Nstop];
 };
 
+struct chain {
+  ub4 rrid;
+  ub4 hopcnt;
+  ub4 hopofs;
+  ub8 code;
+  ub1 uni;
+};
+
 struct timepat {
   ub4 hop;
   ub4 utcofs;
@@ -107,7 +115,7 @@ struct timepat {
 
 struct hop {
   ub4 magic;
-  ub4 id;
+//  ub4 id;
   ub4 gid;
 
   char name[128];  // todo: use below structure instead
@@ -117,9 +125,10 @@ struct hop {
   enum txkind kind;
 
   ub4 dep,arr;
-  ub4 routeid,rid;
+  ub4 cdep,carr;
+  ub4 rrid,rid;
 
-  struct timepat tp;
+  struct timepat tp; //todo alloc variable, not for compound
 
   ub4 compound;
 
@@ -135,15 +144,18 @@ struct route {
   char name[128];  // todo: use below structure instead
   ub4 namelen;
 
-  enum txkind kind;
+//  enum txkind kind;
 
-  ub4 routeid;
+  ub4 rrid;
   ub4 portcnt;
   ub4 hopcnt;
+  ub4 hichainlen;
 
-  ub4 dtermport,atermport; // terminus
+  ub4 chainofs;
+  ub4 chaincnt;
 
-  // rest todo
+//  ub4 dtermport,atermport; // terminus
+  ub4 part;
 };
 
 struct carrier {
@@ -161,14 +173,11 @@ struct sidtable {
   ub4 id;
   ub4 sid;
 
-  char name[128];  // todo: use below structure instead
+  char name[128]; // todo
   ub4 namelen;
 
   ub4 dow;
   ub4 t0,t1;
-
-//  todo unrolled aka expanded timetables
-
 };
 
 #define Nleg (Nstop+1)
@@ -182,17 +191,32 @@ struct network {
   ub4 routecnt;
   ub4 carriercnt;
   ub4 sidcnt;
+  ub4 chaincnt;
+  ub4 ridcnt,pridcnt;
+
+  ub4 chainhopcnt;
 
   struct port *ports, *allports;
   struct hop *hops,*allhops;
+  struct chain *chains;
 
-  struct route *routes;
+  struct route *routes;   // not partitioned
   struct carrier *carriers;  
   struct sidtable *sids;
+
+  ub4 *routechains;
+  ub8 *chainhops;   // points to gnet
+
+// timetables: pointer to basenet
+  block *eventmem;
+  block *evmapmem;
+  ub4 *events;
+  ub2 *evmaps;
 
 // access
   ub4 *g2pport;      // [gportcnt] global to partition port id
   ub4 *p2gport;      // [portcnt]
+  ub4 *g2phop;       // [ghopcnt]
 
   ub4 fports2ports[Portcnt];
 
@@ -208,7 +232,8 @@ struct network {
 
   ub4 maxstop;     // highest n-stop connections inited
 
-  ub4 maxrouteid;
+  ub4 hirrid;
+
   ub4 maxvariants,routevarmask;
 
   size_t needconn;    // final required any-stop connectivity
@@ -242,10 +267,16 @@ struct gnetwork {
   ub4 portcnt;
   ub4 hopcnt;
   ub4 sidcnt;
+  ub4 ridcnt;
+  ub4 chaincnt;
+
+  ub4 chainhopcnt;
 
   struct port *ports;
   struct hop *hops;
   struct sidtable *sids;
+  struct chain *chains;
+  struct route *routes;
 
   ub4 partcnt;
 
@@ -253,6 +284,7 @@ struct gnetwork {
 
   ub4 portcnts[Npart];  // only proper ports
   ub4 hopcnts[Npart];
+  ub4 ridcnts[Npart];
 
   ub1 *portparts;  // [partcnt * portcnt] port memberships
 
@@ -260,11 +292,16 @@ struct gnetwork {
   ub2 *xpartbase;
   ub4 xpartlen;
 
-// timetables
+// timetables: pointer to basenet
   block *eventmem;
   block *evmapmem;
+  ub4 *events;
+  ub2 *evmaps;
 
-  ub4 maxrouteid;
+  ub4 *routechains;
+  ub8 *chainhops;
+
+  ub4 hirrid;
   ub4 maxvariants,routevarmask;
 };
 

@@ -47,6 +47,7 @@ Developing
 
 * Initial artificial network
 * preliminary GTFS reader and 'external' readable network file format
+* timetable handling
 * Static connectivity matrix aka graph builing
 * rudimentary local commandline client / server interface
 * rudimentary route-only search

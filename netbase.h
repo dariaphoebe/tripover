@@ -79,12 +79,23 @@ struct subportbase {
   ub4 seq;
 };
 
+struct chainbase {
+  ub4 hoprefs;
+  ub4 rtid;
+  ub4 rrid;
+  ub4 rid;
+  ub4 hopcnt;
+  ub4 hopofs;
+  ub8 code;
+};
+
 struct timepatbase {
   ub4 hop;
   ub4 utcofs;
   ub4 ht0,ht1; // min utc overall validity range
   ub4 tdays;
   ub4 t0,t1;   // relative to above actual event range
+  ub4 lodur,hidur;
   ub4 evcnt;
   ub4 genevcnt;
   ub4 evofs;
@@ -111,7 +122,7 @@ struct hopbase {
   enum txkind kind;
 
   ub4 dep,arr;
-  ub4 routeid;
+  ub4 rrid,rid;
 
   struct timepatbase tp;
 
@@ -131,7 +142,11 @@ struct routebase {
   ub4 magic;
   ub4 id;       // index in net.routes
   ub4 cid;
-  struct gname name;
+  ub4 rrid;
+
+  char name[128];
+  ub4 namelen;
+//  struct gname name;
 
   ub4 end0,end1;
 
@@ -139,6 +154,10 @@ struct routebase {
 
   ub4 carriercnt;
   ub4 servicecnt;
+  ub4 chaincnt;
+  ub4 chainofs;
+  ub4 chainpos;
+  ub4 hichainlen;
 };
 
 struct carrierbase {
@@ -201,10 +220,12 @@ struct networkbase {
   ub4 subportcnt;
   ub4 hopcnt;
   ub4 sidcnt;
-  ub4 routecnt;
+  ub4 ridcnt;
   ub4 carriercnt;
   ub4 timetablecnt;
 
+  ub4 rawchaincnt;
+  ub4 chainhopcnt;
   ub4 timescnt;
 
   struct portbase *ports;
@@ -213,8 +234,11 @@ struct networkbase {
   struct sidbase *sids;
   struct routebase *routes;
   struct carrierbase *carriers;  
+  struct chainbase *chains;
   struct timetablebase *timetables;  // [routecnt]
 
+  ub8 *chainhops;    // tdep,hop
+  ub4 *routechains;
   ub4 *timesbase;
   ub4 *events;
   ub2 *evmaps;
@@ -244,10 +268,12 @@ struct networkbase {
   ub4 *subid2ports;      // [maxid]
   ub4 *id2hops;          // [maxid]
   ub4 *rsid2sids;
+  ub4 *rrid2rid;
   ub4 maxportid;
   ub4 maxsubportid;
-  ub4 maxrouteid;
   ub4 maxsid;
+
+  ub4 hitripid,hirrid;
 
   ub4 maxvariants,routevarmask;
 

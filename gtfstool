@@ -173,6 +173,7 @@ my %tripids;
 my %tripseq;
 my %trippseq;
 my %tripref;
+my $hitripid;
 my @uniqids;
 
 my %triproutes;
@@ -420,6 +421,7 @@ my $include_tram = 1;
 my $include_metro = 1;
 my $include_rail = 1;
 my $include_bus = 1;
+my $include_ferry = 1;
 
 sub filtermode($)
 {
@@ -429,6 +431,7 @@ sub filtermode($)
   return 1 if ($type == 1 and $include_metro == 1);
   return 1 if ($type == 2 and $include_rail == 1);
   return 1 if ($type == 3 and $include_bus == 1);
+  return 1 if ($type == 4 and $include_ferry == 1);
   return 0;
 }
 
@@ -548,6 +551,7 @@ sub readroutes($)
       push(@routes,join("\t",$route_id,$slname,$rtype));
     } else {
       $noroutecnt++;
+      info("filter route $route_id mode $rtype at line $linno");
       $norouteids{$route_id} = $routeid;
     }
 
@@ -683,6 +687,7 @@ sub readtrips($)
     }
 
     $tripids{$trip_id} = $linno;
+    $hitripid = $linno;
 
     $routeid = $routeids{$route_id} + $dirid;
 #    info("route $route_id id $routeid");
@@ -699,7 +704,8 @@ sub readtrips($)
   } # each line
 
   $tripcnt = scalar(@trips);
-  info("$tripcnt trips");
+
+  info("$tripcnt trips highest Id $hitripid");
 
   return 1;
 }
@@ -1078,6 +1084,7 @@ sub import($)
   info("excluding bus") unless $include_bus;
   info("excluding train") unless $include_rail;
   info("excluding metro") unless $include_metro;
+  info("excluding ferry") unless $include_ferry;
 
   readstops($dir) or return 0;
   readcalendar($dir) or return 0;
@@ -1257,7 +1264,9 @@ sub writext($$)
 
   printf($hopfile ".variants\t%x\t%x\t# possible route variants\n",$maxvariant,$hivariant);
   printf($hopfile ".walk_id\t%x\t# route ID for inferred walk\n",$rtype_walk);
-  printf($hopfile ".sumtimes\t%x\t# total number of time entries\n\n",$sumtimes);
+  printf($hopfile ".sumtimes\t.%u\t# total number of time entries\n",$sumtimes);
+  printf($hopfile ".trips\t.%u\t# total number of trips\n",$tripcnt);
+  printf($hopfile ".hitrip\t.%u\t# highest trip ID\n\n",$hitripid);
 
   print($hopfile "# route\tID\tfrom\tto\ttype\ttid\trid\t# from-name to-name\n\n");
 
@@ -1266,7 +1275,7 @@ sub writext($$)
   my $hopno = 0;
   my @hopln;
   my @times;
-  my ($sid,$tid,$tdep,$tarr,$ztid,$ztdep,$ztarr,$prvsid,$prvtid,$prvtdep,$prvtarr);
+  my ($tid,$tdep,$tarr,$ztid,$ztdep,$ztarr,$prvsid,$prvtid,$prvtdep,$prvtarr);
   my ($timendx,$timecnt);
 
   foreach $uniqid (@uniqids) {
@@ -1366,6 +1375,7 @@ foreach $arg (@ARGV) {
     elsif ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
     elsif ($opt eq 'nobus') { $include_bus = 0; }
     elsif ($opt eq 'nometro') { $include_metro = 0; }
+    elsif ($opt eq 'noferry') { $include_ferry = 0; }
     elsif ($opt eq 'notrain' or $opt eq 'norail') { $include_rail = 0; }
     else { info("ignring unknown option -$opt"); }
   } else {

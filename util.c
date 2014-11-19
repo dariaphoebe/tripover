@@ -116,13 +116,115 @@ int fileclose(int fd,const char *name)
 
 int dorun(enum Runlvl stage)
 {
-  info(0,"dorun stage %u stopat %u",stage, globs.stopat);
+  vrb(0,"dorun stage %u stopat %u",stage, globs.stopat);
   if (stage >= globs.stopat) return 0;
   else if (stage >= Runcnt) return 1;
   else {
     info(0,"dorun stage %u %u",stage, globs.doruns[stage]);
     return globs.doruns[stage];
   }
+}
+
+// adapted from cs.clackamas.cc.or.us/molatore/cs260Spr03/combsort.htm
+static ub4 combsort8(ub8 *p,ub4 n)
+{
+  ub4 iter = 0;
+  ub4 gap = n;
+  ub8 v0,v1;
+  int swap;
+  static ub4 gaps[7] = {11,8,6,4,3,2,1};
+  ub4 i,gi = 0;
+
+  do { // gapped stage
+    if (gap > 14) gap = gap * 10 / 13;
+    else gap = gaps[gi++];
+    iter++;
+    for (i = 0; i + gap < n; i++) {
+      v0 = p[i]; v1 = p[i+gap];
+      if (v0 > v1) { p[i] = v1; p[i+gap] = v0; }
+    }
+  } while (gap > 1);
+
+  do { // final bubble stage
+    swap = 0;
+    iter++;
+    for (i = 1; i < n; i++) {
+      v0 = p[i-1]; v1 = p[i];
+      if (v0 > v1) {
+        p[i-1] = v1; p[i] = v0;
+        swap = 1;
+      }
+    }
+  } while (swap);
+  return iter;
+}
+
+ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc)
+{
+  ub4 i,rv;
+  ub8 v;
+
+  switch (n) {  // trivia
+  case 0: return warningfln(fln,0,"sort of nil items for %s",desc);
+  case 1: return 0;
+  case 2: v = p[0]; if (v > p[1]) { p[0] = p[1]; p[1] = v; } return 1;
+  };
+
+  for (i = 1; i < n; i++) if (p[i] < p[i-1]) break;
+  if (i == n) { vrbfln(fln,0,"csort of %u started in order",n); return 0; }
+  rv = combsort8(p,n);
+  for (i = 1; i < n; i++) if (p[i] < p[i-1]) break;
+  if (i < n) {
+    warningfln(fln,0,"csort of %u not in order in %u runs",n,rv);
+    for (i = 0; i < n; i++) info(0,"%u %lx",i,p[i]);
+    error_z(0,0);
+  }
+  return rv;
+}
+
+// interpolation search, after en.wikipedia.org/wiki/Interpolation_search
+ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc)
+{
+  ub4 lo,hi,mid,i,di;
+  ub4 v,dv,kv;
+
+  switch (n) {  // trivia
+  case 0: return warningfln(fln,0,"search in nil items for %s",desc);
+  case 1: return *p == key ? 0 : 1;
+  case 2: if (p[0] == key) return 0;
+          else if (p[1] == key) return 1;
+          else return 2;
+  case 3: if (p[0] == key) return 0;
+          else if (p[1] == key) return 1;
+          else if (p[2] == key) return 2;
+          else return 3;
+  case 4: case 5: case 6: case 7: case 8: case 9: case 10:
+          i = 0; while (i < n) if (p[i] == key) return i;
+          return n;
+  };
+
+  lo = 0; hi = n - 1;
+  dv = p[hi] - p[lo];
+  di = hi - lo;
+  kv = key - p[lo];
+
+  while (dv > 10 && di > 10) {
+    mid = lo + (kv * di) / dv;
+    v = p[mid];
+    if (v < key) {
+      hi = mid - 1;
+      kv = key - p[lo];
+    } else if (v == key) return mid;
+    else {
+      lo = mid + 1;
+      kv = p[hi] - key;
+    }
+    di = hi - lo;
+    dv = p[hi] - p[lo];
+  }
+
+  while (lo < hi) if (p[lo++] == key) return lo;
+  return n;
 }
 
 int readfile(struct myfile *mf,const char *name, int mustexist)

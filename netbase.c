@@ -34,7 +34,7 @@ static const ub4 daymin = 60 * 24;   // convenience
 // holds everything primary. in contrast, net.h contains derived info
 static netbase basenet;
 
-static const ub4 hop2watch = 21821; // debug provision
+static const ub4 hop2watch = 0; // debug provision
 
 netbase *getnetbase(void) { return &basenet; }
 
@@ -266,10 +266,10 @@ static void showxtime(struct timepatbase *tp,ub4 *xp,ub4 xlim)
 
 // expand gtfs-style entries into a minute-time axis over validity range
 // returns number of unique departures
-static ub4 fillxtime(struct timepatbase *tp,ub4 *xp,ub4 xlen,ub4 ht0,ub4 ht1,struct sidbase *sp,ub4 tdep,ub4 durtid)
+static ub4 fillxtime(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlen,ub4 ht0,ub4 ht1,struct sidbase *sp,ub4 tdep,ub4 tid)
 {
   ub4 t,n = 0;
-  ub4 dow,t0,t1,tlo,thi,t0wday,tdow,rdep;
+  ub4 dow,t0,t1,tt,tlo,thi,t0wday,tdow,rdep;
   ub4 dayid = 0;
   ub4 hop = tp->hop;
 
@@ -285,8 +285,7 @@ static ub4 fillxtime(struct timepatbase *tp,ub4 *xp,ub4 xlen,ub4 ht0,ub4 ht1,str
   error_ge(t0,ht1);
   error_ge(t1,ht1);
 
-  error_z(durtid,0);
-  error_nz(durtid >> 24,durtid);
+  error_nz(tid >> 24,tid);
 
   rdep = t0 + tdep - ht0;
 
@@ -306,15 +305,17 @@ static ub4 fillxtime(struct timepatbase *tp,ub4 *xp,ub4 xlen,ub4 ht0,ub4 ht1,str
   while (t + ht0 + tdep <= t1) {
     if (dow & tdow) {
       error_ge(t + ht0 + tdep,ht1);
-      if (t + tdep >= xlen) {
+      tt = t + tdep;
+      if (tt >= xlen) {
         warning(0,"tdep %u xlen %u n %u",tdep,xlen,n);
         return n;
       }
-      if (xp[t + tdep] == 0) {
-        xp[t + tdep] = durtid | (dayid << 24);
-        tlo = min(tlo,t + tdep);
-        thi = max(thi,t + tdep);
+      if (xp[tt] == hi32) {
+        xp[tt] = tid | (dayid << 24);
+        tlo = min(tlo,tt);
+        thi = max(thi,tt);
         n++;
+        xpacc[tt >> 4] = 1;
       } // else duplicate/overlap
     }
     t += daymin;
@@ -328,10 +329,10 @@ static ub4 fillxtime(struct timepatbase *tp,ub4 *xp,ub4 xlen,ub4 ht0,ub4 ht1,str
 }
 
 // similar to above, second pass after alloc
-static ub4 fillxtime2(struct timepatbase *tp,ub4 *xp,ub4 xlen,ub4 ht0,ub4 ht1,struct sidbase *sp,ub4 tdep,ub4 durtid)
+static ub4 fillxtime2(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlen,ub4 ht0,ub4 ht1,struct sidbase *sp,ub4 tdep,ub4 tid)
 {
   ub4 t,n = 0;
-  ub4 dow,t0,t1,tlo,thi,t0wday,tdow,rdep;
+  ub4 dow,t0,t1,tt,tlo,thi,t0wday,tdow,rdep;
   ub4 dayid = 0;
   ub4 hop = tp->hop;
 
@@ -357,14 +358,16 @@ static ub4 fillxtime2(struct timepatbase *tp,ub4 *xp,ub4 xlen,ub4 ht0,ub4 ht1,st
 
   while (t + ht0 + tdep <= t1) {
     if (dow & tdow) {
-      error_ge(t + ht0 + tdep,ht1);
-      if (t + tdep >= xlen) {
+//      error_ge(t + ht0 + tdep,ht1);
+      tt = t + tdep;
+      if (tt >= xlen) {
         warning(0,"tdep %u xlen %u n %u",tdep,xlen,n);
         return n;
       }
-      if (xp[t + tdep] == 0) {
-        xp[t + tdep] = durtid | (dayid << 24);
+      if (xp[tt] == hi32) {
+        xp[tt] = tid | (dayid << 24);
         n++;
+        xpacc[tt >> 4] = 1;
       }
     }
     t += daymin;
@@ -377,11 +380,11 @@ static ub4 fillxtime2(struct timepatbase *tp,ub4 *xp,ub4 xlen,ub4 ht0,ub4 ht1,st
 // find day-repeatable patterns. returns number of compressed departures
 // result is 4 times a repeat pattern + leftover
 // times are relative to hop origin
-static ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub8 *xp2,ub4 xlim,ub4 evcnt)
+static ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evcnt)
 {
   ub4 hop = tp->hop;
   ub4 t0,t1;
-  ub4 t,x,durid,prvt,rep,hirep = 0,evcnt2 = 0,zevcnt = 0;
+  ub4 t,x,tid,prvt,rep,hirep = 0,evcnt2 = 0,zevcnt = 0;
   ub4 rt,hit,dayid,tlo = hi32,thi = 0;
   ub8 sum,sum1,sum2;
 
@@ -395,10 +398,11 @@ static ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub8 *xp2,ub4 xlim,ub4 evcnt)
 
   // pass 1: mark candidates on repeat count and time span
   while (t < t1) {
+    if (xpacc[t >> 4] == 0) { t += 16; continue; }
     x = xp[t];
-    if (x == 0) { t++; continue; }
+    if (x == hi32) { t++; continue; }
 
-    durid = x & 0xffffff;
+    tid = x & 0xffffff;
     dayid = x >> 24;       // first day in localtime this dep is valid
 
     tlo = min(tlo,t);
@@ -412,10 +416,10 @@ static ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub8 *xp2,ub4 xlim,ub4 evcnt)
     while (rt >= daymin) rt -= daymin;
 
     while (rt < t1) { // count days with identical dep at exactly 24h time difference, including self
-      if ( (xp[rt] & 0xffffff) == durid) { // same duration, same trip ID, same 24h time
+      if ( (xp[rt] & 0xffffff) == tid) { // same trip ID, same 24h time
         rep++;
-        sum1 = (sum1 + ~dayid) & hi32;   // fletcher64 holds the entire date list signature
-        sum2 = (sum2 + sum1) & hi32;
+        sum1 = (sum1 + ~dayid) % hi32;   // fletcher64 holds the entire date list signature
+        sum2 = (sum2 + sum1) % hi32;
       }
       dayid++;
       rt += daymin;
@@ -456,7 +460,8 @@ static ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub8 *xp2,ub4 xlim,ub4 evcnt)
   evcnt2 = 0;
   t = t0;
   while (t < t1 && evcnt2 < evcnt) {
-    if (xp[t] == 0) { t++; continue; }
+    if (xpacc[t >> 4] == 0) { t += 16; continue; }
+    if (xp[t] == hi32) { t++; continue; }
 
     rep = (ub4)xp2[t * 2];   // from above
     sum = xp2[2 * t + 1];
@@ -549,11 +554,11 @@ static ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub8 *xp2,ub4 xlim,ub4 evcnt)
 }
 
 // comparable to above, fill pass usig info above
-static ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,ub4 xlim)
+static ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlim)
 {
   ub4 hop = tp->hop;
   ub4 t0,t1,t,tdays,tdays5,day;
-  ub4 x,durid,prvt,rep,zevcnt = 0;
+  ub4 x,tid,prvt,rep,zevcnt = 0;
   ub4 rt,dayid;
   ub8 sum,sum1,sum2;
 
@@ -623,8 +628,9 @@ static ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,
 
   if (gen == 0) { // no repetition
     while (t < t1) {
+      if (xpacc[t >> 4] == 0) { t += 16; continue; }
       x = xp[t];
-      if (x == 0) { t++; continue; }
+      if (x == hi32) { t++; continue; }
 
       error_ge(gndx,2 * tp->genevcnt);
       bound(evmem,gen + gndx + 2,ub4);
@@ -635,16 +641,17 @@ static ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,
       days[genday + day]++;
       t++;
     }
-    info(0,"hop %u fill %u nonepeating events",hop,gndx / 2);
+    genmsg(gndx > 128 ? Info : Vrb,0,"hop %u fill %u nonrepeating events",hop,gndx / 2);
     return gndx / 2;
   }
 
   // re-mark candidates on repeat count and time span
   while (t < t1) {
+    if (xpacc[t >> 4] == 0) { t += 16; continue; }
     x = xp[t];
-    if (x == 0) { t++; continue; }
+    if (x == hi32) { t++; continue; }
 
-    durid = x & 0xffffff;
+    tid = x & 0xffffff;
     dayid = x >> 24;
 
     rep = 0; sum1 = sum2 = 0;
@@ -654,10 +661,10 @@ static ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,
     while (rt < t1) { // count days with identical dep, including self
       if (rt == t)
         ; // self
-      if ( (xp[rt] & 0xffffff) == durid) {
+      if ( (xp[rt] & 0xffffff) == tid) {
         rep++;
-        sum1 = (sum1 + ~dayid) & hi32;
-        sum2 = (sum2 + sum1) & hi32;
+        sum1 = (sum1 + ~dayid) % hi32;
+        sum2 = (sum2 + sum1) % hi32;
       }
       dayid++;
       rt += daymin;
@@ -735,14 +742,13 @@ static ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,
         days[hi3day + day]++;
       }
     } else { // nonrepeating leftovers
-      if (hop == hop2watch) info(0,"hop %u t %u t0 %u gndx %u sum %lx",hop,t,t0,gndx,sum);
+      if (hop == hop2watch) vrb(0,"hop %u t %u t0 %u gndx %u sum %lx",hop,t,t0,gndx,sum);
       if (gndx < 2 * tp->genevcnt) {
         error_ge(gndx,2 * tp->genevcnt);
         bound(evmem,gen + gndx + 2,ub4);
         evs[gen + gndx++] = t;
         evs[gen + gndx++] = x;
         day = (t - t0) / daymin;
-//      vrb(CC,"hop %u t %u t0 %u day %u genday %u",hop,t,t0,day,genday);
         error_ge(genday + day,tdays5);
         days[genday + day]++;
       }
@@ -750,7 +756,6 @@ static ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,
 
     t++;
   }
-//  info(0,"gndx %u hi1ndx %u",gndx,hi1ndx);
   zevcnt = (gndx + hi1ndx) / 2;
 
   return zevcnt;
@@ -761,7 +766,7 @@ static const ub4 maxzev = 500 * 1024 * 1024;  // todo arbitrary
 
 int prepbasenet(void)
 {
-  struct portbase *ports;
+  struct portbase *ports,*pdep,*parr;
   struct hopbase *hops,*hp;
   struct sidbase *sids,*sp;
   ub4 portcnt,hopcnt,sidcnt,dep,arr;
@@ -777,24 +782,49 @@ int prepbasenet(void)
   ub4 *tbp,*timesbase = basenet.timesbase;
   ub4 timescnt = basenet.timescnt;
   ub4 tndx,timecnt,timespos,evcnt,zevcnt,cnt;
-  ub4 sid,tid,tdep,tarr;
+  ub4 sid,tid,rid,tdep,tarr;
+  ub4 rrid,chcnt,i;
   ub4 t0,t1,ht0,ht1,hdt,tdays;
   ub8 cumevcnt = 0,cumzevcnt = 0,cumtdays = 0;
+  ub4 dur,lodur,hidur,eqdur = 0;
+  ub4 sumtimes = 0;
 
   // workspace to expand single time 
   ub4 xtimelen = maxdays * daymin;
   ub4 *xp = alloc(xtimelen,ub4,0,"xtime",maxdays);
   ub8 *xp2 = alloc(xtimelen * 2,ub8,0,"xtime2",maxdays);
+  ub1 *xpacc = alloc((xtimelen >> 4) + 2,ub1,0,"xtime",maxdays);
   block *eventmem,*evmapmem;
 
   ub4 *events;
   struct timepatbase *tp;
+  struct routebase *routes,*rp;
 
   struct eta eta;
 
   info(0,"preparing %u base hops",hopcnt);
 
-  // pass 1: expand time entries and determine memuse
+  ub4 cumhoprefs = basenet.chainhopcnt;
+  ub4 cumhoprefs2 = 0;
+  struct chainbase *cp,*chains = basenet.chains;
+
+  ub8 *chainhops = alloc(cumhoprefs,ub8,0,"chain",cumhoprefs);
+  ub8 *chp;
+  ub4 chain,chainofs = 0;
+  ub4 rawchaincnt = basenet.rawchaincnt;
+  ub4 hirrid = basenet.hirrid;
+
+  ub4 ridcnt = 0;
+  ub4 *rrid2rid = alloc(hirrid+1,ub4,0xff,"misc rrid2rid",hirrid);
+
+  for (chain = 0; chain < rawchaincnt; chain++) {
+    cp = chains + chain;
+    cp->hopofs = chainofs;
+    chainofs += cp->hoprefs;
+  }
+  error_ne(chainofs,cumhoprefs);
+
+  // pass 1: expand time entries, determine memuse and derive routes
   for (hop = 0; hop < hopcnt; hop++) {
 
     progress(&eta,"hop %u of %u in pass 1, \ah%lu events",hop,hopcnt,cumevcnt);
@@ -805,6 +835,14 @@ int prepbasenet(void)
     error_ge(dep,portcnt);
     error_ge(arr,portcnt);
     hp->valid = 1;
+
+    // routes
+    rrid = hp->rrid;
+    error_gt(rrid,hirrid);
+    if (rrid2rid[rrid] == hi32) rrid2rid[rrid] = ridcnt++;
+    hp->rid = rrid2rid[rrid];
+
+    // times
     timespos = hp->timespos;
     timecnt = hp->timecnt;
     error_gt(timespos + timecnt,timescnt);
@@ -813,18 +851,25 @@ int prepbasenet(void)
     evcnt = 0;
     hdt = hp->t1 - hp->t0 + daymin;
     error_ge(hdt,xtimelen);
-    memset(xp,0,hdt * sizeof(ub4));
+    memset(xp,0xff,hdt * sizeof(ub4));
     memset(xp2,0,hdt * 2 * sizeof(ub8));
+    memset(xpacc,0,(hdt >> 4) + 1);
     ht0 = hi32; ht1 = 0;
     tp = &hp->tp;
     tp->hop = hop;
     tp->t0 = hi32; tp->t1 = 0;
     tp->ht0 = hp->t0; tp->ht1 = hp->t1;
+    lodur = hi32; hidur = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
       sid = tbp[0];
       tid = tbp[1];
       tdep = tbp[2];
       tarr = tbp[3];
+
+      error_lt(tarr,tdep);
+      dur = tarr - tdep;
+      lodur = min(lodur,dur);
+      hidur = max(hidur,dur);
       error_ge(sid,sidcnt);
       sp = sids + sid;
 
@@ -835,8 +880,37 @@ int prepbasenet(void)
       tp->utcofs = sp->utcofs;
 
       if (hop == hop2watch) vrb(0,"hop %u tndx %u rsid %x tid %x dow %x dep %u t0 %u t1 %u days %u",hop,tndx,sp->rsid,tid,sp->dow,tdep,t0,t1,(t1 - t0) / 1440);
-      cnt = fillxtime(tp,xp,xtimelen,hp->t0,hp->t1,sp,tdep,tid);
-      if (cnt == 0) tbp[0] = sidcnt; // disable for next pass
+      cnt = fillxtime(tp,xp,xpacc,xtimelen,hp->t0,hp->t1,sp,tdep,tid);
+      if (cnt == 0) {
+        tbp[0] = sidcnt; // disable for next pass
+        tbp += 4;
+        continue;
+      }
+
+      // create list of unique hops per trip, sort on deptime later
+      error_ge(tid,rawchaincnt);
+      cp = chains + tid;
+      chp = chainhops + cp->hopofs;
+      chcnt = cp->hopcnt;
+      error_ge(cp->hopofs + chcnt,cumhoprefs);
+      if (chcnt == 0) {
+        chp[0] = hop | ((ub8)tdep << 32);
+        cp->rrid = rrid;
+        cp->hopcnt = 1;
+        cumhoprefs2++;
+      } else if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
+      else {
+        i = 0;
+        while (i < chcnt && (chp[i] & hi32) != hop) i++;
+        if (i == chcnt) {
+          if (tid == 60010) info(0,"add hop %u at %u",hop,i);
+          chp[chcnt] = hop | ((ub8)tdep << 32);
+          error_ge(chcnt,cp->hoprefs);
+          cp->hopcnt = chcnt + 1;
+          cumhoprefs2++;
+        } else if (tid == 60010) info(0,"skip equal hop %u at %u",hop,i);
+      }
+
       evcnt += cnt;
       if (evcnt > maxev4hop) {
         warning(0,"hop %u exceeds event max %u %s",hop,maxev4hop,hp->name);
@@ -844,12 +918,19 @@ int prepbasenet(void)
         break;
       }
       tbp += 4;
+      sumtimes++;
     }
+
     if (timecnt == 0) continue;
     if (evcnt == 0) {
 //      warning(0,"hop %u no events for %u time entries",hop,timecnt);
       continue;
     }
+
+    lodur = min(lodur,hidur);
+    tp->lodur = lodur;
+    tp->hidur = hidur;
+    if (lodur == hidur) eqdur++;
 
     error_ne(hp->t0,ht0);
     ht1 += daymin;  // make end date exclusive
@@ -868,7 +949,7 @@ int prepbasenet(void)
     tp->tdays = tdays;
     cumtdays += tdays;
 
-    zevcnt = findtrep(tp,xp,xp2,xtimelen,evcnt);
+    zevcnt = findtrep(tp,xp,xpacc,xp2,xtimelen,evcnt);
 
     if (cumevcnt + zevcnt > maxzev) {
       warning(0,"hop %u: exceeding total event max %u %s",hop,maxzev,hp->name);
@@ -882,6 +963,101 @@ int prepbasenet(void)
     cumzevcnt += zevcnt;
   }
   info(0,"\ah%lu org time events to \ah%lu",cumevcnt,cumzevcnt);
+  info(0,"\ah%u org chainhops to \ah%u",cumhoprefs,cumhoprefs2);
+  info(0,"%u routes",ridcnt);
+  info(0,"%u hops with constant duration",eqdur);
+
+  routes = alloc(ridcnt,struct routebase,0,"routes",ridcnt);
+  for (rrid = 0; rrid <= hirrid; rrid++) {
+    rid = rrid2rid[rrid];
+    if (rid >= ridcnt) continue;
+    rp = routes + rid;
+    rp->rrid = rrid;
+  }
+
+  // prepare hoplist in chain
+  ub4 ci,hichlen = 0,lochlen = hi32,hichain = 0;
+  ub4 cumchaincnt = 0,ridchainofs = 0;
+  ub8 sum1,sum2,sum;
+  for (chain = 0; chain < rawchaincnt; chain++) {
+    cp = chains + chain;
+    cnt = cp->hopcnt;
+    if (cnt == 0) { vrb(0,"chain %u has no hops",chain); continue; }
+    else if (cnt > 2) {
+      if (cnt > hichlen) { hichlen = cnt; hichain = chain; };
+      lochlen = min(lochlen,cnt);
+      genmsg(cnt > 85 ? Info : Vrb,0,"chain %u has %u hops",chain,cnt);
+      rrid = cp->rrid;
+      error_gt(rrid,hirrid);
+      rid = rrid2rid[rrid];
+      error_ge(rid,ridcnt);
+      cp->rid = rid;
+      rp = routes + rid;
+      rp->chaincnt++;
+      cumchaincnt++;
+      chp = chainhops + cp->hopofs;
+      sort8(chp,cnt,FLN,"chainhops");
+      sum1 = sum2 = 0;
+      for (ci = 0; ci < cnt; ci++) {
+        hop = chp[ci] & hi32;
+        sum1 = (sum1 + hop) % hi32;
+        sum2 = (sum2 + sum1) % hi32;
+      }
+      sum = (sum2 << 32) | sum1;
+      cp->code = sum;
+    } else { info(0,"skip chain %u with %u hop\as",chain,cnt); cp->hopcnt = 0; }
+  }
+  cp = chains + hichain;
+  info(0,"chain len %u .. %u longest at chain %u rid %u",lochlen,hichlen,hichain,cp->rid);
+  cnt = cp->hopcnt;
+  chp = chainhops + cp->hopofs;
+  for (ci = 0; ci < cnt; ci++) {
+    hop = chp[ci] & hi32;
+    hp = hops + hop;
+    pdep = ports + hp->dep;
+    parr = ports + hp->arr;
+    info(0,"hop %u %u-%u %s %s to %s",hop,hp->dep,hp->arr,hp->name,pdep->name,parr->name);
+  }
+
+  // list chains per route
+  ub4 *rcp,*routechains = alloc(cumchaincnt,ub4,0,"chain routechains",cumchaincnt);
+
+  for (rid = 0; rid < ridcnt; rid++) {
+    rp = routes + rid;
+    cnt = rp->chaincnt;
+    vrb(0,"rid %u cnt %u",rid,cnt);
+    rp->chainofs = ridchainofs;
+    ridchainofs += cnt;
+  }
+  error_ne(ridchainofs,cumchaincnt);
+
+  ub4 hi2chainlen = 0,hirid = 0;
+  for (chain = 0; chain < rawchaincnt; chain++) {
+    cp = chains + chain;
+    cnt = cp->hopcnt;
+    if (cnt < 3) continue;
+    rp = routes + cp->rid;
+    rcp = routechains + rp->chainofs + rp->chainpos;
+    error_ge(rp->chainofs + rp->chainpos,cumchaincnt);
+    rp->hichainlen = max(rp->hichainlen,cnt);
+    if (rp->hichainlen > hi2chainlen) { hi2chainlen = rp->hichainlen; hirid = cp->rid; }
+    *rcp = chain;
+    rp->chainpos++;
+  }
+  info(0,"longest chain %u for route %u",hi2chainlen,hirid);
+
+  for (rid = 0; rid < ridcnt; rid++) {
+    rp = routes + rid;
+    cnt = rp->hichainlen;
+    vrb(0,"rid %u cnt %u",rid,cnt);
+  }
+
+  basenet.routes = routes;
+  basenet.ridcnt = ridcnt;
+  basenet.rrid2rid = rrid2rid;
+
+  basenet.routechains = routechains;
+  basenet.chainhops = chainhops;
 
   eventmem = &basenet.eventmem;
   evmapmem = &basenet.evmapmem;
@@ -919,7 +1095,8 @@ int prepbasenet(void)
     hdt = hp->t1 - hp->t0 + daymin;
     tp = &hp->tp;
 
-    memset(xp,0,hdt * sizeof(ub4));
+    memset(xp,0xff,hdt * sizeof(ub4));
+    memset(xpacc,0,(hdt >> 4) + 1);
     ht0 = hi32; ht1 = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
       sid = tbp[0];
@@ -928,13 +1105,14 @@ int prepbasenet(void)
       tid = tbp[1];
       tdep = tbp[2];
       tarr = tbp[3];
+      dur = tarr - tdep;
       sp = sids + sid;
 
       t0 = sp->t0;
       t1 = sp->t1;
       tp->utcofs = sp->utcofs;
 
-      cnt = fillxtime2(tp,xp,xtimelen,hp->t0,hp->t1,sp,tdep,tid);
+      cnt = fillxtime2(tp,xp,xpacc,xtimelen,hp->t0,hp->t1,sp,tdep,tid);
       error_z(cnt,hop);
       evcnt += cnt;
       if (evcnt > maxev4hop) {
@@ -946,13 +1124,13 @@ int prepbasenet(void)
     }
     if (timecnt == 0) continue;
     if (evcnt == 0) {
-      info(0,"hop %u no events for %u time entries",hop,timecnt);
+      genmsg(timecnt > 20 ? Info : Vrb,0,"hop %u no events for %u time entries",hop,timecnt);
       continue;
     }
     error_ne(evcnt,hp->evcnt);
     vrb(CC,"hop %u evtcnt %u",hop,evcnt);
 
-    zevcnt = filltrep(eventmem,evmapmem,tp,xp,xtimelen);
+    zevcnt = filltrep(eventmem,evmapmem,tp,xp,xpacc,xtimelen);
     error_gt(zevcnt,hp->zevcnt); // todo error_ne fails
 
     if (cumevcnt + zevcnt > maxzev) {
