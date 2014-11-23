@@ -60,6 +60,11 @@ struct port {
   ub2 partnos[Nxpart];  // partnos of membership
   ub4 pmapofs[Nxpart];  // reachability map
 
+  ub4 zid;
+  ub4 zlen;
+  ub4 zedhop;
+
+  bool valid;
   bool isagg;
   bool full;
   bool mini;
@@ -185,8 +190,8 @@ struct sidtable {
 // holds all for a partition
 struct network {
   ub4 part,partcnt;
-  ub4 portcnt,pportcnt,allportcnt;
-  ub4 hopcnt,allhopcnt;
+  ub4 portcnt,pportcnt,zportcnt;
+  ub4 hopcnt,zhopcnt;
 
   ub4 routecnt;
   ub4 carriercnt;
@@ -196,8 +201,8 @@ struct network {
 
   ub4 chainhopcnt;
 
-  struct port *ports, *allports;
-  struct hop *hops,*allhops;
+  struct port *ports, *zports;
+  struct hop *hops,*zhops;
   struct chain *chains;
 
   struct route *routes;   // not partitioned
@@ -264,8 +269,8 @@ struct partition {
 };
 
 struct gnetwork {
-  ub4 portcnt;
-  ub4 hopcnt;
+  ub4 portcnt,zportcnt;
+  ub4 hopcnt,zhopcnt;
   ub4 sidcnt;
   ub4 ridcnt;
   ub4 chaincnt;
@@ -277,6 +282,11 @@ struct gnetwork {
   struct sidtable *sids;
   struct chain *chains;
   struct route *routes;
+
+  ub4 *port2zport; //  [portcnt]
+  ub4 *zport2port; //  [zportcnt]
+
+  ub4 *portsbyhop; // [hopcnt * 2] <dep,arr>
 
   ub4 partcnt;
 

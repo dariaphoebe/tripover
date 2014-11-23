@@ -19,7 +19,7 @@
   1 M ports in 1 K parts -> 1k parts of (1.xk + 1k) each
   x depends on partition criteria
   placeholders can have limited n-stop connectivity
-  condense reduces either 1M or 1.x k
+  condense reduces 1M
  */
 
 #include <string.h>
@@ -38,6 +38,7 @@ static ub4 msgfile;
 #include "netio.h"
 #include "netprep.h"
 #include "net.h"
+#include "condense.h"
 
 void ininetprep(void)
 {
@@ -49,12 +50,12 @@ static int marklocal(struct network *net)
 {
   // mark local links
   ub4 undx,ndep,narr,nudep,nuarr,nvdep,nvarr,nveq;
-  struct hop *hp,*hops = net->allhops;
-  struct port *pdep,*parr,*ports = net->allports;
+  struct hop *hp,*hops = net->hops;
+  struct port *pdep,*parr,*ports = net->ports;
   ub4 hop,dep,arr;
   ub4 rrid;
-  ub4 hopcnt = net->allhopcnt;
-  ub4 portcnt = net->allportcnt;
+  ub4 hopcnt = net->hopcnt;
+  ub4 portcnt = net->portcnt;
   ub4 varmask = net->routevarmask;
 
   for (hop = 0; hop < hopcnt; hop++) {
@@ -150,6 +151,7 @@ int prepnet(netbase *basenet)
   struct partition *parts,*partp,*apartp;
   ub4 latscale = basenet->latscale;
   ub4 lonscale = basenet->lonscale;
+  ub4 *rrid2rid = basenet->rrid2rid;
 
   bhopcnt = basenet->hopcnt;
   bportcnt = basenet->portcnt;
@@ -165,24 +167,25 @@ int prepnet(netbase *basenet)
   bports = basenet->ports;
   for (port = 0; port < bportcnt; port++) {
     bpp = bports + port;
-    if (bpp->ndep == 0 && bpp->narr == 0) continue;
+    if (bpp->ndep == 0 && bpp->narr == 0) { info(0,"skip unconnected port %u %s",port,bpp->name); continue; }
+    // new ndep,narr filled lateron
 
-    pp = ports + portcnt;
+    pp = ports + port;
+    pp->valid = 1;
     pp->id = pp->allid = pp->gid = bportcnt;
     pp->cid = bpp->cid;
     nlen = bpp->namelen;
     if (nlen) {
       memcpy(pp->name,bpp->name,nlen);
       pp->namelen = nlen;
-    }
+    } else info(0,"port %u has no name", port);
+    if (port == 8402 || port == 8404) info(0,"port %u %s",port,pp->name);
     pp->lat = bpp->lat;
     error_z(pp->lat,port);
     pp->lon = bpp->lon;
     pp->rlat = bpp->rlat;
     pp->rlon = bpp->rlon;
     pp->utcofs = bpp->utcofs;
-    pp->ndep = bpp->ndep;
-    pp->narr = bpp->narr;
     portcnt++;
   }
   info(0,"%u from %u ports",portcnt,bportcnt);
@@ -224,6 +227,8 @@ int prepnet(netbase *basenet)
   }
   info(0,"%u routes",ridcnt);
 
+  ub4 *gportsbyhop = alloc(bhopcnt * 2, ub4,0xff,"net portsbyhop",bhopcnt);
+
   hops = alloc(bhopcnt,struct hop,0,"hops",bhopcnt);
   hopcnt = 0;
   bhops = basenet->hops;
@@ -231,15 +236,25 @@ int prepnet(netbase *basenet)
     bhp = bhops + hop;
     dep = bhp->dep;
     arr = bhp->arr;
-    error_ge(dep,bportcnt);
-    error_ge(arr,bportcnt);
+    error_ge(dep,portcnt);
+    error_ge(arr,portcnt);
     if (dep == arr) {
       bpp = bports + dep;
       warning(0,"nil hop %u %s at %u",dep,bpp->name,bhp->cid);
       continue;
     } else if (bhp->valid == 0) continue;
 
-    hp = hops + hopcnt;
+//    info(0,"hop %u %s at %u %u-%u",hop,bhp->name,bhp->cid,dep,arr);
+
+    pdep = ports + dep;
+    parr = ports + arr;
+    error_z(pdep->valid,hop);
+    error_z(parr->valid,hop);
+
+    gportsbyhop[hop * 2] = dep;
+    gportsbyhop[hop * 2 + 1] = arr;
+
+    hp = hops + hop;
     nlen = bhp->namelen;
     if (nlen) {
       memcpy(hp->name,bhp->name,nlen);
@@ -247,6 +262,24 @@ int prepnet(netbase *basenet)
     }
     rrid = bhp->rrid;
     hp->rrid = rrid;
+    rid = rrid2rid[rrid];
+    hp->rid = rid;
+
+    pdep = ports + dep;
+    parr = ports + arr;
+    dcnt = pdep->ndep;
+    if (dcnt == 0) {
+      pdep->deps[0] = hop;
+      pdep->drids[0] = rid;
+    }
+    pdep->ndep = dcnt + 1;
+    acnt = parr->narr;
+    if (acnt == 0) {
+      parr->arrs[0] = hop;
+      parr->arids[0] = rid;
+    }
+    parr->narr = acnt + 1;
+
     kind = bhp->kind;
     hp->kind = kind;
 
@@ -275,6 +308,34 @@ int prepnet(netbase *basenet)
   info(0,"%u from %u chains",chaincnt,bchaincnt);
   chaincnt = bchaincnt;
 
+  gnet->portcnt = portcnt;
+  gnet->hopcnt = hopcnt;
+  gnet->sidcnt = sidcnt;
+  gnet->chaincnt = chaincnt;
+  gnet->ridcnt = ridcnt;
+
+  gnet->ports = ports;
+  gnet->hops = hops;
+  gnet->sids = sids;
+  gnet->chains = chains;
+  gnet->routes = routes;
+
+  gnet->portsbyhop = gportsbyhop;
+
+  gnet->routechains = basenet->routechains;
+  gnet->chainhops = bchainhops;
+  gnet->chainhopcnt = chainhopcnt;
+
+  gnet->maxvariants = variants = basenet->maxvariants;
+  gnet->routevarmask = varmask = basenet->routevarmask;
+
+  gnet->eventmem = &basenet->eventmem;
+  gnet->evmapmem = &basenet->evmapmem;
+  gnet->events = basenet->events;
+  gnet->evmaps = basenet->evmaps;
+
+  if (condense(gnet)) return 1;
+
   // prepare partitioning
   hopcnts = gnet->hopcnts;
   portcnts = gnet->portcnts;
@@ -282,7 +343,6 @@ int prepnet(netbase *basenet)
   parts = gnet->parts;
 
   hirrid = basenet->hirrid;
-  ub4 *rrid2rid = basenet->rrid2rid;
 
   ub4 *routeparts = alloc(hirrid + 1,ub4,0,"routes",hirrid);
 
@@ -367,34 +427,6 @@ int prepnet(netbase *basenet)
 
   }
 
-  gnet->portcnt = portcnt;
-  gnet->hopcnt = hopcnt;
-  gnet->sidcnt = sidcnt;
-  gnet->chaincnt = chaincnt;
-  gnet->ridcnt = ridcnt;
-
-  gnet->ports = ports;
-  gnet->hops = hops;
-  gnet->sids = sids;
-  gnet->chains = chains;
-  gnet->routes = routes;
-
-  gnet->routechains = basenet->routechains;
-  gnet->chainhops = bchainhops;
-  gnet->chainhopcnt = chainhopcnt;
-
-  gnet->partcnt = partcnt;
-  gnet->portparts = portparts;
-
-  gnet->hirrid = hirrid;
-  gnet->maxvariants = variants = basenet->maxvariants;
-  gnet->routevarmask = varmask = basenet->routevarmask;
-
-  gnet->eventmem = &basenet->eventmem;
-  gnet->evmapmem = &basenet->evmapmem;
-  gnet->events = basenet->events;
-  gnet->evmaps = basenet->evmaps;
-
   ub4 partstats[8];
   ub4 iv,xmap,partivs = Elemcnt(partstats) - 1;
   aclear(partstats);
@@ -428,7 +460,10 @@ int prepnet(netbase *basenet)
 
   if (xmaplen == 0) return 1;
 
+  gnet->partcnt = partcnt;
   gnet->xpartbase = mkblock(&gnet->xpartmap,xmaplen,ub2,Init0,"xmap for %u parts", partcnt);
+  gnet->portparts = portparts;
+  gnet->hirrid = hirrid;
 
   // separate into partitions
   for (part = 0; part < partcnt; part++) {
@@ -600,10 +635,10 @@ int prepnet(netbase *basenet)
     net->partcnt = partcnt;
 
     net->pportcnt = pportcnt;
-    net->allportcnt = xportcnt;
-    net->allhopcnt = phopcnt;
-    net->allports = pports;
-    net->allhops = phops;
+    net->portcnt = xportcnt;
+    net->hopcnt = phopcnt;
+    net->ports = pports;
+    net->hops = phops;
     net->g2pport = g2p;
     net->p2gport = p2g;
     net->g2phop = g2phop;

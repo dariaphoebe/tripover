@@ -34,6 +34,7 @@ static ub4 msgfile;
 #include "net.h"
 #include "netio.h"
 #include "netprep.h"
+#include "event.h"
 #include "condense.h"
 #include "compound.h"
 #include "search.h"
@@ -73,6 +74,7 @@ static int init0(char *progname)
   ininet();
   ininetio();
   ininetprep();
+  inievent();
   inicondense();
   inicompound();
   inisearch();

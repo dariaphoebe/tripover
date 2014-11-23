@@ -41,7 +41,6 @@ static ub4 msgfile;
 #include "util.h"
 #include "bitfields.h"
 #include "net.h"
-#include "condense.h"
 #include "compound.h"
 
 #undef hdrstop
@@ -1342,7 +1341,7 @@ static int dogconn(ub4 callee,struct gnetwork *gnet)
 // the number of stops need to be determined such that all port pairs are reachable
 int mknet(ub4 maxstop)
 {
-  ub4 allportcnt,allhopcnt;
+  ub4 portcnt,hopcnt;
   ub4 nstop,part,partcnt;
   int rv;
   struct gnetwork *gnet = getgnet();
@@ -1358,16 +1357,13 @@ int mknet(ub4 maxstop)
     info(0,"mknet partition %u of %u",part,partcnt);
     net = getnet(part);
 
-    allportcnt = net->allportcnt;
-    allhopcnt = net->allhopcnt;
+    portcnt = net->portcnt;
+    hopcnt = net->hopcnt;
 
-    if (allportcnt == 0) { info0(0,"skip mknet on 0 ports"); continue; }
-    if (allhopcnt == 0) { info0(0,"skip mknet on 0 hops"); continue; }
+    if (portcnt == 0) { info0(0,"skip mknet on 0 ports"); continue; }
+    if (hopcnt == 0) { info0(0,"skip mknet on 0 hops"); continue; }
 
     msgprefix(0,"s%u ",part);
-
-    rv = condense(net);
-    if (rv) return msgprefix(1,NULL);
 
     rv = compound(net);
     if (rv) return msgprefix(1,NULL);

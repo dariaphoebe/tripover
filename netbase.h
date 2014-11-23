@@ -277,7 +277,6 @@ struct networkbase {
 
   ub4 maxvariants,routevarmask;
 
-  datetime *gomaps;
   sb2 *faremaps;
 };
 typedef struct networkbase netbase;

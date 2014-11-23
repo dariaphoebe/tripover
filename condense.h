@@ -10,4 +10,4 @@
  */
 
 extern void inicondense(void);
-extern int condense(struct network *net);
+extern int condense(struct gnetwork *net);

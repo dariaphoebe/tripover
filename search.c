@@ -70,6 +70,8 @@ static int srcgeo(struct network *net,ub4 stop,search *src)
 
   do {
     l = vp[0];
+
+    // distance-only
     dist = hopdist[l];
     for (leg = 1; leg < nleg; leg++) {
       l = vp[leg];
@@ -82,6 +84,8 @@ static int srcgeo(struct network *net,ub4 stop,search *src)
       memcpy(src->trip,vp,nleg * sizeof(ub4));
       if (dist == lodists[da]) info(0,"%u-stop found lodist %u at var %u",stop,dist,v0);
     }
+    // time
+    // dt = datime(vp,nleg)
     v0++;
     vp += nleg;
   } while (v0 < cnt && cost > costlim);
@@ -98,10 +102,10 @@ int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   ub4 stop,nleg;
   int rv;
   struct network *net = getnet(0);
-  ub4 portcnt = net->allportcnt;
+  ub4 portcnt = net->portcnt;
   ub4 maxstop = net->maxstop;
   ub4 *mac2port = net->mac2port;
-  struct port *parr,*pdep,*allports = net->allports;
+  struct port *parr,*pdep,*ports = net->ports;
 
   if (dep >= portcnt) return error(0,"departure %u not in %u portlist",dep,portcnt);
   if (arr >= portcnt) return error(0,"arrival %u not in %u portlist",arr,portcnt);
@@ -116,10 +120,13 @@ int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   src->dep = dep;
   src->arr = arr;
 
-  pdep = allports + dep;
-  parr = allports + arr;
+  pdep = ports + dep;
+  parr = ports + arr;
 
-  // find macro port in case of mini
+  // find zport from port, derive offset
+  // search from zports with offset applied
+
+  // replace with above. find macro port in case of mini
   if (pdep->mini) {
     mdep = mac2port[pdep->macid];
   } else mdep = dep;
