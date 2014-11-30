@@ -45,6 +45,10 @@ static ub4 msgfile;
 static char msginfo[1024];
 static ub4 msginfolen;
 
+static pid_t mypid;
+static char pidstr[64];
+static ub4 pidstrlen;
+
 int oscreate(const char *name)
 {
   int fd = creat(name,0644);
@@ -98,7 +102,14 @@ int osrotate(const char *name,const char old,const char new)
   return rename(oldname,newname);
 }
 
-static pid_t mypid;
+// write to stderr and eventual logfile
+static void wrstderrlog(const char *buf,ub4 len)
+{
+  int fd = globs.msg_fd;
+
+  oswrite(2,buf,len);
+  if (fd > 0 && fd != 2) oswrite(fd,buf,len);
+}
 
 static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
 {
@@ -108,38 +119,47 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
   int code;
   const char *codestr = "";
 
-  if (msginfolen) oswrite(2,msginfo,msginfolen);
+  if (msginfolen) {
+    wrstderrlog(msginfo,msginfolen);
+  }
 
 #ifdef USE_GLIBC_EXT
+  int msgfd = globs.msg_fd;
   void *btbuf[32];
   int btcnt = backtrace(btbuf,Elemcnt(btbuf));
 
   backtrace_symbols_fd(btbuf,btcnt,2);
-  backtrace_symbols_fd(btbuf,btcnt,globs.msg_fd);
+  if (msgfd > 0 && msgfd != 2) backtrace_symbols_fd(btbuf,btcnt,msg_fd);
 #endif
 
   switch(sig) {
   case SIGSEGV:
     adr = (size_t)si->si_addr;
     nearby = nearblock(adr);
-    pos = mysnprintf(buf,0,sizeof buf,"\nsigsegv at %lx near %lx\npid %u\n", (unsigned long)adr,(unsigned long)nearby,mypid);
-    oswrite(2,buf,pos);
+    if (adr == nearby) pos = fmtstring(buf,"\nsigsegv at %lx\n", (unsigned long)adr);
+    else pos = mysnprintf(buf,0,sizeof buf,"\nsigsegv at %lx near %lx\n", (unsigned long)adr,(unsigned long)nearby);
+    wrstderrlog(buf,pos);
+    wrstderrlog(pidstr,pidstrlen);
     pause();
 
   case SIGFPE:
     code = si->si_code;
     switch(code) {
-    case FPE_INTDIV: codestr = "int div"; break;
-    case FPE_INTOVF: codestr = "int ovf"; break;
+    case FPE_INTDIV: codestr = "int div\n"; break;
+    case FPE_INTOVF: codestr = "int ovf\n"; break;
     }
-    pos = mysnprintf(buf,0,sizeof buf,"\nsigfpe errno %d code %d %s\npid %u\n",
-      si->si_errno,code,codestr,mypid);
-    oswrite(2,buf,pos);
+    pos = fmtstring(buf,"\nsigfpe errno %d code %d ",si->si_errno,code);
+    wrstderrlog(buf,pos);
+    wrstderrlog(codestr,8);
+    wrstderrlog(pidstr,pidstrlen);
     pause();
 
-  default: pos = mysnprintf(buf,0,sizeof buf,"\nsignal %u\n", sig);
+  default:
+    pos = fmtstring(buf,"\nsignal %u\n", sig);
+    wrstderrlog(buf,pos);
+    wrstderrlog(pidstr,pidstrlen);
+    pause();
   }
-  oswrite(2,buf,pos);
   _exit(1);
 }
 
@@ -151,6 +171,7 @@ int setsigs(void)
 
   mypid = getpid();
   globs.pid = (int)mypid;
+  pidstrlen = fmtstring(pidstr,"pid %u\n",(ub4)mypid);
 
   sa.sa_sigaction = mysigact;
   sa.sa_flags = SA_SIGINFO;

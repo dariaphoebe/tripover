@@ -51,6 +51,7 @@ struct eta {
 #define oswarning(code,fmt,...) oswarningfln(FLN,(code),(fmt),__VA_ARGS__)
 
 #define info0(code,s) info0fln(FLN,(code),(s))
+#define infocc(cc,code,fmt,...) if ((cc)) infofln(FLN,(code),(fmt),__VA_ARGS__)
 
 // no misprint: access first two format args
 #define progress(eta,fmt,cur,end,...) progress2((eta),FLN,(cur),(end),(fmt),(cur),(end),__VA_ARGS__)
@@ -75,7 +76,7 @@ extern void msg_write(const char *buf,ub4 len);
 extern void inimsg(char *progname, const char *logname, ub4 opts);
 extern void eximsg(void);
 
-extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
+extern void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
 // when failing, both names and values are shown
@@ -93,6 +94,7 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 #define error_gt2(a1,a2,b) error_gt2_fln((a1),(a2),(b),#a1,#a2,#b,FLN)
 
 #define error_eq_cc(a,b,fmt,...) if ((a) == (b)) error_cc_fln((a),(b),#a,#b,"==",FLN,fmt,__VA_ARGS__)
+#define error_ne_cc(a,b,fmt,...) if ((a) != (b)) error_cc_fln((a),(b),#a,#b,"!=",FLN,fmt,__VA_ARGS__)
 #define error_z_cc(a,fmt,...) if ((a) == 0) error_cc_fln((a),0,#a,"0","==",FLN,fmt,__VA_ARGS__)
 
 #define error_ge_cc(a,b,fmt,...) error_ge_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)
@@ -101,6 +103,10 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl);
 #define error_ovf(a,b) error_ovf_fln((a),sizeof(b),#a,#b,FLN)
 
 #define limit_gt(x,lim,arg) (x) = limit_gt_fln((x),(lim),(arg),#x,#lim,#arg,FLN)
+
+extern int msg_doexit;
+#define noexit msg_doexit = 0;
+#define doexit msg_doexit = 2;
 
 extern int genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 extern void vrbfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
@@ -134,7 +140,7 @@ static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 lin
 {
   if (a == b) return;
 
-  assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu dif %lu", sa,a,sb,b,a > b ? a-b : b-a);
+  assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu dif %ld", sa,a,sb,b,a - b);
 }
 
 static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)

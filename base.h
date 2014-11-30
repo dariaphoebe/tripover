@@ -21,7 +21,7 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 12
+#define Version_min 13
 #define Version_phase "initial"
 
 // handful of useful macros
@@ -46,7 +46,7 @@ typedef int sb4;
 
 #define strcopy(dst,src) strncpy((dst),(src),sizeof (dst) )
 
-enum Runlvl { Runread,Runbaseprep,Runprep,Runmknet,Runcondense,Runcompound,Runnet0,Runnetn,Runserver,Runcnt };
+enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runmknet,Runcompound,Runnet0,Runnetn,Runserver,Runcnt };
 
 // program-wide global vars go here
 extern struct globs {
@@ -75,6 +75,7 @@ extern struct globs {
   int msg_fd;
   int pid;
 
+  ub4 limassert;
   ub4 testa,testb;
   ub4 testcnt;
   ub4 testset[16];

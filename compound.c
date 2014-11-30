@@ -123,7 +123,7 @@ int compound(struct network *net)
   if (hopcnt < 2) return info(0,"skip compound on %u hop\as",hopcnt);
   port2 = portcnt * portcnt;
 
-  docompound = dorun(Runcompound);
+  docompound = dorun(FLN,Runcompound);
 
   if (docompound == 0) return info0(0,"compound not enabled");
 
@@ -210,6 +210,8 @@ int compound(struct network *net)
       for (hi = 0; hi < hcnt; hi++) {
         ghop = (ub4)chp[hi];
         hop = g2phop[ghop];
+        if (hop == hi32) { warning(0,"no local for ghop %u",ghop); break; }
+        error_ge(hop,newhopcnt);
         dep = portsbyhop[hop * 2];
         arr = portsbyhop[hop * 2 + 1];
         if (dep == arr) warning(0,"dep %u == arr",dep);
@@ -239,6 +241,7 @@ int compound(struct network *net)
       for (hi = 0; hi < hcnt; hi++) {
         ghop = (ub4)chp[hi];
         hop = g2phop[ghop];
+        if (hop == hi32) break;
         arr = portsbyhop[hop * 2 + 1];
         rarr = port2rport[arr];
         rarrs[hi] = rarr;
@@ -246,6 +249,7 @@ int compound(struct network *net)
       for (hi = 0; hi < hcnt; hi++) {
         ghop = (ub4)chp[hi];
         hop = g2phop[ghop];
+        if (hop == hi32) break;
         dep = portsbyhop[hop * 2];
         arr = portsbyhop[hop * 2 + 1];
         rdep = port2rport[dep];

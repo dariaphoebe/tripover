@@ -29,6 +29,7 @@
 #include "base.h"
 
 static ub4 msgfile;
+
 #include "msg.h"
 
 #include "os.h"
@@ -49,9 +50,12 @@ static ub4 filendx = 1;
 static enum Msglvl msglvl = Vrb;
 static ub4 vrblvl = 2;
 static ub4 msgopts;
+int msg_doexit = 1;
+
 static int msg_fd = 2;
 
-static ub4 warncnt,errcnt;
+static ub4 warncnt,errcnt,assertcnt,oserrcnt;
+static ub4 assertlimit;
 
 static const char msgnames[Msglvl_last] = "XFAEWIV";
 static const char *msgnames_long[Msglvl_last] = {
@@ -76,11 +80,12 @@ static ub4 cclen,ccfln;
 static char prefix[128];
 static ub4 prefixlen;
 
-static ub4 oserrcnt;
-
 static ub4 hicnt,hicnt2,hifln,hifln2;
+static ub4 decorpos;
 
 static ub8 progstart;
+
+static ub4 itercnts[Maxmsgline];
 
 // temporary choice. unbuffered is useful for console messages,
 // yet debug logging may ask for buffering
@@ -238,6 +243,7 @@ static ub4 ecnv(char *dst, double x)
    h+%u  makes the integer formatted 'human readable' like 123.8 M for 123800000
    d+%u  minute utc to date 20140912
    u+%d  utc offset +0930   -1100
+   x+%u  %x.%u
    v+%u%p interprets the pointer arg '%p' as an array of '%u' integers. thus :  
    int arr[] = { 23,65,23,54 };  printf("\av%u%p", 4, arr ); 
     shows  '[23 65 23 54]'
@@ -250,7 +256,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
   ub4 hh,mm;
   unsigned int uval=0,vlen=0,cdval,*puval;
   unsigned long luval,lx;
-  int ival,alt,padleft,do_U = 0,do_vec = 0,do_mindate = 0,do_utcofs = 0;
+  int ival,alt,padleft,do_U = 0,do_vec = 0,do_mindate = 0,do_utcofs = 0,do_xu = 0;
   long lival;
   double dval;
   char *pval;
@@ -259,6 +265,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
 
   if (!p || pos >= len || len - pos < 2) return 0;
   len -= pos; dst += pos; len--;
+
   while (*p && len - n > 2) {
     c1 = *p++;
     if (c1 == '\a') {
@@ -267,6 +274,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         case 'v': do_vec = 1; break;
         case 'u': do_utcofs = 1; break;
         case 'd': do_mindate = 1; break;
+        case 'x': do_xu = 1; break;
         case 's': if (uval != 1) dst[n++] = 's'; break;
         case '%': dst[n++] = c1; c1 = '%'; break;
         default: dst[n++] = c1;
@@ -307,7 +315,13 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     if (lx == hi32) n += Ucnv(dst + n,4,0,'G');
                     else if (lx >= 1024UL * 1024UL) n += Ucnv(dst + n,(ub4)(lx >> 20),(ub4)(lx >> 10) & 0x3ff,'M');
                     else n += Ucnv(dst + n,(ub4)(lx >> 10),(ub4)lx & 0x3ff,'K');
-                  } else n += ucnv(dst + n,(ub4)luval,wid,pad  );
+                  } else if (uval == hi32) {
+                    memcpy(dst + n,"hi32",4); n += 4;
+                  } else if (luval > hi32) {
+                    n += ucnv(dst + n,(luval >> 32),wid,pad);
+                    dst[n++] = ',';
+                    n += ucnv(dst + n,(ub4)luval,wid,pad);
+                  } else n += ucnv(dst + n,(ub4)luval,wid,pad);
                   break;
         case 'x':
         case 'p': luval = va_arg(ap,unsigned long);
@@ -328,13 +342,24 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
       } else {
         switch(c2) {
         case 'u': uval = va_arg(ap,unsigned int);
+                  if (len - n <= 10) break;
                   if (do_vec) { vlen = uval; break; }
                   else if (do_mindate) {
                     do_mindate = 0;
-                    cdval = lmin2cd(uval);
-                    n += ucnv(dst + n,cdval,wid,pad);
-                    uval %= 1440;
-                    if (uval) { dst[n++] = '.'; n += ucnv(dst + n,uval,0,' '); }
+                    if (uval >= 30000000) { // minutes
+                      cdval = lmin2cd(uval);
+                      n += ucnv(dst + n,cdval,wid,pad);
+                      uval %= 1440;
+                      if (uval) dst[n++] = '.';
+                    } else if (uval > 1440) { // yyyymmdd
+                      cdval = lmin2cd(uval);
+                      n += ucnv(dst + n,cdval,wid,pad);
+                      uval %= 1440;
+                      if (uval) dst[n++] = '.';
+                    }
+                    hh = uval / 60; mm = uval % 60;
+                    x = hh * 100 + mm;
+                    n += ucnv(dst + n,x,0,' ');
                     break;
                   } else if (do_utcofs) {
                     do_utcofs = 0;
@@ -345,13 +370,19 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     else { dst[n++] = '+'; uval = (hh - 12) * 100 + mm; }
                     n += ucnv(dst + n,uval,4,0);
                     break;
+                  } else if (do_xu) {
+                    do_xu = 0;
+                    n += xcnv(dst + n,uval);
+                    if (len - n <= 10) break;
+                    dst[n++] = '.';
                   }
-                  if (len - n <= 10) break;
                   if (do_U && uval >= 1024U * 10) {
                     x = uval;
                     if (x == hi32) n += Ucnv(dst + n,4,0,'G');
                     else if (x >= 1024U * 1024) n += Ucnv(dst + n,x >> 20,(x >> 10) & 0x3ff,'M');
                     else n += Ucnv(dst + n,x >> 10,x & 0x3ff,'K');
+                  } else if (uval == hi32) {
+                    memcpy(dst + n,"hi32",4); n += 4;
                   } else n += ucnv(dst + n,uval,wid,pad);
                   break;
         case 'x': uval = va_arg(ap,unsigned int);
@@ -380,6 +411,10 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   break;
         case 's': pval = va_arg(ap,char *);
                   if (!pval) pval = (char *)"(nil)";
+                  else if ((size_t)pval < 4096) {
+                    pval = (char *)" !! integer passed to printf %s !! ";
+                    errcnt++;
+                  }
                   plen = 0; while (plen < prec && pval[plen]) plen++;
                   if (padleft) {
                     while (*pval && n < len && prec--) dst[n++] = *pval++;
@@ -405,8 +440,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   } else {
                     if (len - n <= 10) break;
                     luval = (unsigned long)puval;
-                    n += xcnv(dst + n,(unsigned int)(luval & 0xffffffff));
                     if (sizeof(puval) > 4) n += xcnv(dst + n,(unsigned int)(luval >> 32));
+                    n += xcnv(dst + n,(unsigned int)(luval & hi32));
                   }
                   break;
         default: dst[n++] = c2;
@@ -509,7 +544,6 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   ub8 now_usec,dusec,dsec,d100usec;
   char lvlnam;
   ub4 iterndx,itercnt;
-  static ub4 itercnts[Maxmsgline];
   static ub4 himsgcnt[Maxmsgline * Maxmsgfile];
 
   if (code & User) {
@@ -519,14 +553,10 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
 
   iterndx = min(fline & hi16,Maxmsgline-1);
   itercnt = itercnts[iterndx];
+  if (itercnt < hi16) itercnts[iterndx] = itercnt + 1;
   if (code & Iter) {
-    if (itercnt < hi16) itercnts[iterndx] = itercnt + 1;
     if (itercnt > 100) return;
-  } else {
-    if (itercnt > 100) {
-      pos += mysnprintf(msgbuf,pos,maxlen, "  message at line %u repeated %u times\n",iterndx,itercnt);
-      itercnts[iterndx] = 0;
-    }
+    else if (itercnt == 100) pos += mysnprintf(msgbuf,pos,maxlen, "  message at line %u repeated %u times\n",iterndx,itercnt);
   }
 
   if (opts & Msg_stamp) {
@@ -573,7 +603,9 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
     pos += n;
   }
   if (opts && pos < maxlen) msgbuf[pos++] = ' ';
-  if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert\n  ");
+  decorpos = pos;
+//  if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert\n  ");
+
   pos += vsnprint(msgbuf, pos, maxlen, fmt, ap);
   pos = min(pos,maxlen-1);
 
@@ -604,6 +636,16 @@ void vmsg(enum Msglvl lvl,ub4 fln,const char *fmt,va_list ap)
   msg(lvl,0,fln,0,fmt,ap);
 }
 
+// exit if configured e.g. assertions
+static void ccexit(void)
+{
+  if (msg_doexit == 0) { msg_doexit = 1; return; }
+  else if (msg_doexit == 2 || assertcnt >= assertlimit) {
+    eximsg();
+    exit(1);
+  } else msg_doexit = 1;
+}
+
 int __attribute__ ((format (printf,4,5))) genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...)
 {
   va_list ap;
@@ -632,18 +674,20 @@ int __attribute__ ((format (printf,2,3))) msgprefix(int rv,const char *fmt, ...)
 void __attribute__ ((format (printf,3,4))) vrbfln(ub4 fln, ub4 code, const char *fmt, ...)
 {
   va_list ap;
-  va_list ap1;
   ub4 lvl;
 
   msginfo(fln);
 
+#if 0
   if (code & CC) {
+    va_list ap1;
     code &= ~CC;
     va_start(ap1, fmt);
     cclen = vsnprint(ccbuf,0,sizeof(ccbuf),fmt,ap1);
     ccfln = fln;
     va_end(ap1);
   }
+#endif
   if (msglvl < Vrb) return;
   lvl = code / V0;
   if (lvl > vrblvl) return;
@@ -695,7 +739,7 @@ int __attribute__ ((format (printf,3,4))) errorfln(ub4 line, ub4 code, const cha
   va_start(ap, fmt);
   msg(Error, 0, line, code, fmt, ap);
   va_end(ap);
-  if (code & Exit) exit(1);
+  if (code & Exit) ccexit();
   return 1;
 }
 
@@ -705,14 +749,13 @@ int __attribute__ ((format (printf,3,4))) assertfln(ub4 line, ub4 code, const ch
 
   showstack();
 
+  assertcnt++;
+
+  cclen = 0;
   va_start(ap, fmt);
   msg(Assert, 0, line, code, fmt, ap);
   va_end(ap);
-  if (code & Exit) {
-    eximsg();
-    exit(1);
-  }
-  errcnt++;
+  if (code & Exit) ccexit();
   return 1;
 }
 
@@ -759,12 +802,12 @@ ub4 limit_gt_fln(ub4 x,ub4 lim,ub4 arg,const char *sx,const char *slim,const cha
 void error_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,const char *cc,ub4 line,const char *fmt,...)
 {
   va_list ap;
-  char buf[1024];
 
+  assertfln(line,0,"%s:%u %s %s:%u", sa,a,cc,sb,b);
   va_start(ap,fmt);
-  vsnprint(buf,0,sizeof(buf),fmt,ap);
+  msg(Info,0,line,User|Ind|decorpos,fmt,ap);
   va_end(ap);
-  assertfln(line,Exit,"%s:%u %s %s:%u  %s", sa,a,cc,sb,b,buf);
+  ccexit();
 }
 
 void error_ge_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line,const char *fmt,...)
@@ -773,10 +816,11 @@ void error_ge_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line,const ch
 
   if (a < b) return;
 
+  assertfln(line,0,"%s:%u >= %s:%u", sa,a,sb,b);
   va_start(ap,fmt);
-  vmsg(Info,line,fmt,ap);
+  msg(Info,0,line,User|Ind|decorpos,fmt,ap);
   va_end(ap);
-  assertfln(line,Exit,"\n%s:%u >= %s:%u", sa,a,sb,b);
+  ccexit();
 }
 
 void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line,const char *fmt,...)
@@ -785,10 +829,11 @@ void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line,co
 
   if (a <= b) return;
 
+  assertfln(line,0,"%s:%lu > %s:%lu", sa,a,sb,b);
   va_start(ap,fmt);
-  vmsg(Info,line,fmt,ap);
+  msg(Info,0,line,User|Ind|decorpos,fmt,ap);
   va_end(ap);
-  assertfln(line,Exit,"\n%s:%lu > %s:%lu", sa,a,sb,b);
+  ccexit();
 }
 
 void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 cur,ub4 end,const char *fmt, ...)
@@ -852,18 +897,38 @@ void inimsg(char *progname, const char *logname, ub4 opts)
 
 void eximsg(void)
 {
+  ub4 i,n,n0,n1,n2,i0,i1,i2;
+
   prefixlen = 0;
-  if (hicnt > 100) infofln(hifln,User,"%s *%u",himsgbuf,hicnt);
-  if (hicnt2 > 100) infofln(hifln2,User,"%s *%u",himsgbuf2,hicnt2);
-  if (warncnt) info(0,"%u warning\as\n%s",warncnt,lastwarn);
+
+  if (errcnt == 0 && assertcnt == 0) {
+    if (hicnt > 100) infofln(hifln,User,"%s *%u",himsgbuf,hicnt);
+    if (hicnt2 > 100) infofln(hifln2,User,"%s *%u",himsgbuf2,hicnt2);
+
+    i0 = i1 = i2 = n0 = n1 = n2 = 0;
+    for (i = 0; i < Maxmsgline; i++) {
+      n = itercnts[i];
+      if (n > n0) { n0 = n; i0 = i; }
+      else if (n > n1) { n1 = n; i1 = i; }
+      else if (n > n2) { n2 = n; i2 = i; }
+    }
+
+    if (n0 > 1) info(0,"msg at line %u repeated %u times",i0,n0);
+    if (n1 > 1) info(0,"msg at line %u repeated %u times",i1,n1);
+    if (n2 > 1) info(0,"msg at line %u repeated %u times",i2,n2);
+
+    if (warncnt) info(0,"%u warning\as\n%s",warncnt,lastwarn);
+  }
+  if (assertcnt && !(assertcnt == 1 && assertlimit <= 1) ) info(0,"%u assertion\as",assertcnt);
   if (errcnt) info(0,"%u error\as\n%s",errcnt,lasterr);
   if (oserrcnt) info(0,"%u I/O error\as",oserrcnt);
 }
 
-void setmsglvl(enum Msglvl lvl, ub4 vlvl)
+void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert)
 {
   msglvl = lvl;
   vrblvl = vlvl;
+  assertlimit = limassert;
 }
 
 // make assert and debug calls more compact

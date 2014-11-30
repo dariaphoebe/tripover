@@ -63,7 +63,7 @@ static int init0(char *progname)
 
   info(User,"tripover %u.%u %s %s\n%s\n", Version_maj,Version_min,Version_phase,nowstr,copyright);
 
-  if (iniutil()) return 1;
+  if (iniutil(0)) return 1;
   if (inicfg()) return 1;
   inimem();
   inios();
@@ -74,7 +74,7 @@ static int init0(char *progname)
   ininet();
   ininetio();
   ininetprep();
-  inievent();
+  inievent(0);
   inicondense();
   inicompound();
   inisearch();
@@ -87,6 +87,7 @@ static int init0(char *progname)
 
 static void exit0(void)
 {
+  exiutil();
   eximem();
   eximsg();
 }
@@ -102,12 +103,12 @@ static int getbasenet(void)
   error_ovf(portcnt,ub2);
 
   if (*globs.netdir) {  // todo read compiled net
-    if (dorun(Runread)) {
+    if (dorun(FLN,Runread)) {
       rv = readextnet(basenet,globs.netdir);
       if (rv) return rv;
-      if (dorun(Runbaseprep)) rv = prepbasenet();
+      if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
       if (rv) return rv;
-      if (dorun(Runprep)) rv = prepnet(basenet);
+      if (dorun(FLN,Runprep)) rv = prepnet(basenet);
       info(0,"rv %d",rv);
       return rv;
     } else return 0;
@@ -115,9 +116,9 @@ static int getbasenet(void)
   info(0,"generate random %u port %u hop net", globs.maxports, globs.maxhops);
   rv = mkrandnet(portcnt,hopcnt);
   if (rv) return rv;
-  if (dorun(Runbaseprep)) rv = prepbasenet();
+  if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
   if (rv) return rv;
-  if (dorun(Runprep)) rv = prepnet(basenet);
+  if (dorun(FLN,Runprep)) rv = prepnet(basenet);
 //  net2pdf(net);
   return rv;
 }
@@ -125,7 +126,13 @@ static int getbasenet(void)
 static int cmd_vrb(struct cmdval *cv) {
   if (cv->valcnt) globs.msglvl = cv->uval + Error;
   else globs.msglvl++;
-  setmsglvl(globs.msglvl,0);
+  setmsglvl(globs.msglvl,0,globs.limassert);
+  return 0;
+}
+
+static int cmd_limassert(struct cmdval *cv) {
+  globs.limassert = cv->uval;
+  setmsglvl(globs.msglvl,0,globs.limassert);
   return 0;
 }
 
@@ -170,6 +177,7 @@ static int cmd_arg(struct cmdval *cv) {
 
 static struct cmdarg cmdargs[] = {
   { "verbose|v", "[level]%u", "set or increase verbosity", cmd_vrb },
+  { "assert-limit", "[limit]%u", "stop at this #assertions", cmd_limassert },
   { "max-ports", "limit%u", "limit #ports", cmd_max },
   { "max-hops", "limit%u", "limit #hops", cmd_max },
   { "max-stops", "limit%u", "limit #stops", cmd_max },
@@ -188,16 +196,21 @@ int main(int argc, char *argv[])
   strcopy(globs.cfgfile,"tripover.cfg");
   strcopy(globs.querydir,"queries");
 
-  setmsglvl(globs.msglvl,0);
+  setmsglvl(globs.msglvl,0,0);
   if (init0(argv[0])) return 1;
 
   if (cmdline(argc,argv,cmdargs)) return 1;
+
   if (inicfgcl()) return 1;
 
   oslimits();
+
   initime(1);
 
   if (readcfg(globs.cfgfile)) return 1;
+
+  iniutil(1);
+  inievent(1);
 
   if (getbasenet()) return 1;
 
@@ -222,7 +235,7 @@ int main(int argc, char *argv[])
     else info(0,"%u to %u : no trip\n",dep,arr);
   }
 
-  if (dorun(Runserver)) {
+  if (dorun(FLN,Runserver)) {
     serverloop();
   }
 

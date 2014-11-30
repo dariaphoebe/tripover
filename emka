@@ -43,7 +43,7 @@
 
 # author: Joris van der Geer
 
-# last changed:  8 oct 2014
+# last changed:  30 nov 2014
 
 use 5.008;
 use integer;
@@ -52,7 +52,7 @@ use strict;
 use Fcntl ':mode';
 
 my $progname = 'emka';
-my $verstr = '0.61';
+my $verstr = '0.62';
 
 sub cmd_help() {
   print("Usage: $progname [options] [command] [dir]\n");
@@ -818,6 +818,7 @@ sub obj2exe($) {
         $o2name = basename($incname) . '.o';
         $o2path = mkpath($dir,$o2name);
         if (exists $files{$o2path} and $o2path ne $opath) {
+          $o2path = substr($o2path,2) if substr($o2path,0,2) eq './';
           $objlist .= ' ' . $o2path;
           $hitime = max($hitime,timebyname($dir,$o2name));
         } else { vrb("no $o2path"); }

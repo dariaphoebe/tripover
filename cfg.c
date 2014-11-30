@@ -33,6 +33,11 @@ static const char *cfgname;
 static const char *lvlnames[Runcnt+1];
 static ub4 setruns[Runcnt]; // line number where set
 
+const char *runlvlnames(enum Runlvl lvl)
+{
+  return lvlnames[min(lvl,Runcnt)];
+}
+
 int inicfg(void)
 {
   msgfile = setmsgfile(__FILE__);

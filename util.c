@@ -25,8 +25,11 @@ static ub4 msgfile;
 #include "msg.h"
 
 #include "mem.h"
+#include "cfg.h"
 #include "util.h"
 #include "time.h"
+
+static const char logitemfile[] = "watches.cfg";
 
 int str2ub4(const char *s, ub4 *pv)
 {
@@ -114,15 +117,18 @@ int fileclose(int fd,const char *name)
   return rv;
 }
 
-int dorun(enum Runlvl stage)
+int dorun(ub4 fln,enum Runlvl stage)
 {
+  int run;
+
   vrb(0,"dorun stage %u stopat %u",stage, globs.stopat);
-  if (stage >= globs.stopat) return 0;
-  else if (stage >= Runcnt) return 1;
-  else {
-    info(0,"dorun stage %u %u",stage, globs.doruns[stage]);
-    return globs.doruns[stage];
-  }
+  if (stage >= globs.stopat) run = 0;
+  else if (stage >= Runcnt) run = 1;
+  else run = globs.doruns[stage];
+
+  info0(User,"");
+  infofln(fln,0,"--- %s stage %u %s ---",run ? "run" : "skip",stage,runlvlnames(stage));
+  return run;
 }
 
 // adapted from cs.clackamas.cc.or.us/molatore/cs260Spr03/combsort.htm
@@ -172,6 +178,16 @@ ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc)
 
   for (i = 1; i < n; i++) if (p[i] < p[i-1]) break;
   if (i == n) { vrbfln(fln,0,"csort of %u started in order",n); return 0; }
+
+  for (i = 1; i < n; i++) if (p[i] > p[i-1]) break;
+  if (i == n) {
+    infofln(fln,Iter,"csort of %u started in reverse order",n);
+    for (i = 0; i < n; i++) {
+      v = p[i]; p[i] = p[n-i]; p[n-i] = v;
+    }
+    return 1;
+  }
+
   rv = combsort8(p,n);
   for (i = 1; i < n; i++) if (p[i] < p[i-1]) break;
   if (i < n) {
@@ -518,12 +534,178 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
   return 0;
 }
 
-int iniutil(void)
+static struct logitem {
+  char name[16];
+  ub4 nlen;
+  ub8 val;
+  ub8 lvl;
+  ub4 fln;
+  int hex;
+} logitems[64];
+
+int getwatchitems(const char *name,ub8 *list,ub4 listlen)
 {
-  msgfile = setmsgfile(__FILE__);
-  iniassert();
+  ub4 len = (ub4)strlen(name);
+  ub4 n = 0;
+  ub8 x;
+  struct logitem *li;
 
-  memset(globs.doruns,1,Runcnt);
+  for (li = logitems; li < logitems + Elemcnt(logitems); li++) {
+    if (li->nlen != len || memcmp(name,li->name,len)) continue;
+    if (n >= listlen) break;
+    x = li->val | (li->lvl << 32);
+    info(0,"watching %s %lu at lvl %u",name,li->val,(ub4)li->lvl);
+    list[n++] = x;
+  }
+  return n;
+}
 
+void addwatchitem(const char *name,ub4 val,ub4 fln,int hex)
+{
+  ub4 len = (ub4)strlen(name);
+  struct logitem *li;
+
+  for (li = logitems; li < logitems + Elemcnt(logitems); li++) {
+    if (li->nlen == len && memeq(name,li->name,len)) return;
+    else if (li->nlen == 0) {
+      memcpy(li->name,name,len);
+      li->nlen = len;
+      li->val = val;
+      li->fln = fln;
+      li->hex = hex;
+      return;
+    }
+  }
+}
+
+static void wrwatchitems(void)
+{
+  struct logitem *li;
+  int fd;
+  ub4 n,fln;
+  char buf[256];
+  char flnbuf[64];
+
+  for (li = logitems; li < logitems + Elemcnt(logitems); li++) if (li->fln) break;
+  if (li == logitems + Elemcnt(logitems)) return;
+
+  fd = oscreate(logitemfile);
+  if (fd == -1) return;
+
+  for (li = logitems; li < logitems + Elemcnt(logitems); li++) {
+    if (li->nlen == 0) continue;
+    fln = li->fln;
+    if (fln) fmtstring(flnbuf," # %u.%u",fln >> 16,fln & hi16);
+    else *flnbuf = 0;
+    if (li->hex) n = fmtstring(buf,"%s x%x%s\n",li->name,(ub4)li->val,flnbuf);
+    else n = fmtstring(buf,"%s ,%u%s\n",li->name,(ub4)li->val,flnbuf);
+    oswrite(fd,buf,n);
+  }
+  osclose(fd);
+}
+
+static void rdwatchitems(void)
+{
+  struct myfile mf;
+  enum states {Out,Name,Val0,Hex,Dec,Lvl,Fls} state;
+  ub4 pos,len,nlen,val,lvl,item = 0;
+  struct logitem *li = logitems;
+  char *buf,c;
+  char name[16];
+
+  if (readfile(&mf,logitemfile,0)) return;
+  len = (ub4)mf.len;
+  if (len == 0) return;
+
+  buf = mf.buf;
+  pos = nlen = val = 0;
+
+  state = Out;
+  while (pos < len && item < Elemcnt(logitems)) {
+    c = buf[pos++];
+
+    switch(state) {
+    case Out:
+      if (c == '#') state = Fls;
+      else if (c >= 'A' && c <= 'z') { name[0] = c; nlen = 1; state = Name; }
+      else if (c != '\n') state = Fls;
+    break;
+
+    case Name:
+      if (c == ' ') state = Val0;
+      else if (c >= 'A' && c <= 'z' && nlen < Elemcnt(name)) name[nlen++] = c;
+      else if (c == '\n') state = Out;
+      else state = Fls;
+    break;
+
+    case Val0:
+      memcpy(li->name,name,nlen);
+      li->nlen = nlen;
+      if (c == ',') { val = 0; state = Dec; }
+      else if (c == 'x') { val = 0; state = Hex; }
+      else if (c == '*') {
+        li->val = hi32;
+        li++; item++;
+        state = Fls;
+      } else state = Fls;
+    break;
+
+    case Dec:
+      if (c >= '0' && c <= '9') val = val * 10 + c - '0';
+      else if (c == '\n') {
+        li->val = val;
+        li++; item++;
+        state = Out;
+      } else if (c == ' ') state = Lvl;
+      else state = Fls;
+    break;
+
+    case Hex:
+      if (c >= '0' && c <= '9') val = (val << 4) | c - '0';
+      else if (c >= 'a' && c <= 'f') val = (val << 4) | (c - 'a' + 10);
+      else if (c == '\n') {
+        li->val = val;
+        li++; item++;
+        state = Out;
+      } else if (c == ' ') state = Lvl;
+      else state = Fls;
+    break;
+
+    case Lvl:
+      if (c >= '0' && c <= '9') {
+        lvl = c - '0';
+        li->lvl = lvl;
+        state = Fls;
+      } else if (c == '\n') state = Out;
+      else state = Fls;
+      li++; item++;
+    break;
+
+    case Fls: if (c == '\n') state = Out; break;
+
+    }
+  }
+}
+
+int iniutil(int pass)
+{
+  static int passed = 0;
+
+  if (pass == 0 && passed == 0) {
+    msgfile = setmsgfile(__FILE__);
+    iniassert();
+
+    memset(globs.doruns,1,Runcnt);
+    passed = 1;
+    return 0;
+  } else if (pass == 1 && passed == 1) {
+    rdwatchitems();
+    passed = 2;
+  }
   return 0;
+}
+
+void exiutil(void)
+{
+  wrwatchitems();
 }

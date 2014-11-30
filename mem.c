@@ -81,6 +81,8 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
 
   error_zp(desc,0);
 
+  if (fill != 0 && fill != 0xff) warningfln(fln,0,"fill with %u",fill);
+
   n = (size_t)n8;
   nm = (ub4)(n8 >> 20);
   if (n8 != n) error(Exit,"wraparound allocating %u MB for %s", nm, desc);

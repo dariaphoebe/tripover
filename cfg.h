@@ -33,3 +33,4 @@
 extern int readcfg(const char *name);
 extern int inicfg(void);
 extern int inicfgcl(void);
+extern const char *runlvlnames(enum Runlvl lvl);

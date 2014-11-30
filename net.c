@@ -92,13 +92,16 @@ static int mknet0(struct network *net)
 {
   ub4 portcnt = net->portcnt;
   ub4 pportcnt = net->pportcnt;
+  ub4 zportcnt = net->zportcnt;
   ub4 hopcnt = net->hopcnt;
   ub4 part = net->part;
 
   struct port *ports,*pdep,*parr;
   struct hop *hops,*hp;
   struct range distrange;
+
   char *dname,*aname;
+  ub4 *p2z,*z2p;
   ub4 *portsbyhop;
   ub2 concnt,cntlim,gen,*con0cnt;
   ub4 ofs,*con0ofs;
@@ -106,19 +109,25 @@ static int mknet0(struct network *net)
   ub4 dist,*dist0,*hopdist;
   ub4 geohist[Geohist];
   double fdist;
-  ub4 dep,arr,port2,da,depcnt,arrcnt,needconn,haveconn,watch;
+  ub4 dep,arr,zdep,zarr,port2,zport2,da,zda,depcnt,arrcnt;
+  ub4 needconn,haveconn,watch;
   ub2 iv;
   struct eta eta;
 
   if (portcnt == 0) return error(0,"no ports for %u hops net",hopcnt);
   if (hopcnt == 0) return error(0,"no hops for %u port net",portcnt);
+  error_z(zportcnt,portcnt);
 
-  info(0,"0-stop connections for %u port %u hop part %u network",portcnt,hopcnt,part);
+  info(0,"init 0-stop connections for %u+%u port %u hop network in %u zports",pportcnt,portcnt - pportcnt,hopcnt,zportcnt);
 
   port2 = portcnt * portcnt;
+  zport2 = zportcnt * zportcnt;
 
   ports = net->ports;
   hops = net->hops;
+
+  p2z = net->port2zport;
+  z2p = net->zport2port;
 
   portsbyhop = net->portsbyhop;
 
@@ -137,16 +146,18 @@ static int mknet0(struct network *net)
     error_zz(pdep->lat,pdep->lon);
   }
   for (dep = 0; dep < portcnt; dep++) {
+    error_ge(dep,portcnt);
     pdep = ports + dep;
     dname = pdep->name;
     for (arr = 0; arr < portcnt; arr++) {
+      error_ge(arr,portcnt);
       if (dep == arr) continue;
       parr = ports + arr;
       aname = parr->name;
       error_eq_cc(pdep->gid,parr->gid,"%s %s",dname,aname);
       da = dep * portcnt + arr;
       if (pdep->lat == parr->lat &&pdep->lon == parr->lon) {
-        info(0,"ports %u-%u loc %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+        info(0,"ports %u-%u coloc %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
         dist = 0;
       } else {
         fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
@@ -191,12 +202,14 @@ static int mknet0(struct network *net)
     if (dep >= pportcnt && arr >= pportcnt) cntlim = cnt0lim_xpart2;
     else if (dep >= pportcnt || arr >= pportcnt) cntlim = cnt0lim_xpart1;
     else cntlim = cnt0lim_part;
+
     if (concnt >= cntlim) ovfcnt++;
     else if (concnt == cntlim-1) {
-      info(0,"connect overflow port %u-%u %s to %s",dep,arr,dname,aname);
+      info(0,"connect overflow hop %u port %u-%u %s to %s",hop,dep,arr,dname,aname);
+      con0cnt[da] = (ub2)(concnt+1);
       ovfcnt++;
-    }
-    con0cnt[da] = (ub2)(concnt+1);
+    } else con0cnt[da] = (ub2)(concnt+1);
+
     dist = dist0[da];
 //    error_z(dist,hop);
     hp->dist = dist;
@@ -240,7 +253,6 @@ static int mknet0(struct network *net)
           continue;
         }
         error_ge(ofs,hopcnt);
-        error_ge(gen,concnt);
         con0lst[ofs+gen] = hop;
         for (watch = 0; watch < watches; watch++) {
           if (dep == watch_dep[watch] /* && arr == watch_arr[watch] */) {
@@ -248,6 +260,7 @@ static int mknet0(struct network *net)
           }
         }
         gen++;
+        if (gen >= concnt) break;
       }
       ofs += gen;
     }
@@ -256,6 +269,7 @@ static int mknet0(struct network *net)
   info(0,"0-stop connectivity \ah%u of \ah%u  left \ah%u",haveconn,needconn,needconn - haveconn);
 
   // get connectivity stats
+  ub4 hicnt = 0,hiport = 0;
   ub4 depstats[32];
   ub4 arrstats[32];
   ub4 depivs = Elemcnt(depstats) - 1;
@@ -269,7 +283,7 @@ static int mknet0(struct network *net)
     for (arr = 0; arr < portcnt; arr++) {
       if (dep == arr) continue;
       depcnt += con0cnt[dep * portcnt + arr];
-      error_ovf(depcnt,ub2);
+      if (depcnt > hicnt) { hicnt = depcnt; hiport = dep; }
     }
 //    error_ne(depcnt,ports[dep].ndep);
     depstats[min(depivs,depcnt)]++;
@@ -277,13 +291,16 @@ static int mknet0(struct network *net)
   for (iv = 0; iv <= depivs; iv++) {
     if (depstats[iv]) info(0,"%u port\as with %u departure\as", depstats[iv], iv);
   }
+  pdep = ports + hiport;
+  info(0,"port %u has %u deps %s",hiport,hicnt,pdep->name);
 
+  hicnt = hiport = 0;
   for (arr = 0; arr < portcnt; arr++) {
     arrcnt = 0;
     for (dep = 0; dep < portcnt; dep++) {
       if (dep == arr) continue;
       arrcnt += con0cnt[dep * portcnt + arr];
-      error_ovf(arrcnt,ub2);
+      if (arrcnt > hicnt) { hicnt = arrcnt; hiport = arr; }
     }
 //    error_ne(arrcnt,ports[arr].narr);
     arrstats[min(arrivs,arrcnt)]++;
@@ -291,6 +308,8 @@ static int mknet0(struct network *net)
   for (iv = 0; iv <= arrivs; iv++) {
     if (arrstats[iv]) info(0,"%u ports with %u arrivals", arrstats[iv], iv);
   }
+  parr = ports + hiport;
+  info(0,"port %u has %u arrs %s",hiport,hicnt,parr->name);
 
   net->dist0 = dist0;
   net->hopdist = hopdist;
@@ -445,7 +464,7 @@ static int mknetn(struct network *net,ub4 nstop)
         n1 = cnts1[depmid];
         if (n1 == 0) continue;
 
-        // skip vias only on same route
+        // todo: skip vias only on same route
         mname = pmid->name;
         mudep = pmid->nudep;
         muarr = pmid->nuarr;
@@ -1055,13 +1074,13 @@ static ub2 hasxcon(ub4 callee,ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
   struct gnetwork *gnet = getgnet();
   struct network *dnet,*anet,*xnet,*xanet;
   struct port *gpp,*xpp;
-  ub4 nstop,nleg,portno,xpi,api;
+  ub4 nstop,nleg,portno,tripno,xpi,api;
   ub4 xapart,xpart,partcnt;
   ub4 portcnt,pportcnt;
   ub4 dep,arr,xarr,xxarr,deparr,gxarr;
   ub2 **concnts,*cnts,dcnt = 0;
   ub4 **conofs,*dofss,dofs;
-  ub4 *dlst,*trip;
+  ub4 *dlst,*trip,*trip0;
   block *conlst,*lstblk;
   ub4 ports[Nleg * 2];
   ub4 gports[Nleg * 2];
@@ -1103,7 +1122,7 @@ static ub2 hasxcon(ub4 callee,ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
   concnts = dnet->concnt;
   conofs = dnet->conofs;
   conlst = dnet->conlst;
-  while (dcnt == 0 && nstop <= dnet->maxstop) {
+  while (nstop <= dnet->maxstop) {
     nleg = nstop + 1;
     cnts = concnts[nstop];
     if (!cnts) { nstop++; stats[0]++; continue; }
@@ -1115,10 +1134,21 @@ static ub2 hasxcon(ub4 callee,ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
     dofs = dofss[deparr];
     bound(lstblk,dofs * nleg,ub4);
     bound(lstblk,dofs * nleg + nstop,ub4);
-    trip = dlst + dofs * nleg;
-    rv = triptoports(dnet,trip,nstop,ports,gports);
-    if (rv) return 0;
 
+    trip0 = dlst + dofs * nleg;
+    tripno = 0;
+    while (tripno < dcnt) {
+      trip = trip0 + tripno * nleg;
+      rv = triptoports(dnet,trip,nstop,ports,gports);
+      if (rv) return 0;
+      gxarr = gports[nstop];
+      if (gxarr == garr) return 1;
+      tripno++;
+    }
+    nstop++;
+  }
+
+#if 0
     portno = nstop;
     while (portno) {
       xarr = ports[portno];
@@ -1167,6 +1197,8 @@ static ub2 hasxcon(ub4 callee,ub4 gdep,ub4 garr,ub4 dpart,ub4 apart)
     }
     nstop++;
   }
+#endif
+
   for (iv = 0; iv < Elemcnt(stats); iv++) vrb(0,"%u:%u", iv,stats[iv]);
 
   if (dcnt) vrb(0,"hasxcon %u.%u-%u.%u %u",dpart,gdep,apart,garr,dcnt);
@@ -1347,7 +1379,7 @@ int mknet(ub4 maxstop)
   struct gnetwork *gnet = getgnet();
   struct network *net;
 
-  if (dorun(Runmknet) == 0) return 0;
+  if (dorun(FLN,Runmknet) == 0) return 0;
 
   partcnt = gnet->partcnt;
   if (partcnt == 0) return info0(0,"skip init zero-partition net");
@@ -1368,13 +1400,13 @@ int mknet(ub4 maxstop)
     rv = compound(net);
     if (rv) return msgprefix(1,NULL);
 
-    if (dorun(Runnet0)) {
+    if (dorun(FLN,Runnet0)) {
       if (mknet0(net)) return msgprefix(1,NULL);
     } else continue;
 
     limit_gt(maxstop,Nstop,0);
 
-    if (dorun(Runnetn)) {
+    if (dorun(FLN,Runnetn)) {
       for (nstop = 1; nstop <= maxstop; nstop++) {
         if (mknetn(net,nstop)) return msgprefix(1,NULL);
         net->maxstop = nstop;
@@ -1395,49 +1427,76 @@ int mknet(ub4 maxstop)
   return 0;
 }
 
-int showconn(struct port *ports,ub4 portcnt)
+int showconn(struct port *ports,ub4 portcnt,int local)
 {
-  ub4 nodep,noarr,nodeparr,udeparr1;
-  ub4 port,ndep,narr,n;
+  ub4 nodep,noarr,nodeparr,oneroute,oneroutes;
+  ub4 port,ndep,narr,ngdep,ngarr,n;
+  ub4 *drids,*arids;
   struct port *pp;
 
   ub4 constats[256];
   ub4 depstats[256];
   ub4 arrstats[256];
+  ub4 statmax = Elemcnt(depstats) - 1;
 
   aclear(constats);
   aclear(depstats);
   aclear(arrstats);
-  nodep = noarr = nodeparr = udeparr1 = 0;
+  nodep = noarr = nodeparr = oneroutes = 0;
 
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     ndep = pp->ndep; narr = pp->narr;
-    if (ndep == 0 && narr == 0) { info(0,"port %u has no connections - %s",port,pp->name); nodeparr++; }
-    else if (ndep == 0) { info(0,"port %u has no deps - %s",port,pp->name); nodep++; }
-    else if (narr == 0) { info(0,"port %u has no arrs - %s",port,pp->name); noarr++; }
+    ngdep = pp->ngdep; ngarr = pp->ngarr;
+    drids = pp->drids; arids = pp->arids;
+    oneroute = 1;
+    if (ndep == 0 && narr == 0) {
+      if (local && (ngdep | ngarr)) warning(0,"port %u is unconnected, global has %u dep %u arr %s",port,ngdep,ngarr,pp->name);
+      else if (!local) info(0,"port %u is unconnected %s",port,pp->name);
+      nodeparr++;
+      oneroute = 0;
+    } else if (ndep == 0) {
+      if (local && ngdep) warning(0,"port %u has 0 deps %u arr\as, global has %u %s",port,narr,ngdep,pp->name);
+      else if (!local) info(0,"port %u has no deps - %s",port,pp->name);
+      nodep++;
+      if (narr > 1 && arids[0] != arids[1]) oneroute = 0;
+    } else if (narr == 0) {
+      if (local && ngarr) warning(0,"port %u has %u dep\as 0 arrs, global has %u %s",port,ndep,ngarr,pp->name);
+      else if (!local) info(0,"port %u has no arrs - %s",port,pp->name);
+      noarr++;
+      if (ndep > 1 && drids[0] != drids[1]) oneroute = 0;
+    } else {
+      if (ndep > 1 && drids[0] != drids[1]) oneroute = 0;
+      if (narr > 1 && arids[0] != arids[1]) oneroute = 0;
+    }
     if (ndep < 16 && narr < 16) constats[(ndep << 4) | narr]++;
-    if (ndep < Elemcnt(depstats) && narr) depstats[ndep]++;
-    if (narr < Elemcnt(arrstats) && ndep) arrstats[narr]++;
+    if (narr) depstats[min(ndep,statmax)]++;
+    if (ndep) arrstats[min(narr,statmax)]++;
+    oneroutes += oneroute;
   }
-  genmsg(nodeparr ? Warn : Vrb,0,"%u of %u ports without connection",nodeparr,portcnt);
+  if (nodeparr) genmsg(local ? Info : Warn,0,"%u of %u ports without connection",nodeparr,portcnt);
   if (nodep) info(0,"%u of %u ports without departures",nodep,portcnt);
   if (noarr) info(0,"%u of %u ports without arrivals",noarr,portcnt);
-  for (ndep = 0; ndep < 3; ndep++) {
-    for (narr = 0; narr < 3; narr++) {
+  for (ndep = 0; ndep < (local ? 3 : 4); ndep++) {
+    for (narr = 0; narr < (local ? 3 : 4); narr++) {
       n = constats[(ndep << 4) | narr];
-      if (n) info(0,"%u port\as with %u deps + %u arrs", n,ndep,narr);
+      if (n) info(0,"%u port\as with %u dep\as and %u arr\as", n,ndep,narr);
     }
   }
-  for (ndep = 0; ndep < 16; ndep++) {
+  info0(0,"");
+  for (ndep = 0; ndep < (local ? 16 : 32); ndep++) {
     n = depstats[ndep];
     if (n) info(0,"%u port\as with %u dep\as and 1+ arrs", n,ndep);
   }
-  for (narr = 0; narr < 16; narr++) {
-    n = arrstats[ndep];
-    if (n) info(0,"%u ports with %u arrs and 1+ deps", n,narr);
+  n = depstats[statmax];
+  if (n) info(0,"%u port\as with %u+ deps and 1+ arrs", n,statmax);
+  for (narr = 0; narr < (local ? 16 : 32); narr++) {
+    n = arrstats[narr];
+    if (n) info(0,"%u ports with %u arr\as and 1+ deps", n,narr);
   }
-  info(0,"%u of %u ports on a single route",udeparr1,portcnt);
+  n = arrstats[statmax];
+  if (n) info(0,"%u port\as with %u+ arrs and 1+ deps", n,statmax);
+  info(0,"%u of %u ports on a single route",oneroutes,portcnt);
   return 0;
 }
 

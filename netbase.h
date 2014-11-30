@@ -40,7 +40,7 @@
 
 #define Netbase_inc
 
-enum txkind { Unknown,Air,Rail,Bus,Walk,Kindcnt };
+enum txkind { Unknown,Air,Rail,Bus,Ferry,Walk,Kindcnt };
 
 struct portbase {
   ub4 magic;
@@ -84,6 +84,7 @@ struct chainbase {
   ub4 rtid;
   ub4 rrid;
   ub4 rid;
+  ub4 dep;
   ub4 hopcnt;
   ub4 hopofs;
   ub8 code;
@@ -92,9 +93,10 @@ struct chainbase {
 struct timepatbase {
   ub4 hop;
   ub4 utcofs;
-  ub4 ht0,ht1; // min utc overall validity range
+
   ub4 tdays;
-  ub4 t0,t1;   // relative to above actual event range
+  ub4 gt0;
+  ub4 t0,t1;   // actual event range in min relative to gt0
   ub4 lodur,hidur;
   ub4 evcnt;
   ub4 genevcnt;
@@ -180,25 +182,30 @@ struct sidbase {
   ub4 sid;
   ub4 cid;
 
-  char name[128];
+  char name[64];
   ub4 namelen;
 
   ub4 carrier;
   ub4 route;
   ub4 service;
 
-  ub4 dow;
-  ub4 t0,t1;      // tt validity in minutes utc since epoch
-  ub4 t0wday;
-  ub4 dt;         // granularity of table in minutes
+  ub4 t0,t1;      // tt range in minutes std
+  ub4 t0map;      // start of day map in minutes std
+
+  ub4 lt0day,lt1day; // tt range in localtime days
+
+//  ub4 dt;         // granularity of table in minutes
   ub4 utcofs;     // minutes east from utc + 12h
+
+  ub4 mapofs;     // day map
+  ub4 maplen;     // in days
 
   ub4 refcnt;
 
-  ub2 duration;   // minutes
-  ub2 gocnt;      // # entries below
+//  ub2 duration;   // minutes
+//  ub2 gocnt;      // # entries below
 
-  ub4 gobase;     // datetime gos[gocnt] at net.dtmaps+base :  daysofweek, timesofday map
+//  ub4 gobase;     // datetime gos[gocnt] at net.dtmaps+base :  daysofweek, timesofday map
 };
 
 // optional: ~ unrolled timetable
@@ -242,6 +249,7 @@ struct networkbase {
   ub4 *timesbase;
   ub4 *events;
   ub2 *evmaps;
+  ub1 *sidmaps;
 
   struct memblk portmem;
   struct memblk subportmem;

@@ -49,14 +49,13 @@ void ininetprep(void)
 static int marklocal(struct network *net)
 {
   // mark local links
-  ub4 undx,ndep,narr,nudep,nuarr,nvdep,nvarr,nveq;
+  ub4 ndep,narr,nudep,nuarr,nvdep,nvarr;
   struct hop *hp,*hops = net->hops;
   struct port *pdep,*parr,*ports = net->ports;
   ub4 hop,dep,arr;
   ub4 rrid;
   ub4 hopcnt = net->hopcnt;
   ub4 portcnt = net->portcnt;
-  ub4 varmask = net->routevarmask;
 
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
@@ -67,6 +66,7 @@ static int marklocal(struct network *net)
     error_ge(arr,portcnt);
     pdep = ports + dep;
     parr = ports + arr;
+
     ndep = pdep->ndep;
     narr = parr->narr;
 
@@ -82,6 +82,14 @@ static int marklocal(struct network *net)
     nuarr = parr->nuarr;
     nvarr = parr->nvarr;
 
+    if (ndep < Nlocal) {
+      pdep->deps[ndep] = arr; pdep->drids[ndep] = rrid;
+    }
+    if (narr < Nlocal) {
+      parr->arrs[narr] = dep; parr->arids[narr] = rrid;
+    }
+
+#if 0
     if (nudep == 0) {
       pdep->deps[0] = arr; pdep->nudep = pdep->nvdep = 1; pdep->drids[0] = rrid;
     } else if (nudep < Nlocal) {
@@ -110,6 +118,8 @@ static int marklocal(struct network *net)
         if (nveq == 0 || rrid == hi32) parr->nvarr = nvarr + 1;
       }
     }
+#endif
+
   }
   return 0;
 }
@@ -141,13 +151,14 @@ int prepnet(netbase *basenet)
   ub4 bsidcnt,sidcnt,bchaincnt,chaincnt,chainhopcnt;
   ub4 bridcnt,ridcnt;
   ub4 nlen,cnt,acnt,dcnt,sid,rid,rrid,part,hpart,xmaplen;
-  ub4 pportcnt,phopcnt,partcnt,npart1;
+  ub4 pportcnt,zpportcnt,phopcnt,partcnt,npart1;
   enum txkind kind;
-  ub4 hop,port,chain,phop,pport;
+  ub4 hop,port,zport,zpport,chain,phop,pport;
   ub4 variants,varmask,hirrid;
   ub4 *hopcnts,*portcnts,*ridcnts;
   ub1 *portparts;
   ub4 *g2p,*p2g,*g2phop;
+  ub4 *p2zp,*zp2p,*port2zport;
   struct partition *parts,*partp,*apartp;
   ub4 latscale = basenet->latscale;
   ub4 lonscale = basenet->lonscale;
@@ -179,7 +190,6 @@ int prepnet(netbase *basenet)
       memcpy(pp->name,bpp->name,nlen);
       pp->namelen = nlen;
     } else info(0,"port %u has no name", port);
-    if (port == 8402 || port == 8404) info(0,"port %u %s",port,pp->name);
     pp->lat = bpp->lat;
     error_z(pp->lat,port);
     pp->lon = bpp->lon;
@@ -200,7 +210,6 @@ int prepnet(netbase *basenet)
     sp->sid = bsp->sid;
     sp->t0 = bsp->t0;
     sp->t1 = bsp->t1;
-    sp->dow = bsp->dow;
     nlen = bsp->namelen;
     if (nlen) {
       memcpy(sp->name,bsp->name,nlen);
@@ -228,6 +237,7 @@ int prepnet(netbase *basenet)
   info(0,"%u routes",ridcnt);
 
   ub4 *gportsbyhop = alloc(bhopcnt * 2, ub4,0xff,"net portsbyhop",bhopcnt);
+  ub4 *drids,*arids,*deps,*arrs;
 
   hops = alloc(bhopcnt,struct hop,0,"hops",bhopcnt);
   hopcnt = 0;
@@ -265,20 +275,40 @@ int prepnet(netbase *basenet)
     rid = rrid2rid[rrid];
     hp->rid = rid;
 
+    // mark local links, filtering duplicates e.g on loops
     pdep = ports + dep;
     parr = ports + arr;
     dcnt = pdep->ndep;
+    deps = pdep->deps;
+    drids = pdep->drids;
     if (dcnt == 0) {
-      pdep->deps[0] = hop;
-      pdep->drids[0] = rid;
-    }
-    pdep->ndep = dcnt + 1;
+      deps[0] = hop;
+      drids[0] = rid;
+      pdep->ndep = 1;
+    } else if (dcnt == 1) {
+      if (deps[0] != hop || drids[0] != rid) {
+        deps[1] = hop;
+        drids[1] = rid;
+        pdep->ndep = 2;
+      }
+    } else if ( (deps[0] == hop && drids[0] == rid) || (deps[1] == hop && drids[1] == rid) ) ;
+    else pdep->ndep = dcnt + 1;
+
     acnt = parr->narr;
+    arrs = parr->arrs;
+    arids = parr->arids;
     if (acnt == 0) {
-      parr->arrs[0] = hop;
-      parr->arids[0] = rid;
-    }
-    parr->narr = acnt + 1;
+      arrs[0] = hop;
+      arids[0] = rid;
+      parr->narr = 1;
+    } else if (acnt == 1) {
+      if (arrs[0] != hop || arids[0] != rid) {
+        arrs[1] = hop;
+        arids[1] = rid;
+        parr->narr = 2;
+      }
+    } else if ( (arrs[0] == hop && arids[0] == rid) || (arrs[1] == hop && arids[1] == rid) ) ;
+    else parr->narr = acnt + 1;
 
     kind = bhp->kind;
     hp->kind = kind;
@@ -290,6 +320,9 @@ int prepnet(netbase *basenet)
   if (hopcnt == 0) return error(0,"nil hops out of %u",bhopcnt);
   info(0,"%u from %u hops",hopcnt,bhopcnt);
   hopcnt = bhopcnt;
+
+  info0(0,"global connectivity");
+  showconn(ports,portcnt,0);
 
   chains = alloc(bchaincnt,struct chain,0,"chains",bchaincnt);
   bchains = basenet->chains;
@@ -342,12 +375,15 @@ int prepnet(netbase *basenet)
   ridcnts = gnet->ridcnts;
   parts = gnet->parts;
 
+  port2zport = gnet->port2zport;
+  error_zp(port2zport,0);
+
   hirrid = basenet->hirrid;
 
   ub4 *routeparts = alloc(hirrid + 1,ub4,0,"routes",hirrid);
 
   // todo: ad-hoc partitioning
-  partcnt = max(portcnt / 800,1);
+  partcnt = max(portcnt / 3000,1);
   info(0,"%u partition\as",partcnt);
   portparts = alloc(partcnt * portcnt,ub1,0,"portparts",portcnt);
   npart1 = (partcnt - 1);
@@ -421,6 +457,7 @@ int prepnet(netbase *basenet)
     case Air: break;
     case Rail: break;
     case Bus: break;
+    case Ferry: break;
     case Unknown: info(0,"hop %s has unknown transport mode", hp->name); break;
     case Kindcnt: break;
     }
@@ -433,6 +470,8 @@ int prepnet(netbase *basenet)
   for (port = 0; port < portcnt; port++) {
     cnt = xmap = 0;
     gp = ports + port;
+    if (gp->ndep == 0 && gp->narr == 0) continue;
+
     for (part = 0; part < partcnt; part++) {
       net = getnet(part);
       if (portparts[port * partcnt + part]) {
@@ -473,6 +512,7 @@ int prepnet(netbase *basenet)
     pportcnt = portcnts[part];
     phopcnt = hopcnts[part];
     pridcnt = ridcnts[part];
+    zpportcnt = 0;
 
     if (pportcnt == 0) {
       warning(0,"partition %u has no ports",part);
@@ -521,6 +561,9 @@ int prepnet(netbase *basenet)
     p2g = alloc(xportcnt,ub4,0xff,"p2g-ports",xportcnt);
     g2phop = alloc(hopcnt,ub4,0xff,"g2p-hops",hopcnt);
 
+    p2zp = alloc(max(portcnt,xportcnt),ub4,0xff,"p2zp-ports",portcnt);
+    zp2p = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
+
     portsbyhop = alloc(phopcnt * 2, ub4,0xff,"net portsbyhop",portcnt);
 
     // assign ports : members of this part, plus placeholder for each other part
@@ -532,12 +575,24 @@ int prepnet(netbase *basenet)
       memcpy(pp,gp,sizeof(*pp));
       pp->id = pport;
       pp->gid = port;
+      pp->ngdep = pp->ndep;
+      pp->ngarr = pp->narr;
       pp->ndep = pp->narr = 0;
       g2p[port] = pport;
       p2g[pport] = port;
+
+      zport = port2zport[port];
+      error_ge(zport,portcnt);
+      zpport = zp2p[zport];
+      if (zpport == hi32) {
+        zpport = zp2p[zport] = zpportcnt++;
+      }
+      p2zp[pport] = zpport;
+      zp2p[zpport] = pport;
       pp++;
       pport++;
     }
+
     // placeholders for other parts
     for (aport = 0; aport < partcnt; aport++) {
       if (aport == part) continue;
@@ -555,6 +610,9 @@ int prepnet(netbase *basenet)
       pp->rlat = lat2rad(pp->lat,latscale);
       pp->rlon = lon2rad(pp->lon,lonscale);
       pp->isagg = 1;
+      p2zp[pport] = pport;
+      zp2p[pport] = pport;
+
       pp++;
       pport++;    
     }
@@ -635,6 +693,7 @@ int prepnet(netbase *basenet)
     net->partcnt = partcnt;
 
     net->pportcnt = pportcnt;
+    net->zportcnt = zpportcnt;
     net->portcnt = xportcnt;
     net->hopcnt = phopcnt;
     net->ports = pports;
@@ -642,6 +701,9 @@ int prepnet(netbase *basenet)
     net->g2pport = g2p;
     net->p2gport = p2g;
     net->g2phop = g2phop;
+
+    net->port2zport = p2zp;
+    net->zport2port = zp2p;
 
     net->portsbyhop = portsbyhop;
 
@@ -667,12 +729,9 @@ int prepnet(netbase *basenet)
     marklocal(net);
 
     info(0,"partition %u connectivity",part);
-    showconn(pports,pportcnt);
+    showconn(pports,pportcnt,1);
   }
   msgprefix(0,NULL);
-
-  info0(0,"global connectivity");
-  showconn(ports,portcnt);
 
   return 0;
 }

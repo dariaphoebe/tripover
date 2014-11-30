@@ -32,21 +32,20 @@ static ub4 msgfile;
 
 #include "os.h"
 
-static ub4 epochmin,eramin;
+static ub4 eramin;
 
-static ub4 daysinmon[12] = {31,28,31,30,31,30,30,31,30,31,30,31};
-static ub4 daysinmon2[12] = {31,29,31,30,31,30,30,31,30,31,30,31};
+static ub4 daysinmon[12] =  {31,28,31,30,31,30,31,31,30,31,30,31};
+static ub4 daysinmon2[12] = {31,29,31,30,31,30,31,31,30,31,30,31};
 static ub4 *yymm2daytab;
+static ub4 *day2cdtab;
+static ub4 day2cdmax;
 
 void initime(int iter)
 {
   char buf[256];
   ub4 now;
-  struct tm tm;
   time_t sec;
-  ub4 years,months,days,yy,mm,d;
-
-  oclear(tm);
+  ub4 years,months,days,yy,mm,dd,d,cd,m;
 
   msgfile = setmsgfile(__FILE__);
   iniassert();
@@ -58,21 +57,32 @@ void initime(int iter)
     months = years * 12;
     days = 0;
     yymm2daytab = alloc(months,ub4,0,"misc",0);
+    day2cdtab = alloc(months * 31,ub4,0,"misc",0);
+    day2cdmax = months * 31 - 1;
+
     for (yy = 0; yy < years; yy++) {
       for (mm = 0; mm < 12; mm++) {
-        d = (yy % 4) ? daysinmon[mm] : daysinmon2[mm];
+        dd = (yy % 4) ? daysinmon[mm] : daysinmon2[mm];
         yymm2daytab[yy * 12 + mm] = days;
-        days += d;
+        for (d = 0; d < dd; d++) day2cdtab[days+d] = (yy + Epochyear) * 10000 + (mm + 1) * 100 + d + 1;
+        days += dd;
       }
     }
-    tm.tm_year = Epochyear - 1900;
-    tm.tm_mday = 1;
-    sec = mktime(&tm);
-    epochmin = (ub4)(sec / 60);
+
   } else {
     now = (ub4)time(NULL);
     sec70toyymmdd(now,buf,sizeof(buf));
     info(0,"current time %s : expect UTC",buf);
+
+#if 0
+    for (yy = 13; yy < 15; yy++) {
+      for (mm = 0; mm < 12; mm++) {
+        cd = (yy + Epochyear) * 10000 + (mm + 1) * 100 + 1;
+        m = yymmdd2min(cd,12 * 60);
+        info(0,"%u.%u.1 %u %u %u daysto %u",yy,mm,cd,m,lmin2cd(m),yymm2daytab[yy * 12 + mm]);
+      }
+    }
+#endif
   }
 }
 
@@ -89,7 +99,8 @@ ub4 lmin2min(ub4 lmin,ub4 utcofs)
 {
   if (lmin <= utcofs) { warning(0,"time %u at utc offset %u before Epoch UTC",lmin,utcofs); return lmin; }
   else if (utcofs < 12 * 60) return lmin + (12 * 60 - utcofs);
-  else return lmin - (utcofs - 12 * 60);
+  else if (utcofs > 12 * 60) return lmin - (utcofs - 12 * 60);
+  else return lmin;
 }
 
 void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen)
@@ -99,34 +110,25 @@ void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen)
   mysnprintf(dst,0,dstlen,"%04u-%02u-%02u %02u:%02u", tp->tm_year+1900, tp->tm_mon+1,tp->tm_mday,tp->tm_hour,tp->tm_min);
 }
 
-void mintoyymmdd(ub4 min, char *dst, ub4 dstlen)
-{
-  time_t t = (time_t)(min + epochmin) * 60;
-  struct tm *tp = gmtime(&t);
-  mysnprintf(dst,0,dstlen,"%04u-%02u-%02u %02u:%02u", tp->tm_year+1900, tp->tm_mon+1,tp->tm_mday,tp->tm_hour,tp->tm_min);
-}
-
 // minutes since epoch localtime to decimal-coded 20140522
 ub4 lmin2cd(ub4 min)
 {
   ub4 yr,mon,day;
 
-  time_t t = (time_t)(min + epochmin) * 60;
-  struct tm *tp = gmtime(&t);
-  yr = tp->tm_year+1900;
-  mon = tp->tm_mon+1;
-  day = tp->tm_mday;
-  return (yr * 10000 + mon * 100 + day);
+  day = min / 1440;
+  return day2cdtab[min(day,day2cdmax)];
 }
 
-// 20140226 localtime to minutes utc since epoch
-ub4 yymmdd2min(ub4 cd,ub4 utcofs)
+// day to coded decimal yyyymmdd
+ub4 day2cd(ub4 day)
 {
-  struct tm tm;
-  ub4 d,m,y,mm,yy,dm,days;
-  ub4 lmin;
+  return day2cdtab[min(day,day2cdmax)];
+}
 
-  oclear(tm);
+// coded decimal day to day, tz-agnostic
+ub4 cd2day(ub4 cd)
+{
+  ub4 d,m,y,mm,yy,dm,day;
 
   d = cd % 100;
   if (d == 0) { warning(0,"day in %u zero",cd); d = 1; }
@@ -147,10 +149,28 @@ ub4 yymmdd2min(ub4 cd,ub4 utcofs)
 
   yy = y - Epochyear;
   mm = m - 1;
-  days = yymm2daytab[yy * 12 + mm] + (d - 1);
+  day = yymm2daytab[yy * 12 + mm] + (d - 1);
+  return day;
+}
+
+// 20140226 localtime to minutes utc since epoch
+ub4 yymmdd2min(ub4 cd,ub4 utcofs)
+{
+  ub4 d,m,y,mm,yy,dm,days;
+  ub4 lmin;
+
+  days = cd2day(cd);
 
   lmin = days * 1440;
   return lmin2min(lmin,utcofs);
+}
+
+// coded decimal day to weekday, tz-agnostic
+ub4 cdday2wday(ub4 cd)
+{
+  ub4 day = cd2day(cd);
+  ub4 wday = (day + Epochwday) % 7;
+  return wday;
 }
 
 // weekday of minute time

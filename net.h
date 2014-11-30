@@ -79,8 +79,10 @@ struct port {
 
   ub4 macbox[4]; // latlon of mimi members
 
-  ub4 ndep,narr,nudep,nuarr,nvdep,nvarr;   // generic connectivity info
-  ub4 nwalkdep,nwalkarr;
+  ub4 ndep,narr,ngdep,ngarr;   // generic connectivity info
+
+  ub4 nudep,nuarr,nvdep,nvarr; // todo connectivity info
+  ub4 nwalkdep,nwalkarr; // todo
 
   ub4 deps[Nlocal];     // store small net locally
   ub4 arrs[Nlocal];
@@ -129,8 +131,10 @@ struct hop {
 
   enum txkind kind;
 
-  ub4 dep,arr;
-  ub4 cdep,carr;
+  ub4 dep,arr;    // within part
+  ub4 gdep,garr;  // global
+  ub4 cdep,carr;  // compound
+
   ub4 rrid,rid;
 
   struct timepat tp; //todo alloc variable, not for compound
@@ -181,7 +185,6 @@ struct sidtable {
   char name[128]; // todo
   ub4 namelen;
 
-  ub4 dow;
   ub4 t0,t1;
 };
 
@@ -222,6 +225,9 @@ struct network {
   ub4 *g2pport;      // [gportcnt] global to partition port id
   ub4 *p2gport;      // [portcnt]
   ub4 *g2phop;       // [ghopcnt]
+
+  ub4 *port2zport; //  [portcnt]
+  ub4 *zport2port; //  [zportcnt]
 
   ub4 fports2ports[Portcnt];
 
@@ -324,6 +330,6 @@ extern int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 
 #define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)
 extern void checktrip_fln(struct network *net,ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln);
 extern void checktrip3_fln(struct network *net,ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln);
-extern int showconn(struct port *ports,ub4 portcnt);
+extern int showconn(struct port *ports,ub4 portcnt,int local);
 
 extern void ininet(void);

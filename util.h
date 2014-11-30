@@ -52,8 +52,12 @@ extern void do_clear(void *p,ub4 len);
 
 #define limit(a,b,c) if ((a) > (b)) { (a) = (b); warningfln(FLN,0,"limit %s:%u to %s:%u for %s:%u",#a,(a),#b,(b),#c,(c)); }
 
-extern int dorun(enum Runlvl stage);
+extern int dorun(ub4 fln,enum Runlvl stage);
+
+extern int getwatchitems(const char *name,ub8 *list,ub4 listlen);
+extern void addwatchitem(const char *name,ub4 val,ub4 fln,int hex);
 
 extern int writeppm(const char *name,ub4 *data,ub4 nx,ub4 ny);
 
-extern int iniutil(void);
+extern int iniutil(int pass);
+extern void exiutil(void);
