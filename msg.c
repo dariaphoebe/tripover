@@ -52,7 +52,8 @@ static ub4 vrblvl = 2;
 static ub4 msgopts;
 int msg_doexit = 1;
 
-static int msg_fd = 2;
+static int msg_fd;
+static ub4 msgwritten;
 
 static ub4 warncnt,errcnt,assertcnt,oserrcnt;
 static ub4 assertlimit;
@@ -89,13 +90,15 @@ static ub4 itercnts[Maxmsgline];
 
 // temporary choice. unbuffered is useful for console messages,
 // yet debug logging may ask for buffering
-static void msgwrite(const char *buf, ub4 len)
+static void msgwrite(const char *buf,ub4 len)
 {
   int nw;
 
   if (len == 0) return;
 
-  nw = (int)oswrite(msg_fd,buf,len);
+  msgwritten += len;
+
+  nw = (int)oswrite(msg_fd ? msg_fd : 1,buf,len);
 
   if (nw == -1) nw = (int)oswrite(2,"\nI/O error on msg write\n",24);
   if (nw == -1) oserrcnt++;
@@ -627,7 +630,7 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   if (lvl == Warn) { memcpy(lastwarn,msgbuf,pos); lastwarn[pos] = 0; }
   else if (lvl < Warn && !(code & Exit)) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
   msgbuf[pos++] = '\n';
-  msgwrite(msgbuf, pos);
+  msgwrite(msgbuf,pos);
   if ( (opts & Msg_ccerr) && lvl <= Warn && msg_fd != 2) myttywrite(msgbuf,pos);
 }
 
@@ -730,14 +733,15 @@ int __attribute__ ((format (printf,3,4))) warningfln(ub4 line, ub4 code, const c
   return 0;
 }
 
-int __attribute__ ((format (printf,3,4))) errorfln(ub4 line, ub4 code, const char *fmt, ...)
+int __attribute__ ((format (printf,4,5))) errorfln(ub4 fln,ub4 code,ub4 fln2,const char *fmt, ...)
 {
   va_list ap;
 
   errcnt++;
 
+  if (fln2) msg(Info,0,fln2,0,"",NULL);
   va_start(ap, fmt);
-  msg(Error, 0, line, code, fmt, ap);
+  msg(Error, 0, fln, code, fmt, ap);
   va_end(ap);
   if (code & Exit) ccexit();
   return 1;
@@ -785,7 +789,7 @@ int __attribute__ ((format (printf,3,4))) oserrorfln(ub4 line,ub4 code,const cha
   va_start(ap, fmt);
   vsnprint(buf,0,sizeof(buf),fmt,ap);
   va_end(ap);
-  return errorfln(line,code,"%s: %s",buf,errstr);
+  return errorfln(line,code,FLN,"%s: %s",buf,errstr);
 }
 
 ub4 limit_gt_fln(ub4 x,ub4 lim,ub4 arg,const char *sx,const char *slim,const char *sarg,ub4 fln)
@@ -803,9 +807,9 @@ void error_cc_fln(ub4 a,ub4 b,const char *sa,const char *sb,const char *cc,ub4 l
 {
   va_list ap;
 
-  assertfln(line,0,"%s:%u %s %s:%u", sa,a,cc,sb,b);
+  assertfln(line,Iter,"%s:%u %s %s:%u", sa,a,cc,sb,b);
   va_start(ap,fmt);
-  msg(Info,0,line,User|Ind|decorpos,fmt,ap);
+  msg(Info,0,line,User|Iter|Ind|decorpos,fmt,ap);
   va_end(ap);
   ccexit();
 }
@@ -836,7 +840,7 @@ void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line,co
   ccexit();
 }
 
-void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 cur,ub4 end,const char *fmt, ...)
+int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 cur,ub4 end,const char *fmt, ...)
 {
   va_list ap;
   ub8 sec = 1000 * 1000,dt,est,now = gettime_usec();
@@ -844,16 +848,24 @@ void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4
   char buf[256];
   ub4 pos,len = sizeof(buf);
 
-  vrbfln(fln,CC,"progress %u of %u",cur,end);
+  if (globs.sigint) {
+    va_start(ap,fmt);
+    msg(Info,0,fln,0,fmt,ap);
+    va_end(ap);
+    msgprefix(0,NULL);
+    infofln(fln,0,"interrupted at %u from %u",cur,end);
+    return 1;
+  }
 
-  va_start(ap,fmt);
+  vrbfln(fln,CC,"progress %u of %u",cur,end);
 
   if (cur == 0) {
     eta->cur = eta->end = 0;
     eta->stamp = eta->start = now;
-  } else if (cur >= end || now - eta->stamp < 2 * sec) return;
+  } else if (cur >= end || now - eta->stamp < 2 * sec) return 0;
   eta->stamp = now;
 
+  va_start(ap,fmt);
   pos = vsnprint(buf,0,len,fmt,ap);
   va_end(ap);
   perc = (ub4)(((unsigned long)cur * 100) / end);
@@ -867,27 +879,61 @@ void __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4
     est = (dt * (100UL - perc)) / 100;
   }
   if (cur) mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
-  infofln(fln,0,"%s",buf);
+  return infofln(fln,0,"%s",buf);
 }
+
+void setmsglog(const char *dir,const char *name)
+{
+  char logname[256];
+  int fd,oldfd = msg_fd;
+  int c;
+  char *oldlines;
+  long nr;
+  ub4 n;
+
+  if (dir && *dir) fmtstring(logname,"%s/%s",dir,name);
+  else strcopy(logname,name);
+
+  if (oldfd) info(0,"opening %slog in %s",oldfd ? "new " : "",logname);
+
+  for (c = 9; c; c--) osrotate(logname,(const char)((c - 1) + '0'), (const char)(c + '0'));
+  osrotate(logname,0,'0');
+  fd = oscreate(logname);
+
+  if (fd == -1) { oserror(0,"cannot create logfile %s",logname); fd = 2; }
+  else if (oldfd > 2 && msgwritten) {
+    if (osrewind(oldfd)) oserror(0,"cannot rewind %s",globs.logname);
+    n = msgwritten;
+    oldlines = malloc(n);
+    memset(oldlines,' ',n);
+    nr = osread(oldfd,oldlines,n);
+    if (nr != (long)n) oserror(0,"cannot read %s: %ld",globs.logname,nr);
+    oswrite(fd,oldlines,n);
+    osclose(oldfd);
+  }
+  msgwritten = 0;
+
+  globs.msg_fd = msg_fd = fd;
+  if (oldfd) info(0,"opened new log in %s from %s",logname,globs.logname);
+  strcopy(globs.logname,logname);
+}
+
+static int dia_fd;
 
 // level to be set beforehand
 void inimsg(char *progname, const char *logname, ub4 opts)
 {
-  int c;
-  vrb(2,"init msg for %s",logname);
-
-  for (c = 9; c; c--) osrotate(logname,(const char)((c - 1) + '0'), (const char)(c + '0'));
-  osrotate(logname,0,'0');
-  msg_fd = oscreate(logname);
-
-  if (msg_fd == -1) msg_fd = 2;
-  globs.msg_fd = msg_fd;
+  dia_fd = oscreate("tripover.dia");
+  if (dia_fd != -1) osdup2(dia_fd,2);
 
   progstart = gettime_usec();
 
   msgopts = opts;
   msgfile = setmsgfile(__FILE__);
-  infofln(0,User,"pid\t%d", globs.pid);
+
+  setmsglog(NULL,logname);
+
+  infofln(0,User,"pid\t%d\tfd\t%d", globs.pid,globs.msg_fd); //on line 1:  used by dbg script
 
   if (msg_fd > 2 && (opts & Msg_init)) {
     infofln(0,User,"opening log %s for %s\n", logname,progname);
@@ -898,6 +944,7 @@ void inimsg(char *progname, const char *logname, ub4 opts)
 void eximsg(void)
 {
   ub4 i,n,n0,n1,n2,i0,i1,i2;
+  int fd;
 
   prefixlen = 0;
 
@@ -922,6 +969,9 @@ void eximsg(void)
   if (assertcnt && !(assertcnt == 1 && assertlimit <= 1) ) info(0,"%u assertion\as",assertcnt);
   if (errcnt) info(0,"%u error\as\n%s",errcnt,lasterr);
   if (oserrcnt) info(0,"%u I/O error\as",oserrcnt);
+
+  fd = globs.msg_fd;
+  if (fd > 2) { osclose(fd); globs.msg_fd = 0; }
 }
 
 void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert)

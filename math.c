@@ -249,7 +249,9 @@ static double mean_earth_radius = 6371.0;
 
 double lat2rad(ub4 lat,ub4 scale)
 {
-  double r = ((double)lat / (double)scale - 90.0) * M_PI / 180.0;
+  double deg = ((double)lat / (double)scale - 90.0);
+  double r = deg * M_PI / 180.0;
+//  info(0,"lat %u deg %e",lat,deg);
   return r;
 }
 
@@ -332,9 +334,9 @@ int inimath(void)
   for (x = 0; x < 16; x++) rndstate[x] = xorshift64star();
 
   x = (ub8)Latscale / 180;
-  error_gt(x,1<<30);
+  error_gt(x,1<<30,0);
   x = (ub8)Lonscale / 360;
-  error_gt(x,1<<30);
+  error_gt(x,1<<30,0);
 
   return 0;
 }

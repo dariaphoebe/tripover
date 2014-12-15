@@ -44,8 +44,7 @@ void initime(int iter)
 {
   char buf[256];
   ub4 now;
-  time_t sec;
-  ub4 years,months,days,yy,mm,dd,d,cd,m;
+  ub4 years,months,days,yy,mm,dd,d;
 
   msgfile = setmsgfile(__FILE__);
   iniassert();
@@ -73,16 +72,6 @@ void initime(int iter)
     now = (ub4)time(NULL);
     sec70toyymmdd(now,buf,sizeof(buf));
     info(0,"current time %s : expect UTC",buf);
-
-#if 0
-    for (yy = 13; yy < 15; yy++) {
-      for (mm = 0; mm < 12; mm++) {
-        cd = (yy + Epochyear) * 10000 + (mm + 1) * 100 + 1;
-        m = yymmdd2min(cd,12 * 60);
-        info(0,"%u.%u.1 %u %u %u daysto %u",yy,mm,cd,m,lmin2cd(m),yymm2daytab[yy * 12 + mm]);
-      }
-    }
-#endif
   }
 }
 
@@ -113,7 +102,7 @@ void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen)
 // minutes since epoch localtime to decimal-coded 20140522
 ub4 lmin2cd(ub4 min)
 {
-  ub4 yr,mon,day;
+  ub4 day;
 
   day = min / 1440;
   return day2cdtab[min(day,day2cdmax)];
@@ -156,7 +145,7 @@ ub4 cd2day(ub4 cd)
 // 20140226 localtime to minutes utc since epoch
 ub4 yymmdd2min(ub4 cd,ub4 utcofs)
 {
-  ub4 d,m,y,mm,yy,dm,days;
+  ub4 days;
   ub4 lmin;
 
   days = cd2day(cd);

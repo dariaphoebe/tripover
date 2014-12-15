@@ -63,8 +63,8 @@ void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln)
 {
   vrbfln(fln,0,"");
   if (len == 0) vrbfln(fln,0,"zero copy");
-  else if (src < dst && src + len > dst) errorfln(fln,Exit,"overlapping copy: %p %p %u",src,dst,len);
-  else if (src > dst && dst + len > src) errorfln(fln,Exit,"overlapping copy: %p %p %u",src,dst,len);
+  else if (src < dst && src + len > dst) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %u",src,dst,len);
+  else if (src > dst && dst + len > src) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %u",src,dst,len);
   else memcpy(dst,src,len);
 }
 
@@ -73,8 +73,8 @@ void do_clear(void *p,ub4 len) { memset(p,0,len); }
 int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln)
 {
   vrbfln(fln,0,"");
-  if (a == NULL) return errorfln(fln,Exit,"strcmp(%s:nil,%s",sa,sb);
-  else if (b == NULL) return errorfln(fln,Exit,"strcmp(%s,%s:nil",sa,sb);
+  if (a == NULL) return errorfln(fln,Exit,FLN,"strcmp(%s:nil,%s",sa,sb);
+  else if (b == NULL) return errorfln(fln,Exit,FLN,"strcmp(%s,%s:nil",sa,sb);
   else return strcmp(a,b);
 }
 
@@ -254,7 +254,7 @@ int readfile(struct myfile *mf,const char *name, int mustexist)
   mf->buf = mf->localbuf;
 
   error_zp(name,0);
-  if (*name == 0) return errorfln(FLN,0,"empty filename %p passed to readfile",name);
+  if (*name == 0) return errorfln(FLN,0,0,"empty filename %p passed to readfile",name);
   fd = osopen(name);
   if (fd == -1) {
     if (mustexist) return oserror(0,"cannot open %s",name);

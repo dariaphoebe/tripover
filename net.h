@@ -32,10 +32,11 @@
   enum txkind { Unknown,Air,Rail,Bus,Walk,Kindcnt };
 #endif
 
-#define Npart 256
+// max number of partitions
+#define Npart 1024
 
 #define Nlocal 4
-#define Nxpart 4
+// #define Nxpart 4
 
 struct port {
   ub4 magic;
@@ -55,14 +56,16 @@ struct port {
   ub4 utcofs;
 
   ub4 partcnt;  // #parts member of
-  ub4 part;     // 'home' part
+//  ub4 part;     // 'home' part
 
-  ub2 partnos[Nxpart];  // partnos of membership
-  ub4 pmapofs[Nxpart];  // reachability map
+//  ub2 partnos[Nxpart];  // partnos of membership
+//  ub4 pmapofs[Nxpart];  // reachability map
 
   ub4 zid;
   ub4 zlen;
   ub4 zedhop;
+
+  bool tpart; // member of global part
 
   bool valid;
   bool isagg;
@@ -133,13 +136,10 @@ struct hop {
 
   ub4 dep,arr;    // within part
   ub4 gdep,garr;  // global
-  ub4 cdep,carr;  // compound
 
   ub4 rrid,rid;
 
-  struct timepat tp; //todo alloc variable, not for compound
-
-  ub4 compound;
+  struct timepat tp;
 
   ub4 part;
 
@@ -192,9 +192,9 @@ struct sidtable {
 
 // holds all for a partition
 struct network {
-  ub4 part,partcnt;
-  ub4 portcnt,pportcnt,zportcnt;
-  ub4 hopcnt,zhopcnt;
+  ub4 part;
+  ub4 portcnt,zportcnt;
+  ub4 hopcnt,zhopcnt,chopcnt;
 
   ub4 routecnt;
   ub4 carriercnt;
@@ -261,6 +261,10 @@ struct network {
 
   ub4 *portdst[Nstop];  // [portcnt] #destinations per port
 
+// partitions
+  ub4 tportcnt;         // number of ports in global part
+  ub4 tports[256];
+
 // pools
 // ?  datetime *gopool;
 
@@ -300,7 +304,7 @@ struct gnetwork {
 
   ub4 portcnts[Npart];  // only proper ports
   ub4 hopcnts[Npart];
-  ub4 ridcnts[Npart];
+//  ub4 ridcnts[Npart];
 
   ub1 *portparts;  // [partcnt * portcnt] port memberships
 

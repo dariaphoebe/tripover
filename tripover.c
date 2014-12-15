@@ -123,6 +123,40 @@ static int getbasenet(void)
   return rv;
 }
 
+static int do_main(void)
+{
+  inievent(1);
+
+  if (getbasenet()) return 1;
+
+  if (mknet(globs.maxstops)) return 1;
+
+  if (globs.testcnt > 1) {
+    ub4 dep,arr,lostop = 0, histop = 3;
+    int rv;
+    search src;
+
+    dep = globs.testset[0];
+    arr = globs.testset[1];
+    if (globs.testcnt > 3) {
+      lostop = globs.testset[2];
+      histop= globs.testset[3];
+    }
+    info(0,"test plan %u to %u minstop %u maxstop %u",dep,arr,lostop,histop);
+
+    rv = searchgeo(&src,dep,arr,lostop,histop);
+    if (rv) warning(0,"search returned error %d",rv);
+    else if (src.tripcnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.tripports,src.lodist);
+    else info(0,"%u to %u : no trip\n",dep,arr);
+  }
+
+  if (dorun(FLN,Runserver)) {
+    return serverloop();
+  }
+
+  return 0;
+}
+
 static int cmd_vrb(struct cmdval *cv) {
   if (cv->valcnt) globs.msglvl = cv->uval + Error;
   else globs.msglvl++;
@@ -191,6 +225,8 @@ static struct cmdarg cmdargs[] = {
 
 int main(int argc, char *argv[])
 {
+  int rv;
+
   // temporary defaults
   globs.msglvl = Info;
   strcopy(globs.cfgfile,"tripover.cfg");
@@ -201,6 +237,8 @@ int main(int argc, char *argv[])
 
   if (cmdline(argc,argv,cmdargs)) return 1;
 
+  if (*globs.netdir) setmsglog(globs.netdir,"tripover.log");
+
   if (inicfgcl()) return 1;
 
   oslimits();
@@ -210,36 +248,10 @@ int main(int argc, char *argv[])
   if (readcfg(globs.cfgfile)) return 1;
 
   iniutil(1);
-  inievent(1);
 
-  if (getbasenet()) return 1;
-
-  if (mknet(globs.maxstops)) return 1;
-
-  if (globs.testcnt > 1) {
-    ub4 dep,arr,lostop = 0, histop = 3;
-    int rv;
-    search src;
-
-    dep = globs.testset[0];
-    arr = globs.testset[1];
-    if (globs.testcnt > 3) {
-      lostop = globs.testset[2];
-      histop= globs.testset[3];
-    }
-    info(0,"test plan %u to %u minstop %u maxstop %u",dep,arr,lostop,histop);
-
-    rv = searchgeo(&src,dep,arr,lostop,histop);
-    if (rv) warning(0,"search returned error %d",rv);
-    else if (src.tripcnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.tripports,src.lodist);
-    else info(0,"%u to %u : no trip\n",dep,arr);
-  }
-
-  if (dorun(FLN,Runserver)) {
-    serverloop();
-  }
+  rv = do_main();
 
   exit0();
 
-  return 0;
+  return rv;
 }

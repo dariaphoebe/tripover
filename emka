@@ -49,6 +49,9 @@ use 5.008;
 use integer;
 use strict;
 
+use POSIX ();
+use POSIX qw(tmpnam);
+
 use Fcntl ':mode';
 
 my $progname = 'emka';
@@ -88,6 +91,7 @@ my %defconfig = (
     cfmt => '',
     cdbg => '',
     cextra => '',
+    cdia => '',
 
 # standard .c.o rule
   _c_o => '%compiler -c -o %.o %copt %cdiag %cextra %.c',
@@ -318,7 +322,7 @@ sub readconfig($) {
     $line = trimws($line);
     $cmtpos = index($line,'#');
     next if $cmtpos == 0;
-    $line = substr($line,0,$cmtpos) if $cmtpos > 0;
+    $line = substr($line,0,$cmtpos) if $cmtpos > 0 and index($line,'##') != $cmtpos;
     next if length($line) < 1;
     ($var,$val) = ($line =~ $varisval);
     if (defined $var) {
@@ -701,7 +705,7 @@ sub gen() {
 sub src2obj($) {
   my ($mode) = @_;
 
-  my ($dir,$name,$path,$opath,$info,$oinfo,$fh,$gen,$fresh);
+  my ($dir,$name,$path,$opath,$info,$oinfo,$fh,$gen,$fresh,$retval);
   my ($cmd,$arg,$pos,$line,$incname,$htime,$now);
 
   my $inc_dq = qr'^\s*#\s*include\s+\"([a-z0-9_/.]+)\"';
@@ -753,19 +757,39 @@ sub src2obj($) {
 
   $cmd = $config{compiler};
 
+  my $dianame = '';
+  my ($diafh,$dialine);
+
   # first pass syntax only
   $arg = $config{_c_};
   if (length($arg) > 1 and not $dryrun) {
     $pos = index($arg, $cmd);
     $arg = substr($arg, length($cmd)) if $pos == 0;
+    if (index($arg,'%.dia') >= 0) {
+      $dianame = tmpnam();
+      $arg =~ s?%.dia?$dianame?;
+    }
     $arg =~ s?%.now?$now?;
     $arg =~ s?%\.c?$srclist?g;
-    return 0 unless run($dir,$cmd,$arg,$cmd . ' syntax  ' . $srclist);
+    $retval = run($dir,$cmd,$arg,$cmd . ' syntax  ' . $srclist);
+    if (length($dianame) and -f $dianame and -s $dianame and -r $dianame and open($diafh,'<',$dianame)) {
+      while ($dialine = readline($diafh)) {
+        print(' xxx ' . $dialine) unless index($dialine,'note: ') > 0;
+      }
+      close($diafh);
+    }
+    return 0 unless $retval;
   }
 
   $arg = $config{_c_o};
   $pos = index($arg, $cmd);
   $arg = substr($arg, length($cmd)) if $pos == 0;
+  if (index($arg,'%.dia') >= 0) {
+    $dianame = tmpnam();
+    $arg =~ s?%.dia?$dianame?;
+    open($diafh,'>',$dianame);
+    close($diafh);
+  }
   $arg =~ s?%.now?$now?;
   vrb("arg $arg now %now");
   $arg =~ s?%\.c?$srclist?g;

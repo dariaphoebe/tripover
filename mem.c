@@ -33,7 +33,9 @@ struct sumbyuse {
   char id[16];
   ub4 idlen;
   ub4 sum;
-  ub4 fln;
+  ub4 hi;
+  char hidesc[64];
+  ub4 fln,hifln;
 };
 
 static struct sumbyuse usesums[32];
@@ -52,7 +54,12 @@ static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
   memcpy(up->id,desc,idlen);
   up->fln = fln;
   up->sum += mbcnt;
-  if (up->sum > 32) infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
+  if (mbcnt > 32) infofln(up->fln,0,"category %s memuse %u MB adding %u for %s",up->id,up->sum,mbcnt,desc);
+  if (mbcnt > up->hi) {
+    up->hi = mbcnt;
+    up->hifln = fln;
+    strncpy(up->hidesc,desc,sizeof(up->hidesc)-1);
+  }
 }
 
 static void showsums(void)
@@ -61,7 +68,10 @@ static void showsums(void)
 
   info(0,"total memuse %u MB",totalMB);
   while (up < usesums + Elemcnt(usesums) && up->idlen) {
-    if (up->sum > 4) infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
+    if (up->sum > 16) {
+      infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
+      infofln(up->hifln,0,"  hi %u MB for %s",up->hi,up->hidesc);
+    }
     up++;
   }
 }
@@ -144,7 +154,12 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
     va_start(ap,fmt);
     descpos = myvsnprintf(desc,0,desclen,fmt,ap);
     va_end(ap);
-  }
+  } else *desc = 0;
+
+  // check for zero and overflow
+  if (elems == 0) errorfln(fln,Exit,FLN,"zero length block %s",desc);
+  if (elsize == 0) errorfln(fln,Exit,FLN,"zero element size %s",desc);
+
   descpos += mysnprintf(desc,descpos,desclen," - \ah%lu %s of %u %s alloc ",(unsigned long)elems,selems,elsize,selsize);
   descpos += msgfln(desc,descpos,desclen,fln,0);
   blk->desclen = descpos;
@@ -152,18 +167,17 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
 
   vrbfln(fln,V0|CC,"block '%s' ",desc);
 
-  // check for zero and overflow
-  error_zz(elems,elsize);
+  // check for overflow
 
   n = (size_t)n8;
   nm = (ub4)(n8 >> 20);
-  if (n8 != n) error(Exit,"wraparound allocating %u MB",nm);
+  if (n8 != n) errorfln(fln,Exit,FLN,"wraparound allocating %u MB for %s",nm,desc);
 
-  if (nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm);
-  if (totalMB + nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm);
+  if (nm >= Maxmem_mb) errorfln(fln,Exit,FLN,"exceeding %u MB limit by %u MB for %s",Maxmem_mb,nm,desc);
+  if (totalMB + nm >= Maxmem_mb) errorfln(fln,Exit,FLN,"exceeding %u MB limit by %u MB for %s",Maxmem_mb,nm,desc);
 
   p = malloc(n);
-  if (!p) { error(0,"cannot allocate %u MB",nm); exit(1); }
+  if (!p) { errorfln(fln,0,FLN,"cannot allocate %u MB for %s",nm,desc); exit(1); }
 
   blk->base = p;
   blk->elems = elems;
@@ -225,8 +239,8 @@ void bound_fln(block *blk,size_t pos,ub4 elsize,const char *spos,const char *sel
 {
 //  vrbfln(fln,V0|CC,"bounds on block '%s' use ",blk->desc);
 
-  if (elsize != blk->elsize) errorfln(fln,Exit,"%s size %u on %s size %u block '%s'",selsize,elsize,blk->selsize,blk->elsize,blk->desc);
-  if (pos >= blk->elems) errorfln(fln,Exit,"%s pos %lu %u above %s len %lu block '%s'",spos,pos,(ub4)(pos - blk->elems),blk->selems,blk->elems,blk->desc);
+  if (elsize != blk->elsize) errorfln(fln,Exit,FLN,"%s size %u on %s size %u block '%s'",selsize,elsize,blk->selsize,blk->elsize,blk->desc);
+  if (pos >= blk->elems) errorfln(fln,Exit,FLN,"%s pos %lu %u above %s len %lu block '%s'",spos,pos,(ub4)(pos - blk->elems),blk->selems,blk->elems,blk->desc);
 }
 
 void inimem(void)

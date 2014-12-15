@@ -94,7 +94,7 @@ int condense(struct gnetwork *net)
     do {
       dep = portsbyhop[ahop * 2];
       pdep = ports + dep;
-      if (pdep->ndep > 1) { stats[1]; break; }  // do include terminus
+      if (pdep->ndep > 1) { stats[1]++; break; }  // do include terminus
       else if (pdep->narr > 1) { stats[2]++; break; }  // do include terminus
       else if (pdep->drids[0] != drid) { stats[3]++; break; }
       zlen++;

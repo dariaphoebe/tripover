@@ -236,7 +236,7 @@ ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
     thi = max(thi,t);
 
     evcnt2++;
-    error_gt(evcnt2,evcnt);
+    error_gt(evcnt2,evcnt,t);
 
     rep = 0; sum1 = sum2 = 0;
     rt = t;

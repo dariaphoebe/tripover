@@ -44,19 +44,22 @@ struct eta {
 
 #define genmsg(lvl,code,fmt,...) genmsgfln(FLN,(lvl),(code),(fmt),__VA_ARGS__)
 #define vrb(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
+#define vrb0(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
 #define info(code,fmt,...) infofln(FLN,(code),(fmt),__VA_ARGS__)
 #define warning(code,fmt,...) warningfln(FLN,(code),(fmt),__VA_ARGS__)
-#define error(code,fmt,...) errorfln(FLN,(code),(fmt),__VA_ARGS__)
+#define error(code,fmt,...) errorfln(FLN,(code),0,(fmt),__VA_ARGS__)
 #define oserror(code,fmt,...) oserrorfln(FLN,(code),(fmt),__VA_ARGS__)
 #define oswarning(code,fmt,...) oswarningfln(FLN,(code),(fmt),__VA_ARGS__)
 
 #define info0(code,s) info0fln(FLN,(code),(s))
 #define infocc(cc,code,fmt,...) if ((cc)) infofln(FLN,(code),(fmt),__VA_ARGS__)
 
+#define infovrb(cc,code,fmt,...) genmsgfln(FLN,(cc) ? Info : Vrb,(code),(fmt),__VA_ARGS__)
+
 // no misprint: access first two format args
 #define progress(eta,fmt,cur,end,...) progress2((eta),FLN,(cur),(end),(fmt),(cur),(end),__VA_ARGS__)
 
-extern void progress2(struct eta *eta,ub4 fln,ub4 cur,ub4 end,const char *fmt, ...) __attribute__ ((format (printf,5,6)));
+extern int progress2(struct eta *eta,ub4 fln,ub4 cur,ub4 end,const char *fmt, ...) __attribute__ ((format (printf,5,6)));
 
 extern ub4 mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...) __attribute__ ((format (printf,4,5)));
 
@@ -77,6 +80,7 @@ extern void inimsg(char *progname, const char *logname, ub4 opts);
 extern void eximsg(void);
 
 extern void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert);
+extern void setmsglog(const char *dir,const char *logname);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
 // when failing, both names and values are shown
@@ -86,7 +90,7 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert);
 #define error_nz(a,b) error_nz_fln((a),(b),#a,#b,FLN)
 #define error_zz(a,b) error_zz_fln((a),(b),#a,#b,FLN)
 #define error_zp(a,b) error_zp_fln((void*)(a),(b),#a,#b,FLN)
-#define error_gt(a,b) error_gt_fln((a),(b),#a,#b,FLN)
+#define error_gt(a,b,x) error_gt_fln((a),(b),#a,#b,(x),#x,FLN)
 #define error_ge(a,b) error_ge_fln((a),(b),#a,#b,FLN)
 #define error_le(a,b) error_le_fln((a),(b),#a,#b,FLN)
 #define error_lt(a,b) error_lt_fln((a),(b),#a,#b,FLN)
@@ -100,7 +104,7 @@ extern void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert);
 #define error_ge_cc(a,b,fmt,...) error_ge_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)
 #define error_gt_cc(a,b,fmt,...) error_gt_cc_fln((a),(b),#a,#b,FLN,fmt,__VA_ARGS__)
 
-#define error_ovf(a,b) error_ovf_fln((a),sizeof(b),#a,#b,FLN)
+#define error_ovf(a,t) error_ovf_fln((a),sizeof(t),#a,#t,FLN)
 
 #define limit_gt(x,lim,arg) (x) = limit_gt_fln((x),(lim),(arg),#x,#lim,#arg,FLN)
 
@@ -112,7 +116,7 @@ extern int genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...) __att
 extern void vrbfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int infofln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int warningfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
-extern int errorfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
+extern int errorfln(ub4 fln,ub4 code,ub4 fln2,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 extern int oserrorfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int oswarningfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
@@ -140,21 +144,25 @@ static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 lin
 {
   if (a == b) return;
 
-  assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu dif %ld", sa,a,sb,b,a - b);
+  long d = a - b;
+
+  if (d > -10000 && d< 10000) assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu dif %ld", sa,a,sb,b,d);
+  else assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu", sa,a,sb,b);
 }
 
-static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
+static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 x,const char *sx,ub4 line)
 {
   if (a <= b) return;
 
-  assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu", sa,a,sb,b);
+  assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu %s %u", sa,a,sb,b,sx,x);
 }
 
 static void error_ge_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a < b) return;
   else if (a == b) assertfln(line,Exit,"%s:\ah%lu == %s:\ah%lu", sa,a,sb,b);
-  else assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu by %lu", sa,a,sb,b,a-b);
+  else if (a - b < 10000) assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu by %lu", sa,a,sb,b,a-b);
+  else assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu", sa,a,sb,b);
 }
 
 static void error_lt_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
@@ -224,7 +232,7 @@ static void iniassert(void)
 {
   error_lt(1,1);
   error_le(2,1);
-  error_gt(1,1);
+  error_gt(1,1,0);
   error_ge(1,2);
   error_eq(1,2);
   error_ne(1,1);

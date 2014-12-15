@@ -41,10 +41,11 @@ typedef int sb4;
  #define NULL (void*)0
 #endif
 
-#define clear(p) memset((p),0,sizeof (*p) )
-#define aclear(p) memset((p),0,sizeof (p) )
+#define clear(p) memset((p),0,sizeof(*(p)))
+#define aclear(p) { _Static_assert(sizeof(p) > 8,"need array, not pointer"); memset((p),0,sizeof(p)); }
+#define nclear(p,n) memset((p),0,(n) * sizeof(*(p)))
 
-#define strcopy(dst,src) strncpy((dst),(src),sizeof (dst) )
+#define strcopy(dst,src) { _Static_assert(sizeof(dst) > 8,"need array, not pointer"); strncpy((dst),(src),sizeof (dst) ); }
 
 enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runmknet,Runcompound,Runnet0,Runnetn,Runserver,Runcnt };
 
@@ -73,7 +74,9 @@ extern struct globs {
   ub4 extdec;
 
   int msg_fd;
+  char logname[256];
   int pid;
+  int sigint;
 
   ub4 limassert;
   ub4 testa,testb;
@@ -92,5 +95,14 @@ struct myfile {
 };
 
 // 360 at 40k = 111 km / lon
-#define Latscale 100000
-#define Lonscale 100000
+#define Latscale 1000000
+#define Lonscale 1000000
+
+#undef NVALGRIND
+#ifdef NVALGRIND
+ #define vg_set_undef(p,n)
+#else
+ #include <valgrind/memcheck.h>
+ #define vg_set_undef(p,n) VALGRIND_MAKE_MEM_UNDEFINED((p),(n))
+ #define vg_chk_def(p,n) VALGRIND_CHECK_MEM_IS_DEFINED((p),(n))
+#endif

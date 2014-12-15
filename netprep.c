@@ -23,6 +23,7 @@
  */
 
 #include <string.h>
+#include <stdlib.h>
 
 #include "base.h"
 #include "cfg.h"
@@ -124,6 +125,18 @@ static int marklocal(struct network *net)
   return 0;
 }
 
+struct hisort {
+  ub4 cnt,rid1,rid2;
+};
+
+static int hicmp(const void *a,const void *b)
+{
+  struct hisort *aa = (struct hisort *)a;
+  struct hisort *bb = (struct hisort *)b;
+
+  return (bb->cnt - aa->cnt);
+}
+
 int prepnet(netbase *basenet)
 {
   struct network *net;
@@ -146,22 +159,20 @@ int prepnet(netbase *basenet)
 
   ub4 *portsbyhop;
 
-  ub4 bportcnt,portcnt,xportcnt,bhopcnt,hopcnt,pridcnt;
-  ub4 dep,arr,aport,depp,arrp;
+  ub4 bportcnt,portcnt,tportcnt;
+  ub4 bhopcnt,hopcnt,pridcnt;
+  ub4 dep,arr,depp,arrp;
   ub4 bsidcnt,sidcnt,bchaincnt,chaincnt,chainhopcnt;
   ub4 bridcnt,ridcnt;
-  ub4 nlen,cnt,acnt,dcnt,sid,rid,rrid,part,hpart,xmaplen;
-  ub4 pportcnt,zpportcnt,phopcnt,partcnt,npart1;
+  ub4 nlen,cnt,acnt,dcnt,tcnt,sid,rid,rrid,part,tpart,xmaplen;
+  ub4 pportcnt,zpportcnt,phopcnt,partcnt,part2,newpartcnt;
   enum txkind kind;
   ub4 hop,port,zport,zpport,chain,phop,pport;
   ub4 variants,varmask,hirrid;
-  ub4 *hopcnts,*portcnts,*ridcnts;
-  ub1 *portparts;
+  ub4 *hopcnts,*portcnts;
   ub4 *g2p,*p2g,*g2phop;
   ub4 *p2zp,*zp2p,*port2zport;
-  struct partition *parts,*partp,*apartp;
-  ub4 latscale = basenet->latscale;
-  ub4 lonscale = basenet->lonscale;
+  struct partition *parts,*partp;
   ub4 *rrid2rid = basenet->rrid2rid;
 
   bhopcnt = basenet->hopcnt;
@@ -372,7 +383,6 @@ int prepnet(netbase *basenet)
   // prepare partitioning
   hopcnts = gnet->hopcnts;
   portcnts = gnet->portcnts;
-  ridcnts = gnet->ridcnts;
   parts = gnet->parts;
 
   port2zport = gnet->port2zport;
@@ -380,129 +390,753 @@ int prepnet(netbase *basenet)
 
   hirrid = basenet->hirrid;
 
-  ub4 *routeparts = alloc(hirrid + 1,ub4,0,"routes",hirrid);
+/*
+  each port has 1k list of memberships
+  start with each port is in partno (portno or rid)
+  repeat {
+    for each link a->b  a.members += b.members and vice versa
+    until list full or iter > x
+  }
+  mark portcnt per memberno
+  mark himembers per port
+  [rid1,rid] = number of ports in both rid1 and 2
+  repeat merge highest combi until number of discrete rid2 = number of aimed parts
+  optional, filter per port memberships with lower count
+  plus separate partitions H with hi-conn or high-partmember ports
+  such that each part has at least one port member of these H
+  and each H has ports from each part
+ */
+  ub4 aimcnt = max(3,portcnt / 1000);
 
-  // todo: ad-hoc partitioning
-  partcnt = max(portcnt / 3000,1);
-  info(0,"%u partition\as",partcnt);
-  portparts = alloc(partcnt * portcnt,ub1,0,"portparts",portcnt);
-  npart1 = (partcnt - 1);
+  info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
 
-  if (partcnt > 1) {
-    for (rrid = 1; rrid <= hirrid; rrid++) {
-      rid = rrid2rid[rrid];
-      if (rid >= ridcnt) continue;
-      part = min(rrid * partcnt / hirrid,partcnt - 1);
-      routeparts[rrid] = part;
-      rp = routes + rid;
-      vrb(0,"part %u rid %u",part,rid);
-      rp->part = part;
+  // todo: use initial part < rid, and inipartcnt * iipartcnt instead
+  ub4 ridrid = ridcnt * ridcnt;
+
+  ub4 *portparts = alloc(Npart * portcnt,ub4,0xff,"part portparts",portcnt);
+  ub4 *lportparts = alloc(Npart * portcnt,ub4,0xff,"part portparts",portcnt);
+  ub4 *mpp,*dmpp,*ampp,*lmpp;
+
+  ub2 *ppm,*partportcnts = alloc(ridcnt * portcnt,ub2,0,"part partportcnts",portcnt);
+  ub2 *lppm,*dppm,*appm,*lpartportcnts = alloc(ridcnt * portcnt,ub2,0,"part partportcnts",portcnt);
+  ub4 *portsperpart = alloc(ridcnt,ub4,0,"part portsperpart",portcnt);
+
+  ub4 *ridcnts = alloc(ridcnt,ub4,0,"part ridcnts",ridcnt);
+  ub1 *ridhis = alloc(ridcnt,ub1,0,"part ridhis",ridcnt);
+  ub4 *partmerges = alloc(ridcnt,ub4,0,"part partmerges",ridcnt);
+  ub4 *rid2part = alloc(ridcnt,ub4,0,"part rid2part",ridcnt);
+
+  ub4 hino,nhino;
+
+  struct hisort *hisorts  = alloc(ridrid,struct hisort,0,"part",ridcnt);
+
+  ub4 *partcnts = alloc(portcnt,ub4,0,"part partcnts",portcnt);
+  ub4 *lpartcnts = alloc(portcnt,ub4,0,"part lpartcnts",portcnt);
+  ub4 *itercnts = alloc(portcnt,ub4,0,"part itercnts",portcnt);
+
+  ub4 *rid2cnts = alloc(ridrid,ub4,0,"part rid2cnts",ridcnt);
+  ub4 *lrid2cnts = alloc(ridrid,ub4,0,"part lrid2cnts",ridcnt);
+
+  ub4 mi,dmi,ami,cnt2,lcnt,sumcnt,orgacnt,orgdcnt,prvsumcnt,nstop,iter;
+  ub4 rid1,rid2;
+  ub4 ppartcnt,fullcnt;
+
+  /* start with each port as member of rid any hop is on
+   * todo: group into small number of nearby rids
+   */
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    dep = hp->dep;
+    arr = hp->arr;
+    if (dep == arr) continue;
+
+    rid = hp->rid;
+
+    cnt = partcnts[dep];
+    if (cnt < Npart - 1) {
+      mpp = portparts + dep * Npart;
+      mi = 0;
+      while (mi < cnt && mpp[mi] != rid) mi++;
+      if (mi == cnt) { mpp[mi] = rid; partcnts[dep] = cnt + 1; }
+    }
+
+    cnt = partcnts[arr];
+    if (cnt == Npart - 1) continue;
+
+    mpp = portparts + arr * Npart;
+    mi = 0;
+    while (mi < cnt && mpp[mi] != rid) mi++;
+    if (mi == cnt) { mpp[mi] = rid; partcnts[arr] = cnt + 1; }
+  }
+
+  sumcnt = 0;
+  for (port = 0; port < portcnt; port++) {
+    pdep = ports + port;
+//    info(0,"port %u cnt %u %s",port,partcnts[port],pdep->name);
+    sumcnt += partcnts[port];
+  }
+
+  // check duplicates
+  for (port = 0; port < portcnt; port++) {
+    cnt = partcnts[port];
+    mpp = portparts + port * Npart;
+
+    for (mi = 0; mi < cnt; mi++) {
+      rid = mpp[mi];
+      error_ge(rid,ridcnt);
+      for (ami = 0; ami < cnt; ami++) {
+        if (ami != mi && mpp[ami] == rid) warning(0,"port %u dup rid %u at pos %u and %u",port,rid,mi,ami);
+      }
     }
   }
 
-  xmaplen = 0;
+  info(0,"pass 1, sum %u",sumcnt);
+
+  // add members from each hop peer port, both directions
+  nstop = prvsumcnt = iter = 0;
+
+  struct eta eta;
+  ub4 cntlimit = 0;
+
+  while (iter < 10 && sumcnt < Npart * portcnt / 2) {
+
+    for (hop = 0; hop < hopcnt; hop++) {
+
+      progress(&eta,"assign initial parts hop \ah%u of \ah%u iter %u %u-stop sum \ah%u",hop,hopcnt,iter,nstop,sumcnt);
+
+      hp = hops + hop;
+      dep = hp->dep;
+      arr = hp->arr;
+      if (dep == arr) continue;
+
+      dcnt = partcnts[dep];
+      acnt = partcnts[arr];
+
+      if (dcnt == Npart - 1 && acnt == Npart - 1) {
+        info(0,"end initial part assign at hop %u dep %u arr %u",hop,dep,arr);
+        break;
+      } else if (dcnt == Npart - 1 || acnt == Npart - 1) {
+        cntlimit++;
+        if (cntlimit > hopcnt / 100) {
+          info(0,"end initial part assign at hop %u dep %u arr %u",hop,dep,arr);
+          break;
+        }
+      }
+
+      dmpp = portparts + dep * Npart;
+      ampp = portparts + arr * Npart;
+      orgacnt = acnt;
+      orgdcnt = dcnt;
+      if (itercnts[dep] <= iter) {
+        dmi = 0;
+        while (dmi < dcnt && acnt < Npart - 1) {
+          rid = dmpp[dmi++];
+          error_ge(rid,ridcnt);
+          ami = 0;
+          while (ami < acnt && ampp[ami] != rid) ami++;
+          if (ami == acnt) ampp[acnt++] = rid;
+        }
+        if (acnt > orgacnt) {
+          partcnts[arr] = acnt;
+          itercnts[dep]++;
+        }
+      }
+
+      if (itercnts[arr] <= iter) {
+        ami = 0;
+        while (ami < orgacnt && dcnt < Npart - 1) {
+          rid = ampp[ami++];
+          error_ge(rid,ridcnt);
+          dmi = 0;
+          while (dmi < dcnt && dmpp[dmi] != rid) dmi++;
+          if (dmi == dcnt) dmpp[dcnt++] = rid;
+        }
+        if (dcnt > orgdcnt) {
+          partcnts[dep] = dcnt;
+          itercnts[arr]++;
+        }
+      }
+    } // each hop
+
+    prvsumcnt = sumcnt;
+    sumcnt = 0;
+    for (port = 0; port < portcnt; port++) {
+      sumcnt += partcnts[port];
+//      info(0,"cnt %u iter %u",partcnts[port],itercnts[port]);
+    }
+    if (sumcnt == prvsumcnt) break;
+    iter++;
+
+    // use this lower connectivity to estimate resulting ports per part
+    if (iter == 1) {
+      memcpy(lportparts,portparts,portcnt * Npart * sizeof(ub4));
+      memcpy(lpartcnts,partcnts,portcnt * sizeof(ub4));
+    }
+  }
+
+  ub4 partstats[Npart / 4];
+  ub4 iv,cumcnt,partivs = Elemcnt(partstats) - 1;
+  ub4 partstats2[4096];
+  ub4 partiv2s = Elemcnt(partstats2) - 1;
+
+  aclear(partstats);
+
+  // check duplicates
+  for (port = 0; port < portcnt; port++) {
+    cnt = partcnts[port];
+    mpp = portparts + port * Npart;
+
+    for (mi = 0; mi < cnt; mi++) {
+      rid = mpp[mi];
+      error_ge(rid,ridcnt);
+      for (ami = 0; ami < cnt; ami++) {
+        if (ami != mi && mpp[ami] == rid) info(0,"port %u dup rid %u at pos %u and %u",port,rid,mi,ami);
+      }
+    }
+  }
+
+//  mark portcnt per memberno and stat
+  for (port = 0; port < portcnt; port++) {
+    progress(&eta,"port %u of %u iter 0 pass 1 parts %u",port,portcnt,ridcnt);
+    cnt = partcnts[port];
+    mpp = portparts + port * Npart;
+    ppm = partportcnts + port * ridcnt;
+    for (mi = 0; mi < cnt; mi++) {
+      rid = mpp[mi];
+      error_ge(rid,ridcnt);
+      if (port == 487) info(0,"port %u rid %u pos %u of %u",port,rid,mi,cnt);
+      ridcnts[rid]++;
+      ppm[rid] = 1;
+    }
+    for (mi = 0; mi < cnt; mi++) {
+      rid1 = mpp[mi];
+      for (rid2 = 0; rid2 < ridcnt; rid2++) {
+        if (rid2 > rid1 && ppm[rid2]) {
+          error_ge_cc(rid1 * ridcnt + rid2,ridrid,"rid %u rid2 %u",rid1,rid2);
+          cnt2 = rid2cnts[rid1 * ridcnt + rid2];
+          if (cnt2 == portcnt - 1) info(0,"port %u cnt %u for rid,rid %u,%u at %u",port,cnt,rid1,rid2,mi);
+          error_ge(cnt2,portcnt);
+          rid2cnts[rid1 * ridcnt + rid2] = cnt2 + 1;
+        }
+      }
+    }
+
+    lcnt = lpartcnts[port];
+    lmpp = lportparts + port * Npart;
+    lppm = lpartportcnts + port * ridcnt;
+    for (mi = 0; mi < lcnt; mi++) {
+      rid = lmpp[mi];
+      error_nz(lppm[rid],rid);
+      error_ge(rid,ridcnt);
+      if (port == 487) info(0,"port %u rid %u pos %u of %u",port,rid,mi,cnt);
+      lppm[rid] = 1;
+      portsperpart[rid]++;
+    }
+    for (mi = 0; mi < lcnt; mi++) {
+      rid1 = lmpp[mi];
+      for (rid2 = 0; rid2 < ridcnt; rid2++) {
+        if (rid2 > rid1 && lppm[rid2]) lrid2cnts[rid1 * ridcnt + rid2]++;
+      }
+    }
+
+    pdep = ports + port;
+    vrb0(0,"cnt %u iter %u %s",cnt,itercnts[port],pdep->name);
+    error_ge(cnt,Npart);
+    partstats[min(cnt,partivs)]++;
+  }
 
   for (rid = 0; rid < ridcnt; rid++) {
-    rp = routes + rid;
-    part = rp->part;
-    ridcnts[part]++;
+    pportcnt = portsperpart[rid];
+    error_gt(pportcnt,portcnt,rid);
+    if (pportcnt > 3000) info(0,"rid %u ports %u",rid,pportcnt);
+  }
+
+  cumcnt = 0;
+  for (iv = 0; iv <= partivs; iv++) {
+    cnt = partstats[iv];
+    cumcnt += cnt;
+//    if (cnt) info(0,"parts %u cnt %u sum %u",iv,cnt,cumcnt);
+  }
+
+/* search N sets of 2 parts with highest number of shared ports
+   with each set on different parts
+   [rid1,rid] = number of ports in both rid1 and 2
+   sets are symmetrical : rid1 < rid2 is used
+ */
+
+  partcnt = ridcnt;
+
+  for (rid = 0; rid < ridcnt; rid++) {
+    ridhis[rid] = 0;
+    partmerges[rid] = rid;
+  }
+
+//  repeat merge highest combi until number of discrete rid2 = number of aimed parts
+  iter = 0;
+  part2 = partcnt * partcnt;
+
+  while (partcnt > aimcnt && iter++ < 100) {
+
+    newpartcnt = partcnt;
+
+    msgprefix(0,"iter %u",iter);
+
+    for (rid = 0; rid < ridcnt; rid++) {
+      if (partmerges[rid] != rid) ridhis[rid] = 1;
+      else if (portsperpart[rid] > 2900) { info(0,"rid %u ports %u",rid,portsperpart[rid]); ridhis[rid] = 1; }
+      else ridhis[rid] = 0;
+    }
+
+    nhino = part2;
+
+    info(0,"prepare %u sets",nhino);
+    hino = 0;
+    for (rid1 = 0; rid1 < ridcnt; rid1++) {
+      if (ridhis[rid1]) continue;
+      for (rid2 = 0; rid2 < ridcnt; rid2++) {
+        if (rid2 <= rid1 || ridhis[rid2] /* || rid2his[rid1 * ridcnt + rid2] */) continue;
+        hisorts[hino].cnt = rid2cnts[rid1 * ridcnt + rid2];
+        hisorts[hino].rid1 = rid1;
+        hisorts[hino].rid2 = rid2;
+        hino++;
+      }
+    }
+    error_gt(hino,nhino,ridcnt);
+
+    info(0,"sort %u from %u sets",hino,nhino);
+    nhino = hino;
+
+    qsort(hisorts,hino,sizeof(struct hisort),hicmp);
+    info(0,"filter %u sets",hino);
+
+    // select sets to merge, excluding any part chosen previously
+    fullcnt = 0;
+    for (hino = 0; hino < nhino; hino++) {
+      rid1 = hisorts[hino].rid1;
+      rid2 = hisorts[hino].rid2;
+      cnt = hisorts[hino].cnt;
+
+      if (rid1 == rid2 || ridhis[rid1] || ridhis[rid2]) continue;
+      if (iter == 8) info(0,"rid1 %u rid2 %u cnt  %u his %u %u",rid1,rid2,cnt,ridhis[rid1],ridhis[rid2]);
+//      if (rid2his[rid1 * ridcnt + rid2]) continue;
+
+//      if (hino < 12) info(0,"rid1 %u rid2 %u cnt %u",rid1,rid2,cnt);
+
+      cnt2 = lrid2cnts[rid1 * ridcnt + rid2];
+      if (iter == 9) info(0,"rid1 %u rid2 %u cnt2 %u",rid1,rid2,cnt2);
+      error_gt(cnt2,portsperpart[rid1],rid1);
+      error_gt(cnt2,portsperpart[rid2],rid2);
+      error_gt(portsperpart[rid1],portcnt,rid1);
+      error_gt(portsperpart[rid2],portcnt,rid2);
+      pportcnt = portsperpart[rid1] + portsperpart[rid2] - cnt2;
+      if (pportcnt < 3000) {
+        partmerges[rid2] = rid1;
+        newpartcnt--;
+        ridhis[rid1] = ridhis[rid2] = 1;
+        info(0,"hi %u 10-%u 1-%u ports %u merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
+      } else {
+        vrb0(0,"hi %u 10-%u 1-%u ports %u no merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
+//        rid2his[rid1 * ridcnt + rid2] = 1;
+        fullcnt++;
+      }
+    }
+    info(0,"parts %u from %u, %u full",newpartcnt,partcnt,fullcnt);
+    if (newpartcnt == partcnt) {
+      info(0,"end iter %u on zero out of %u groups parts %u",iter,nhino,partcnt);
+      break;
+    }
+
+    // merge
+    aclear(partstats);
+    for (port = 0; port < portcnt; port++) {
+
+      progress(&eta,"pass 1 port %u of %u parts %u",port,portcnt,partcnt);
+
+      cnt = partcnts[port];
+      mpp = portparts + port * Npart;
+      ppm = partportcnts + port * ridcnt;  // ppm is updated in place
+      error_z(cnt,port);
+
+      mi = 0;
+      while(mi < cnt) {
+        rid = mpp[mi];
+        error_ge(rid,ridcnt);
+        rid2 = partmerges[rid];
+        error_z(ppm[rid],rid);
+        if (rid == rid2 || rid2 == hi32) { mi++; continue; }
+        if (ppm[rid2]) {
+          error_eq(cnt,1);
+          if (mi + 1 < cnt) mpp[mi] = mpp[--cnt]; // replace with last if have both
+          else { cnt--; break; }
+        } else { mpp[mi] = rid2; ppm[rid2] = 1; }
+        ppm[rid] = 0;
+      }
+      partcnts[port] = cnt;
+
+      lcnt = lpartcnts[port];
+      lmpp = lportparts + port * Npart;
+      lppm = lpartportcnts + port * ridcnt;
+      error_z(lcnt,port);
+
+      mi = 0;
+      while(mi < lcnt) {
+        rid = lmpp[mi];
+        error_ge(rid,ridcnt);
+        error_z(lppm[rid],rid);
+        rid2 = partmerges[rid];
+        if (rid == rid2) { mi++; continue; }
+        else if (rid2 == hi32) { warning(0,"port %u stale rid %u at %u of %u",port,rid,mi,lcnt); mi++; continue; }
+        error_ge(rid,ridcnt);
+        if (lppm[rid2]) {
+          error_eq(lcnt,1);
+          if (rid == 2072 || port == 209) info(0,"port %u merge rid %u to %u at %u of %u",port,rid,rid2,mi,lcnt);
+          if (mi + 1 < lcnt) lmpp[mi] = lmpp[--lcnt];
+          else { lcnt--; break; }
+        } else {
+          if (rid == 2072 || port == 209) info(0,"port %u merge rid %u to %u at %u of %u",port,rid,rid2,mi,lcnt);
+          lmpp[mi] = rid2; lppm[rid2] = 1;
+        }
+        lppm[rid] = 0;
+      }
+      lpartcnts[port] = lcnt;
+      partstats[min(partivs,lcnt)]++;
+      if (port == 209) info(0,"port %u in %u parts",port,lcnt);
+    }
+
+    lcnt = partstats[0];
+    if (lcnt) warning(0,"%u port\as in no partition",lcnt);
+    lcnt = partstats[1];
+    genmsg(lcnt ? Info : Warn,0,"%u port\as in 1 partition",lcnt);
+    for (iv = 2; iv < partivs; iv++) {
+      lcnt = partstats[iv];
+      if (lcnt > portcnt / 100) info(0,"%u port\as in %u partition\as each", lcnt,iv);
+    }
+    lcnt = partstats[iv];
+    if (lcnt) info(0,"%u port\as in %u+ partitions each", lcnt,iv);
+
+    // mark as done for next iters
+    for (rid = 0; rid < ridcnt; rid++) {
+      if (partmerges[rid] != rid) {
+        partmerges[rid] = hi32;
+      }
+    }
+
+    partcnt = newpartcnt;
+    part2 = partcnt * partcnt;
+
+    // mark for next iter
+    nclear(rid2cnts,ridrid);
+    nclear(lrid2cnts,ridrid);
+    nclear(portsperpart,ridcnt);
+    for (port = 0; port < portcnt; port++) {
+      progress(&eta,"pass 2 port %u of %u parts %u",port,portcnt,partcnt);
+
+      cnt = partcnts[port];
+      mpp = portparts + port * Npart;
+      ppm = partportcnts + port * ridcnt;
+
+      for (mi = 0; mi < cnt; mi++) {
+        rid = mpp[mi];
+        error_ge(rid,ridcnt);
+        error_z(ppm[rid],rid);
+        ppm[rid] = 0;
+      }
+      for (mi = 0; mi < cnt; mi++) {
+        rid = mpp[mi];
+        error_nz(ppm[rid],rid);
+        ppm[rid] = 1;
+      }
+      for (mi = 0; mi < cnt; mi++) {
+        rid1 = mpp[mi];
+        for (rid2 = 0; rid2 < ridcnt; rid2++) {
+          if (rid2 > rid1 && ppm[rid2]) rid2cnts[rid1 * ridcnt + rid2]++;
+        }
+      }
+
+      lcnt = lpartcnts[port];
+      lmpp = lportparts + port * Npart;
+      lppm = lpartportcnts + port * ridcnt;
+
+      for (mi = 0; mi < lcnt; mi++) {
+        rid = lmpp[mi];
+        error_ge(rid,ridcnt);
+        error_z(lppm[rid],rid);
+        lppm[rid] = 0;
+      }
+      for (mi = 0; mi < lcnt; mi++) {
+        rid = lmpp[mi];
+        error_nz(lppm[rid],rid);
+        lppm[rid] = 1;
+      }
+      for (mi = 0; mi < lcnt; mi++) {
+        rid1 = lmpp[mi];
+        error_ne_cc(partmerges[rid1],rid1,"port %u rid %u at %u of %u",port,rid1,mi,lcnt);
+        error_ne_cc(lppm[rid1],1,"port %u lcnt %u pos %u",port,lcnt,mi);
+//        if (rid1 == 1101) info(0,"port %u rid %u ppp %u",port,rid1,portsperpart[rid1]);
+        pportcnt = portsperpart[rid1];
+        error_ge(pportcnt,portcnt);
+        portsperpart[rid1] = pportcnt + 1;
+        for (rid2 = 0; rid2 < ridcnt; rid2++) {
+          if (rid2 > rid1 && lppm[rid2]) lrid2cnts[rid1 * ridcnt + rid2]++;
+        }
+      }
+    }
+    aclear(partstats2);
+    for (rid = 0; rid < ridcnt; rid++) {
+      if (partmerges[rid] != rid) continue;
+      cnt = portsperpart[rid];
+      partstats2[min(partiv2s,cnt)]++;
+    }
+    cnt = partstats2[0];
+    if (cnt) warning(0,"%u part\as with no ports",cnt);
+    for (iv = 1; iv < partiv2s; iv++) {
+      cnt = partstats2[iv];
+      if (cnt) info(0,"%u part\as with %u port\as each", cnt,iv);
+    }
+    cnt = partstats2[partiv2s];
+    if (cnt) info(0,"%u part\as with %u+ ports each", cnt,iv);
+
+  } // while partcnt < aimed
+
+  msgprefix(0,NULL);
+
+  error_ge(partcnt,Npart);
+
+  // assemble results
+  part = sumcnt = 0;
+  for (rid = 0; rid < ridcnt; rid++) {
+    rid2part[rid] = hi32;
+    rid2 = partmerges[rid];
+    if (rid2 != hi32) {
+      error_ne(rid,rid2);
+      cnt = portsperpart[rid2];
+      sumcnt += cnt;
+      info(0,"part %u ports %u sum %u",part,cnt,sumcnt);
+      rid2part[rid] = part++;
+    }
+  }
+  error_ne(part,partcnt);
+
+  tpart = partcnt;
+
+  aclear(partstats);
+
+  iv = cnt2 = 0;
+  for (port = 0; port < portcnt; port++) {
+    cnt = lpartcnts[port];
+    partstats[min(partivs,cnt)]++;
+  }
+
+  for (iv = 0; iv <= partivs; iv++) {
+    cnt2 = 0;
+    for (port = 0; port < portcnt; port++) {
+      cnt = lpartcnts[port];
+      if (cnt != iv) continue;
+      pdep = ports + port;
+      info(0,"port %u in %u part\as %u deps %u arrs %s",port,cnt,pdep->ndep,pdep->narr,pdep->name);
+      if (cnt2++ == 2) break;
+    }
+  }
+
+  portcnts = gnet->portcnts;
+
+  cnt = partstats[0];
+  if (cnt) warning(0,"%u port\as in no partition",cnt);
+  cnt = partstats[1];
+  genmsg(cnt ? Info : Warn,0,"%u port\as in 1 partition",cnt);
+  for (iv = 2; iv <= partivs; iv++) {
+    cnt = partstats[iv];
+    if (cnt) info(0,"%u port\as in %u partition\as%s each", cnt,iv,iv == partivs ? "+" : "");
+  }
+
+  // resequence
+  for (port = 0; port < portcnt; port++) {
+    lcnt = lpartcnts[port];
+    lmpp = lportparts + port * Npart;
+    lppm = lpartportcnts + port * ridcnt;
+//    pdep = ports + port;
+
+    nclear(lppm,partcnt);
+    for (mi = 0; mi < lcnt; mi++) {
+      rid1 = lmpp[mi];
+      error_ge(rid1,ridcnt);
+      part = rid2part[rid1];
+      if (part == hi32) {
+        info(0,"port %u rid %u at %u of %u in no part",port,rid1,mi,lcnt);
+        lmpp[mi] = hi32;
+        continue;
+      }
+      error_ge_cc(part,partcnt,"port %u rid %u",port,rid1);
+      lmpp[mi] = part;
+      portcnts[part]++;
+    }
+    for (mi = 0; mi < lcnt; mi++) { // check dups
+      part = lmpp[mi];
+      if (part == hi32) continue;
+      error_ge(part,partcnt);
+      error_ne(lppm[part],0);
+      lppm[part] = 1;
+    }
+  }
+
+  ub4 prostats[8];
+  aclear(prostats);
+
+  // determine hop membership, promote ports to global
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    dep = hp->dep;
+    arr = hp->arr;
+    if (dep == arr) continue;
+
+    dcnt = lpartcnts[dep];
+    acnt = lpartcnts[arr];
+    dmpp = lportparts + dep * Npart;
+    ampp = lportparts + arr * Npart;
+    dppm = lpartportcnts + dep * ridcnt;
+    appm = lpartportcnts + arr * ridcnt;
+
+    if (dppm[tpart] && appm[tpart]) continue;
+
+    // for now, promote ports directly. possibly refine by promoting a shared connected port instead
+    mi = 0;
+    while (mi < dcnt && appm[dmpp[mi]]) mi++;
+    if (dcnt && mi < dcnt && dmpp[mi] != tpart) { // promote on dpart not in apart
+      if (dcnt >= Npart - 1) warning(0,"hop %u dep %u in %u parts",hop,dep,dcnt);
+      else if (dppm[tpart] == 0) {
+        prostats[1]++;
+        dmpp[dcnt] = tpart; lpartcnts[dep] = dcnt + 1; dppm[tpart] = 1;
+        portcnts[tpart]++;
+      }
+      if (acnt >= Npart - 1) warning(0,"hop %u arr %u in %u parts",hop,arr,acnt);
+      else if (appm[tpart] == 0) {
+        prostats[2]++;
+        ampp[acnt] = tpart; lpartcnts[arr] = acnt + 1; appm[tpart] = 1;
+        portcnts[tpart]++;
+      }
+    }
+    mi = 0;
+    while (mi < acnt && dppm[ampp[mi]]) mi++;
+    if (acnt && mi < acnt && ampp[mi] != tpart) { // promote on apart not in dpart
+      if (acnt >= Npart - 1) warning(0,"hop %u arr %u in %u parts",hop,arr,acnt);
+      else if (appm[tpart] == 0) {
+        prostats[3]++;
+        ampp[acnt] = tpart; lpartcnts[arr] = acnt + 1; appm[tpart] = 1;
+        portcnts[tpart]++;
+      }
+      if (dcnt >= Npart - 1) warning(0,"hop %u dep %u in %u parts",hop,dep,dcnt);
+      else if (dppm[tpart] == 0) {
+        prostats[4]++;
+        dmpp[dcnt] = tpart; lpartcnts[dep] = dcnt + 1; dppm[tpart] = 1;
+        portcnts[tpart]++;
+      }
+    }
+  }
+
+  for (iv = 0; iv < Elemcnt(prostats); iv++) if (prostats[iv]) info(0,"promote %u: %u",iv,prostats[iv]);
+  info(0,"%u ports promoted to top part",portcnts[tpart]);
+
+  ub1 partsingpart[Npart];
+  ub4 hiconports[Npart];
+  ub4 conhiports[Npart];
+
+  aclear(partsingpart);
+  aclear(hiconports);
+  aclear(conhiports);
+
+  // make all parts represented in global
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    lcnt = lpartcnts[port];
+    lmpp = lportparts + port * Npart;
+    lppm = lpartportcnts + port * ridcnt;
+
+    if (lppm[tpart] == 0) continue;
+
+    ppartcnt = 0;
+    for (part = 0; part < partcnt; part++) {
+      if (lmpp[part] == 0) continue;
+      partsingpart[part] = 1;
+      ppartcnt++;
+    }
+    cnt = pp->ndep + pp->narr + ppartcnt;
+    for (part = 0; part < partcnt; part++) {
+      if (lmpp[part] == 0) continue;
+      if (cnt > conhiports[part]) { conhiports[part] = cnt; hiconports[part] = port; }
+    }
+  }
+
+  for (part = 0; part < partcnt; part++) {
+    if (partsingpart[part]) continue;
+    port = hiconports[part];
+    pp = ports + port;
+    info(0,"add part %u to global by port %u with %u dep %u arr %u parts",part,port,pp->ndep,pp->narr,pp->partcnt);
+    lcnt = lpartcnts[port];
+    lmpp = lportparts + port * Npart;
+    lppm = lpartportcnts + port * ridcnt;
+
+    error_nz(lppm[tpart],port);
+    if (lcnt >= Npart - 1) warning(0,"port %u in %u parts",port,lcnt);
+    else {
+        lmpp[lcnt] = tpart; lpartcnts[port] = lcnt + 1; lmpp[tpart] = 1;
+        portcnts[tpart]++;
+    }
+  }
+
+  info(0,"%u ports in top part",portcnts[tpart]);
+
+  partcnt++;  // add gpart
+
+  ub1 *gportparts = alloc(partcnt * portcnt,ub1,0,"part portparts",portcnt);
+
+  // set portparts
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    cnt = lpartcnts[port];
+    error_z(cnt,port);
+    pp->partcnt = cnt;
+    mpp = lportparts + port * Npart;
+    for (mi = 0; mi < cnt; mi++) {
+      part = mpp[mi];
+      gportparts[port * partcnt + part] = 1;
+    }
   }
 
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     dep = hp->dep;
     arr = hp->arr;
-    if (dep == arr) { info(0,"hop %u %u-%u",hop,dep,arr); continue; }
+    if (dep == arr) continue;
 
-    rrid = hp->rrid;
+    dcnt = lpartcnts[dep];
+    dmpp = lportparts + dep * Npart;
+    appm = lpartportcnts + arr * ridcnt;
 
-    // todo: ad-hoc partitioning
-    part = routeparts[rrid];
-    hp->part = part;
-    hopcnts[part]++;
-
-    // todo inferred walk links to all parts ?
-
-    pdep = ports + dep;
-    parr = ports + arr;
-
-    pdep->ndep++;
-    parr->narr++;
-
-    partp = parts + part;
-    error_z_cc(pdep->lat,"dport %u %s",dep,pdep->name);
-    error_z_cc(pdep->lon,"dport %u %s",dep,pdep->name);
-    error_z_cc(parr->lat,"aport %u %s",arr,parr->name);
-    error_z_cc(parr->lon,"aport %u %s",arr,parr->name);
-
-    dcnt = portparts[dep * partcnt + part];
-    if (dcnt == 0) {
-      updbbox(pdep->lat,pdep->lon,partp->bbox);
-      pdep->part = part;
-      portcnts[part]++;
+    // hop from a to b is ony in parts that a and b share
+    mi = 0;
+    while (mi < dcnt) {
+      part = dmpp[mi];
+      error_ge(part,partcnt);
+      if (appm[part]) hopcnts[part]++;
+      mi++;
     }
-    if (dcnt < 255) portparts[dep * partcnt + part] = (ub1)dcnt + 1;
-
-    acnt = portparts[arr * partcnt + part];
-    if (acnt == 0 && dep != arr) {
-      updbbox(parr->lat,parr->lon,partp->bbox);
-      parr->part = part;
-      portcnts[part]++;
-    }
-    if (acnt < 255) portparts[arr * partcnt + part] = (ub1)acnt + 1;
-
-    kind = hp->kind;
-    switch(kind) {
-    case Walk: pdep->nwalkdep++; parr->nwalkarr++; break;
-    case Air: break;
-    case Rail: break;
-    case Bus: break;
-    case Ferry: break;
-    case Unknown: info(0,"hop %s has unknown transport mode", hp->name); break;
-    case Kindcnt: break;
-    }
-
   }
 
-  ub4 partstats[8];
-  ub4 iv,xmap,partivs = Elemcnt(partstats) - 1;
-  aclear(partstats);
-  for (port = 0; port < portcnt; port++) {
-    cnt = xmap = 0;
-    gp = ports + port;
-    if (gp->ndep == 0 && gp->narr == 0) continue;
-
-    for (part = 0; part < partcnt; part++) {
-      net = getnet(part);
-      if (portparts[port * partcnt + part]) {
-        if (cnt < Nxpart) {
-          gp->pmapofs[cnt] = xmaplen;
-          gp->partnos[cnt] = (ub2)part;
-          xmaplen += portcnts[part];
-        }
-        cnt++;
-      }
-    }
-    gp->partcnt = cnt;
-
-    partstats[min(partivs,cnt)]++;
+  for (part = 0; part < partcnt; part++) {
+    pportcnt = portcnts[part];
+    phopcnt = hopcnts[part];
+    info(0,"part %u ports %u hops %u",part,pportcnt,phopcnt);
   }
-  cnt = partstats[0];
-  if (cnt) warning(0,"%u port\as in no partition", cnt);
-  cnt = partstats[1];
-  genmsg(cnt ? Info : Warn,0,"%u port\as in 1 partition", cnt);
-  for (iv = 2; iv <= partivs; iv++) {
-    cnt = partstats[iv];
-    if (cnt) info(0,"%u port\as in %u partition\as each", cnt, iv);
-  }
-  info(0,"\ah%u xmaps",xmaplen);
 
-  if (xmaplen == 0) return 1;
+  tportcnt = portcnts[tpart];
+
+  xmaplen = tportcnt * portcnt;
+
+  info(0,"alloc xmap %u ports * %u tports",portcnt,tportcnt);
+  gnet->xpartbase = mkblock(&gnet->xpartmap,xmaplen,ub2,Init0,"part xmap for %u parts", partcnt);
 
   gnet->partcnt = partcnt;
-  gnet->xpartbase = mkblock(&gnet->xpartmap,xmaplen,ub2,Init0,"xmap for %u parts", partcnt);
-  gnet->portparts = portparts;
-  gnet->hirrid = hirrid;
+  gnet->portparts = gportparts;
 
   // separate into partitions
   for (part = 0; part < partcnt; part++) {
@@ -512,6 +1146,12 @@ int prepnet(netbase *basenet)
     pportcnt = portcnts[part];
     phopcnt = hopcnts[part];
     pridcnt = ridcnts[part];
+
+    if (part == tpart) {
+      error_ne(part,partcnt-1);
+      error_ne(tportcnt,pportcnt);
+    }
+
     zpportcnt = 0;
 
     if (pportcnt == 0) {
@@ -525,59 +1165,45 @@ int prepnet(netbase *basenet)
 
     msgprefix(0,"s%u ",part);
 
-    // count
-    ub4 hpcnt,hxcnt;
-    hpcnt = hxcnt = 0;
-    for (hop = 0; hop < hopcnt; hop++) {
-      error_ge(hop,hopcnt);
-      ghp = hops + hop;
-      hpart = ghp->part;
-      dep = ghp->dep;
-      arr = ghp->arr;
-      if (dep == arr) continue;
+    info(0,"partition %u: %u ports %u hops",part,pportcnt,phopcnt);
 
-      error_ge(dep,portcnt);
-      error_ge(arr,portcnt);
-      pdep = ports + dep;
-      parr = ports + arr;
-      if (hpart == part) hpcnt++;
-      else if (pdep->partcnt == 1 && parr->partcnt == 1) { }
-      else if (pdep->partcnt > 1 || parr->partcnt > 1) {
-        if (pdep->partcnt > 1) vrb(0,"dport %u parts %u %s",dep,pdep->partcnt,pdep->name);
-        if (parr->partcnt > 1) vrb(0,"aport %u parts %u %s",arr,parr->partcnt,parr->name);
-        if (portparts[dep * partcnt + part] || portparts[arr * partcnt + part]) hxcnt++;
-      }
-    }
-    error_ne(hpcnt,phopcnt);
-
-    xportcnt = pportcnt + npart1;
-    info(0,"partition %u: %u+%u ports %u+%u hops",part,pportcnt,npart1,phopcnt,hxcnt);
-    phopcnt += hxcnt;
-
-    pports = alloc(xportcnt,struct port,0,"ports",xportcnt);
+    pports = alloc(pportcnt,struct port,0,"ports",pportcnt);
     phops = alloc(phopcnt,struct hop,0,"phops",phopcnt);
 
     g2p = alloc(portcnt,ub4,0xff,"g2p-ports",portcnt);
-    p2g = alloc(xportcnt,ub4,0xff,"p2g-ports",xportcnt);
+    p2g = alloc(pportcnt,ub4,0xff,"p2g-ports",pportcnt);
     g2phop = alloc(hopcnt,ub4,0xff,"g2p-hops",hopcnt);
 
-    p2zp = alloc(max(portcnt,xportcnt),ub4,0xff,"p2zp-ports",portcnt);
+    p2zp = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
     zp2p = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
 
     portsbyhop = alloc(phopcnt * 2, ub4,0xff,"net portsbyhop",portcnt);
 
-    // assign ports : members of this part, plus placeholder for each other part
+    // assign ports : members of this part
     pp = pports;
-    pport = 0;
+    pport = tcnt = 0;
     for (port = 0; port < portcnt; port++) {
       gp = ports + port;
-      if (portparts[port * partcnt + part] == 0) continue;
+      error_z(gp->partcnt,port);
+      if (gportparts[port * partcnt + part] == 0) {
+        if (part == tpart) gp->tpart = 0;
+        continue;
+      }
+
       memcpy(pp,gp,sizeof(*pp));
       pp->id = pport;
       pp->gid = port;
       pp->ngdep = pp->ndep;
       pp->ngarr = pp->narr;
       pp->ndep = pp->narr = 0;
+      if (part == tpart) gp->tpart = 1;
+      else if (gportparts[port * partcnt + tpart]) {
+        pp->tpart = 1;
+        tcnt = net->tportcnt;
+        if (tcnt < Elemcnt(net->tports)) net->tports[tcnt++] = pport;
+        net->tportcnt = tcnt;
+      }
+
       g2p[port] = pport;
       p2g[pport] = port;
 
@@ -592,109 +1218,52 @@ int prepnet(netbase *basenet)
       pp++;
       pport++;
     }
-
-    // placeholders for other parts
-    for (aport = 0; aport < partcnt; aport++) {
-      if (aport == part) continue;
-      apartp = parts + aport;
-      pp->id = pport;
-      pp->gid = portcnt + part * partcnt + aport;
-      pp->part = aport;
-      fmtstring(pp->name,"part %u placeholder for part %u",aport,part);
-      error_z(apartp->bbox[Boxcnt],aport);
-      pp->lat = apartp->bbox[Midlat];
-      pp->lon = apartp->bbox[Midlon];
-      if (pp->lat == 0) {
-        error(0,"port %u lat 0 %s",pport,pp->name);
-      }
-      pp->rlat = lat2rad(pp->lat,latscale);
-      pp->rlon = lon2rad(pp->lon,lonscale);
-      pp->isagg = 1;
-      p2zp[pport] = pport;
-      zp2p[pport] = pport;
-
-      pp++;
-      pport++;    
-    }
+    error_ne(pport,pportcnt);
+    info(0,"part %u has %u top ports",part,tcnt);
 
     // separate and resequence hops
-    ub4 dpcnt,apcnt,hpcnt2,hxcnt2;
+    ub4 hpcnt2,hxcnt2;
 
     hp = phops;
     phop = hpcnt2 = hxcnt2 = 0;
     for (hop = 0; hop < hopcnt; hop++) {
       ghp = hops + hop;
-      hpart = ghp->part;
       dep = ghp->dep;
       arr = ghp->arr;
+      if (dep == arr) continue;
+
       error_ge(dep,portcnt);
       error_ge(arr,portcnt);
+
+      if (gportparts[dep * partcnt + part] == 0) continue;
+      if (gportparts[arr * partcnt + part] == 0) continue;
+
       pdep = ports + dep;
       parr = ports + arr;
-      dpcnt = pdep->partcnt;
-      apcnt = parr->partcnt;
-      error_z(dpcnt,hop);
-      error_z(apcnt,hop);
-      if (hpart == part) { // this part to this part
-        if (phop >= phopcnt) warning(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
-        error_ge(phop,phopcnt);
-        hpcnt2++;
-        error_gt(hpcnt2,hpcnt);
-        g2phop[hop] = phop;
-        memcpy(hp,ghp,sizeof(*hp));
-        hp->gid = hop;
-        depp = g2p[dep];
-        error_ge(depp,pportcnt);
-        hp->dep = depp;
-        arrp = g2p[arr];
-        error_ge(arrp,pportcnt);
-        hp->arr = arrp;
-        portsbyhop[phop * 2] = depp;
-        portsbyhop[phop * 2 + 1] = arrp;
-        hp++;
-        phop++;
-      } else if (dpcnt == 1 && apcnt == 1) { // other part to same other part: skip
-      } else if (dpcnt > 1 || apcnt > 1) {   // possible interpart
-        if (portparts[dep * partcnt + part] == 0 && portparts[arr * partcnt + part] == 0) continue;
-        if (phop >= phopcnt) info(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
-        error_ge(phop,phopcnt);
-        hxcnt2++;
-        error_gt(hxcnt2,hxcnt);
-        if (portparts[dep * partcnt + part]) {
-          depp = g2p[dep];
-          error_ge(depp,pportcnt);
-          hp->dep = depp;
-        } else {
-          hp->dep = pportcnt + pdep->part;
-          if (pdep->part > part) hp->dep--;
-        }
-        if (portparts[arr * partcnt + part]) {
-          arrp = g2p[arr];
-          error_ge(arrp,pportcnt);
-          hp->arr = arrp;
-        } else {
-          hp->arr = pportcnt + parr->part;
-          if (parr->part > part) hp->arr--;
-        }
-        if (hp->dep == hp->arr) {
-          warning(0,"dep %u equals arr",hp->dep);
-          continue;
-        }
-        hp->rrid = hi32;
-        portsbyhop[phop * 2] = hp->dep;
-        portsbyhop[phop * 2 + 1] = hp->arr;
-        hp++;
-        phop++;
-      }
+
+      if (phop >= phopcnt) warning(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
+      error_ge(phop,phopcnt);
+      g2phop[hop] = phop;
+      memcpy(hp,ghp,sizeof(*hp));
+      hp->gid = hop;
+      depp = g2p[dep];
+      error_ge(depp,pportcnt);
+      hp->dep = depp;
+      arrp = g2p[arr];
+      error_ge(arrp,pportcnt);
+      hp->arr = arrp;
+      portsbyhop[phop * 2] = depp;
+      portsbyhop[phop * 2 + 1] = arrp;
+      hp++;
+      phop++;
     }
     error_ne(phop,phopcnt);
 
     net->part = part;
-    net->partcnt = partcnt;
+//    net->partcnt = partcnt;
 
-    net->pportcnt = pportcnt;
     net->zportcnt = zpportcnt;
-    net->portcnt = xportcnt;
+    net->portcnt = pportcnt;
     net->hopcnt = phopcnt;
     net->ports = pports;
     net->hops = phops;

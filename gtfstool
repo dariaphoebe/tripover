@@ -15,15 +15,14 @@
 
 use 5.008;
 use strict;
-use integer;
 
 # stop at compile-time warnings
 my $ccmsg = '';
 local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
-my $version_min = 15;
-my $lastchanged = "30 nov 2014";
+my $version_min = 16;
+my $lastchanged = "15 dec 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -47,6 +46,7 @@ my $verbose_hops = 1;
 
 my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
 my $infer_parent = 0;   # infer parent when seemingly missing : seq
+my $infer_limit = 0.25;
 
 my $watchfile = 'watches.cfg';
 my $gtfscfgfile = 'gtfsfeed.cfg';
@@ -65,23 +65,45 @@ if (-t STDOUT) {
 # unbuffered i/o
 my $orgfh = select STDOUT; $| = 1; select STDERR; $| = 1; select $orgfh;
 
-sub msg($) {
-  print("$_[0]\n");
-  print($logfd "$_[0]\n") if defined $logfd;
-}
+sub basemsg($) {
+  my ($m) = @_;
 
-sub info($)    { msg($_[0]); return 1; }
-
-sub progress($) { print("$_[0]\r"); }
-
-sub dinfo($) {
-  my ($package,$filename,$line,$sub,$hasargs,$wantar,$evaltxt,$isreq,$hints,$bitmask,$hinthash) = caller(0);
-  msg($_[0] . " fn $sub ln $line");
+  print("$m\n");
+  print($logfd "$m\n") if defined $logfd;
   return 1;
 }
 
+sub msg($) {
+  my ($m) = @_;
+
+  my $t = time2yyyymmdd(time(),1,'sec');
+  my $tt = substr($t,11);  # only from hh in yyyy-mm-dd hh:mm:ss
+
+  my ($package,$filename,$line,$sub,$hasargs) = caller(1);
+  my $fln = sprintf("%4u",$line);
+  my $clron = sprintf('%c[0;32m',27);
+  my $clrof = sprintf('%c[0m',27);
+  print("$clron$tt $fln $clrof$m\n");
+  print($logfd "$t $fln $m\n") if defined $logfd;
+  return 1;
+}
+
+sub info($) { return msg($_[0]); }
+
+sub progress($$$) {
+  my ($fmt,$a,$b) = @_;
+
+  my $perc = ($a * 100) / $b;
+  printf($fmt . " %.0f %%\r",$a,$b,$perc);
+}
+
+sub dinfo($) {
+  my ($package,$filename,$line,$sub,$hasargs) = caller(0);
+  return msg($_[0] . " fn $sub ln $line");
+}
+
 sub warning($) {
-  my ($package,$filename,$line,$sub,$hasargs,$wantar,$evaltxt,$isreq,$hints,$bitmask,$hinthash) = caller(1);
+  my ($package,$filename,$line,$sub,$hasargs) = caller(0);
   msg("warning: " . $_[0] . "  at fn $sub.$line");
   $warningcnt++;
   return 1;
@@ -118,22 +140,32 @@ sub trimws($) {
   return $s;
 }
 
+sub time2yyyymmdd($$$) {
+  my ($nixsec,$local,$res) = @_;
+
+  my ($fmt,$sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst);
+
+  ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = ($local ? localtime($nixsec) : gmtime($nixsec));
+  return sprintf('%04u-%02u-%02u %02u:%02u:%02u',($year + 1900,$mon + 1,$mday,$hour,$min,$sec)) if $res eq 'sec';
+  return sprintf('%04u-%02u-%02u %02u:%02u',($year + 1900,$mon + 1,$mday,$hour,$min)) if $res eq 'min';
+  return sprintf('%04u-%02u-%02u %02u:%02u',($year + 1900,$mon + 1,$mday));
+}
+
 sub usage()
 {
-  info("usage: gtfstool [options] [cmd]\n");
-  info("options:");
-  info('-v -verbose        verbose mode');
-  info('-n -dryrun         dryrun mode');
-  info('-h -help           show help and quit');
-  info('-a -analysis       enable analysis output');
-  info('-c -canonical      enable canonical output');
-  info('-V -version        show version and quit');
-  info('-L -license        show license and quit\n');
-  info("commands:");
+  my $m = "usage: gtfstool [options] [cmd]\n\n";
+  $m .= "options:\n";
+  $m .= "-v -verbose        verbose mode\n";
+  $m .= "-n -dryrun         dryrun mode\n";
+  $m .= "-h -help           show help and quit\n";
+  $m .= "-a -analysis       enable analysis output\n";
+  $m .= "-c -canonical      enable canonical output\n";
+  $m .= "-V -version        show version and quit\n";
+  $m .= "-L -license        show license and quit\n\n";
+  $m .= "commands:\n\n";
 
-  warning("test");
-
-  info("import <indir> [outdir] import gtfs into tripover");
+  $m .= "import <indir> [outdir] import gtfs into tripover";
+  basemsg($m);
 }
 
 # these are written as options to ext output
@@ -298,9 +330,9 @@ sub showvers($)
 {
   my ($full) = @_;
 
-  info("Tripover gtfs tool version $version_maj.$version_min");
-  info("last changed $lastchanged") if $full; 
-  info("$copyright\n");
+  basemsg("Tripover gtfs tool version $version_maj.$version_min");
+  basemsg("last changed $lastchanged") if $full; 
+  basemsg("$copyright\n");
 }
 
 sub rdwatches()
@@ -327,6 +359,7 @@ sub rdwatches()
 
     if ($fmt eq 'x' and defined $val) { $val = hex($val); }
     elsif ($fmt eq '*') { $val = '*'; }
+    elsif ($fmt eq  ',') { }
 
     printf("%s %x.%u\n",$var,$val,$val) unless $fmt eq '*';
     $rsids2watch{$val} = 1 if $var eq 'rsid';
@@ -533,54 +566,56 @@ sub readfeedinfo($)
   return 1;
 }
 
-my @scales = (100000,10000,1000,100,10);
-my $fpfmt = qr?^([0-9]+)\.([0-9]+)?;
+my $latscale = 1000000;
+my $lonscale = 1000000;
+my $pi = 3.141592655;
 
 # todo autoscale on bbox and have tripover read bbox+scale
 sub str2lat($$)
 {
   my ($lat,$linno) = @_;
 
-  my ($ilat,$int,$frac,$neg,$fraclen,$nfrac);
+  my ($ilat);
 
-  if (substr($lat,0,1) eq '-') { $neg = 1; $lat = substr($lat,1); }
-  ($int,$frac) = ($lat =~ $fpfmt);
-  unless (defined $int) { warning("line $linno: col stop_lat does not have xx.yy value '$lat'"); return 0; }
-  unless ($int < 91 and $int >= 0) { warning("line $linno: col stop_lat has unexpected value $int in '$lat'"); return 0; }
-  $ilat = $neg ? (90 - $int) : ($int + 90);
-  $ilat *= $scales[0];
-  unless (defined $frac) { warning("line $linno: col stop_lat has unexpected value $lat"); return $ilat; }
-  $fraclen = length($frac);
-  if ($fraclen > 5) {
-    $nfrac = substr($frac,0,5); $nfrac++ if (substr($frac,5,1) > 5);
-  } elsif ($fraclen < 5) {
-    $nfrac = $frac * $scales[$fraclen];
-  } else { $nfrac = $frac; }
-  if ($neg) { $ilat -= $nfrac; } else { $ilat += $nfrac; }
-  return $ilat;
+  $ilat = ($lat + 90) * $latscale;
+  return int($ilat);
 }
 
 sub str2lon($$)
 {
   my ($lon,$linno) = @_;
 
-  my ($ilon,$int,$frac,$neg,$fraclen,$nfrac);
+  my ($ilon);
 
-  if (substr($lon,0,1) eq '-') { $neg = 1; $lon = substr($lon,1); }
-  ($int,$frac) = ($lon =~ $fpfmt);
-  unless (defined $int) { warning("line $linno: col stop_lon has unexpected value $lon"); return 0; }
-  unless ($int < 181 and $int >= 0) { warning("line $linno: col stop_lon has unexpected value $int in '$lon'"); return 0; }
-  $ilon = $neg ? (180 - $int) : ($int + 180);
-  $ilon *= $scales[0];
-  unless (defined $frac) { warning("line $linno: col stop_lon has unexpected value $lon"); return $ilon; }
-  $fraclen = length($frac);
-  if ($fraclen > 5) {
-    $nfrac = substr($frac,0,5); $nfrac++ if (substr($frac,5,1) > 5);
-  } elsif ($fraclen < 5) {
-    $nfrac = $frac * $scales[$fraclen];
-  } else { $nfrac = $frac; }
-  if ($neg) { $ilon -= $nfrac; } else { $ilon += $nfrac; }
-  return $ilon;
+  $ilon = ($lon + 180) * $lonscale;
+  return int($ilon);
+}
+
+my $geolow = $pi * 1.0e-4;
+my $mean_earth_radius = 6371.0;
+
+sub geodist($$$$)
+{
+  my ($slat,$slon,$lat,$lon) = @_;
+
+  my $dist;
+  my $srlat = ($slat * $pi) / 180;
+  my $srlon = ($slon * $pi) / 180;
+  my $rlat = ($lat * $pi) / 180;
+  my $rlon = ($lon * $pi) / 180;
+
+  my $dlon = $srlon - $rlon;
+  my $dlat = $srlat - $rlat;
+
+  if (abs($dlon) < $geolow and abs($dlat) < $geolow) { # trivial case: assume flat
+    $dlat = ($dlat * $mean_earth_radius * 2) / $pi;
+    $dlon = ($dlon * $mean_earth_radius * 2) / $pi;
+    $dist = sqrt( ($dlat * $dlat) + ($dlon * $dlon));
+#    info("geodist $dist");
+    return $dist;
+  }
+# info("geodist $dlon $dlat");
+  return 1000;
 }
 
 sub readstops($)
@@ -592,8 +627,9 @@ sub readstops($)
   my ($id,$stopid,$code,$name,$desc,$lat,$lon,$zone_id,$url,$loctype,$parent,$platform,$opt);
   my ($uniparent,$parent1,$isparent,$hasparent,$newparent,$newparentid);
   my ($ilat,$ilon);
-  my ($simlst,$simstr,$stopstr,$infercnt,$filtercnt);
-  my %similar;
+  my ($simlst,$simstr,$simstop,$stopstr);
+  my ($slat,$slon,$dist,$nearby);
+  my (%similar,%simlats,%simlons);
   my @sims;
 
   return error("missing dir arg for import",__LINE__) unless defined $dir and length($dir);
@@ -647,7 +683,10 @@ sub readstops($)
 
   info("$linecnt lines");
 
-  $filtercnt = 0;
+  my $filtercnt = 0;
+  my $infercnt = 0;
+  my $instopcnt = 0;
+  my $childstopcnt = 0;
 
   $linno = 0;
   foreach $line (@lines) {
@@ -725,6 +764,8 @@ sub readstops($)
 
     } # each col
 
+    $instopcnt++;
+
     # ID may be integer or string. must be unique in set
     # tripover needs an integer : use line number as derived id
     if (exists($stopids{$id})) {
@@ -748,6 +789,8 @@ sub readstops($)
     $ilat = str2lat($lat,$linno);
     $ilon = str2lon($lon,$linno);
 
+    warning("$id has empty lat") unless defined $ilat;
+
     $desc = ' ' unless length($desc);
     $code = ' ' unless length($code);
 
@@ -766,11 +809,25 @@ sub readstops($)
       $hasparent = 0;
     }
 
-# todo: refine and base on config
+    $simlats{$stopid} = $lat;
+    $simlons{$stopid} = $lon;
+
     if ($infer_parent and not $isparent and not $hasparent and length($name) > 3) {
-      $simstr = join('_',$ilat / 10,$ilon / 10,substr($name,0,-2));
+      $simstr = sprintf("%u_%u",$ilat / 5000,$ilon / 5000);
       if (exists($similar{$simstr})) {
-        $similar{$simstr} .= '_' . $stopid;
+        info("check $simstr for $id") if $name eq 'Gold Coast Airport';
+        ($simstop) = split('_',$similar{$simstr});
+        $slat = $simlats{$simstop};
+        $slon = $simlons{$simstop};
+        warning("nil lat for $simstop") unless defined $slat;
+        warning("nil lat for $stopid") unless defined $lat;
+        $dist = geodist($slat,$slon,$lat,$lon);
+        info("$dist for $slat $slon $lat $lon") if $name eq 'Gold Coast Airport';
+        if ($dist < $infer_limit) {
+          $similar{$simstr} .= '_' . $stopid;
+        } else {
+          info("$name not nearby $similar{$simstr} $dist") if $name eq 'Gold Coast Airport';
+        }
       } else {
         $similar{$simstr} = $stopid;
       }
@@ -817,6 +874,8 @@ sub readstops($)
     $stops{$stopid} = join("\t",$name,$id,$parent,$ilat,$ilon,$code,$desc,$opt);
   }
 
+  my ($simname,$simdiff);
+
   $stopcnt = scalar(keys %stops);
   $infercnt = 0;
   while ( ($simstr,$simlst) = each %similar) {
@@ -835,10 +894,26 @@ sub readstops($)
     $stopdeps[$newparentid] = 0;
     $stoparrs[$newparentid] = 0;
 
-    info("infer common parent $infercnt on $simstr");
+    $simstop = $sims[0];
+    $simname = $stopnames{$simstop};
+    $slat = $simlats{$simstop};
+    $slon = $simlons{$simstop};
+
+    $simdiff = 0;
     foreach $stopid (@sims) {
       $name = $stopnames{$stopid};
-      info("  $name $stopid");
+      $simdiff++ if $name ne $simname;
+    }
+    info("infer common parent $infercnt $simname on $simstr") if $simdiff;
+
+    foreach $stopid (@sims) {
+      $name = $stopnames{$stopid};
+      $lat = $simlats{$stopid};
+      $lon = $simlons{$stopid};
+      $dist = geodist($slat,$slon,$lat,$lon);
+      if ($simdiff) {
+        info("  $name dist $dist id $stopid"); $simdiff++;
+      }
       $parents{$newparent} .= $stopid . ' ';
       $parentbyid{$stopid} = $newparent;
       $stopstr = $stops{$stopid};
@@ -850,7 +925,18 @@ sub readstops($)
   $parentcnt += $infercnt;
   $stopcnt += $infercnt;
 
-  info("$stopcnt stops, $parentcnt stations $parentdupcnt merged $infercnt inferred $filtercnt filtered");
+  foreach $stopid (keys %stops) {
+    $childstopcnt++ if exists $parentbyid{$stopid};
+  }
+
+  my $mline = "$stopcnt from $instopcnt stops";
+  $mline .= " $parentcnt stations" if $parentcnt;
+  $mline .= " $infercnt inferred" if $infercnt;
+  $mline .= " $parentdupcnt merged" if $parentdupcnt;
+  $mline .= " $filtercnt filtered" if $filtercnt;
+  info($mline);
+  my $outstopcnt = $stopcnt - $childstopcnt;
+  info("$childstopcnt station members $outstopcnt total planning stops");
 
   return 1 unless $canonout;
 
@@ -1549,29 +1635,14 @@ sub readstoptimes($)
       info("$stop_id $line");
     }
 
-#   warning("$linno: undefined stop id $stop_id") unless exists $stopids{$stop_id};
-
-#   next unless length $dep_time;
-#   next unless length $arr_time;
-
     unless (exists($tripids{$trip_id})) {
       warning("$linno: undefined trip id $trip_id");
       next;
     }
     $tripid = $tripids{$trip_id};
 
-#    info("$linno $line") if $tripid == 143;
-
-#    if (length($stop_seq) == 0) { warning("$linno: empty stop_seq for $stop_id"); next; }
-#    elsif ($stop_seq =~ $nondigits) { warning("$linno: stop_seq '$stop_seq' not numerical for $stop_id"); next; }
-
-#    warning("$linno: seq $stop_seq prv $prvseq") if $stop_seq == $prvseq and $tripid == $prvtrip;
     $prvseq = $stop_seq;
 
-#    unless (exists($triproutes{$trip_id})) {
-#      warning("$linno: undefined route for trip id $trip_id");
-#      next;
-#    }
     $routeid = $triproutes{$trip_id};
     $route_id = $routebyids{$routeid};
     if (exists $norouteids{$route_id}) { # filtered
@@ -1582,13 +1653,8 @@ sub readstoptimes($)
     $rtype = $rtypes{$routeid};
 
     $service_id = $tripservice{$trip_id};
-#    if (exists($serviceids{$service_id})) {
-      $sid = $serviceids{$service_id};
-      $sidrefs{$sid} = 1;
-#    } else {
-#      warning("$linno: undefined service id $service_id");
-#      $sid = 0;
-#    }
+    $sid = $serviceids{$service_id};
+    $sidrefs{$sid} = 1;
     $tripsids{$tripid} = $sid;
 
     $prvstopid = $stopid;
@@ -1597,17 +1663,8 @@ sub readstoptimes($)
 
     if (exists($parentbyid{$stopid})) {
       $parent = $parentbyid{$stopid};
-#      if (exists $stops2watch{$stop_id}) {
-#        info(" watch $stop_id parent $parent");
-#      }
       $parent = $parentdups{$parent} if exists $parentdups{$parent};
       $parentid = $parentids{$parent};
-#      if (exists $stops2watch{$stop_id}) {
-#        info(" watch $stop_id parent $parent $stopnames{$parentid}");
-#      }
-#      error_exit("no parent for $stopid",__LINE__) unless defined $parent;
-#      error_exit("no parentid for $stopid $parent",__LINE__) unless defined $parentid;
-#      info("parent $parentid from $parent for $stopid $stop_id");
       $id = $parentid;
     } else { $id = $stopid; }
 
@@ -1643,15 +1700,11 @@ sub readstoptimes($)
         $did = $prvstopid;
         $aid = $stopid;
         $htdeparr = ($prvtdep << 16) | $tarrmin;
-#        $htdep = $prvtdep;
-#        $htarr = $tarrmin;
       } else {
         $haid = $prvid;
         $hdid = $id;
         $aid = $prvstopid;
         $did = $stopid;
-#        $htarr = $prvtarr;
-#        $htdep = $tdepmin;
         $htdeparr = ($tdepmin << 16) | $prvtarr;
       }
 
@@ -1663,11 +1716,8 @@ sub readstoptimes($)
       }
 
       if ($hdid == $haid) {
-#        vrb("line $linno hop $hopcnt dep $hdid == arr $stopnames{$hdid} $prvstop_id $stop_id");
       } else {
         $uniqid = join('_',$routeid,$hdid,$haid);
-
-#        info("    $uniqid $htdep $htarr $stopnames{$hdid} $stopnames{$haid}") if $tripid == 143;
 
         $sumtimes++;
         if (exists($tripseq{$uniqid})) {
@@ -1685,12 +1735,6 @@ sub readstoptimes($)
           $tripseq{$uniqid} = [ ($sid,$tripid,$htdeparr) ];
           push @uniqids,$uniqid;
 
-          # mark connectivity for both stops and eventual parents
-#          $stopdeps[$hdid]++;
-#          $stoparrs[$haid]++;
-#          $stopdeps[$did]++ if $did != $hdid;
-#          $stoparrs[$aid]++ if $aid != $haid;
-
           $hopcnt++;
         }
       }
@@ -1702,7 +1746,7 @@ sub readstoptimes($)
 
     $ttcnt++;
 
-    progress("line $linno of $linecnt") if ($linno % 100000) == 0;
+    progress("line %u of %u",$linno,$linecnt) if ($linno % 100000) == 0;
 
   } # each line
 
@@ -1733,8 +1777,6 @@ sub readstoptimes($)
         $name = $stopnames{$stopid};
         info("stop $id $name $stops2watch{$id} has $stopdeps[$stopid] deps and $stoparrs[$stopid] arrs");
       }
-
-#      next if exists($parentbyid{$stopid});
 
       $name = $stopnames{$stopid};
       if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
@@ -1836,8 +1878,8 @@ sub writext($$)
   printf($portfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($portfile "# %u ports from %s/stops.txt\n\n",$fstopcnt,$indir);
 
-  printf($portfile ".latscale\tD%u\n",$scales[0]);
-  printf($portfile ".lonscale\tD%u\n\n",$scales[0]);
+  printf($portfile ".latscale\tD%u\n",$latscale);
+  printf($portfile ".lonscale\tD%u\n\n",$lonscale);
 
   printf($portfile "# name\tid\tsubid\tlat\tlon\topts\n\n");
 
@@ -1959,7 +2001,6 @@ sub writext($$)
 
     $hopid = $hopno;
 
-#    @times = split("\t",$hoptime);
     $timecnt = scalar @times;
     return error("$timecnt not a multiple of 3",__LINE__) if $timecnt % 3;
     $timecnt /= 3;
@@ -1987,7 +2028,6 @@ sub writext($$)
     $tdep = $tdeparr >> 16;
     $tarr = $tdeparr & 0xffff;
     $timestr = sprintf("0\t%x\t%x\t%x\t%x",$sid,$tid,$tdep,$tarr);
-#    info("$timestr $tdeparr");
 
     for ($timendx = 3; $timendx < $timecnt * 3; $timendx += 3) {
       $prvsid = $sid; $prvtid = $tid; $prvtdep = $tdep; $prvtarr = $tarr;
@@ -2038,6 +2078,8 @@ foreach $arg (@ARGV) {
   }
 }
 
+showvers(0);
+
 foreach $arg (@ARGV) {
   if (substr($arg,0,1) eq '-') {
     $opt = $arg;
@@ -2063,13 +2105,14 @@ if (@args > 0) {
     $indir = $args[1];
     $outdir = (@args > 2) ? $args[2] : '.';
     $anadir = $outdir;
+    info("import from $indir to $outdir");
     import($indir) and writext($indir,$outdir);
   }
   else { info("unknown command"); }
 }
 
 my $usertime = times();
-if ($usertime > 60) { info("elapsed time " . $usertime / 60 . " min " . $usertime % 60 . " sec"); }
+if ($usertime > 60) { info("elapsed time " . int($usertime / 60) . " min " . $usertime % 60 . " sec"); }
 else { info("elapsed time $usertime seconds"); }
 
 info("1 warning") if $warningcnt == 1;

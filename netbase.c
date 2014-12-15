@@ -320,7 +320,7 @@ int prepbasenet(void)
   // pass 1: expand time entries, determine memuse and derive routes
   for (hop = 0; hop < hopcnt; hop++) {
 
-    progress(&eta,"hop %u of %u in pass 1, \ah%lu events",hop,hopcnt,cumevcnt);
+    if (progress(&eta,"hop %u of %u in pass 1, \ah%lu events",hop,hopcnt,cumevcnt)) return 1;
 
     hp = hops + hop;
     dep = hp->dep;
@@ -333,7 +333,8 @@ int prepbasenet(void)
 
     // routes
     rrid = hp->rrid;
-    error_gt(rrid,hirrid);
+    error_gt(rrid,hirrid,hop);
+    error_ovf(ridcnt,ub2);
     if (rrid2rid[rrid] == hi32) rid = rrid2rid[rrid] = ridcnt++;
     else rid = rrid2rid[rrid];
     hp->rid = rid;
@@ -506,19 +507,21 @@ int prepbasenet(void)
   ub4 cumchaincnt = 0,ridchainofs = 0;
   ub8 sum1,sum2,sum;
   ub4 chstats[128];
+  ub4 ivhi = Elemcnt(chstats) - 1;
+
   aclear(chstats);
 
   for (chain = 0; chain < rawchaincnt; chain++) {
     cp = chains + chain;
     cnt = cp->hopcnt;
-    chstats[min(cnt,Elemcnt(chstats))]++;
+    chstats[min(cnt,ivhi)]++;
     if (cnt == 0) { vrb(0,"chain %u has no hops",chain); continue; }
     else if (cnt > 2) {
       if (cnt > hichlen) { hichlen = cnt; hichain = chain; }
       if (cnt < lochlen) { lochlen = cnt; lochain = chain; }
       genmsg(cnt > 95 ? Info : Vrb,0,"chain %u has %u hops",chain,cnt);
       rrid = cp->rrid;
-      error_gt(rrid,hirrid);
+      error_gt(rrid,hirrid,chain);
       rid = rrid2rid[rrid];
       error_ge(rid,ridcnt);
       cp->rid = rid;
@@ -550,7 +553,7 @@ int prepbasenet(void)
     }
   }
 
-  for (iv = 0; iv < Elemcnt(chstats); iv++) infocc(chstats[iv],0,"%u chain\as of length %u",chstats[iv],iv);
+  for (iv = 0; iv <= ivhi; iv++) infocc(chstats[iv],0,"%u chain\as of length %u",chstats[iv],iv);
 
   // list shortest and longest chain
   cp = chains + hichain;
@@ -695,7 +698,7 @@ int prepbasenet(void)
     zevcnt = filltrep(eventmem,evmapmem,tp,xp,xpacc,xtimelen);
     hoplog(hop,0,"evtcnt %u zevcnt %u and %u",evcnt,zevcnt,hp->zevcnt);
     noexit error_ne_cc(zevcnt,hp->zevcnt,"hop %u",hop);
-    if (zevcnt != hp->zevcnt) warning(0,"hop %u zevcnt %u != hp->zevcnt %u",hop,zevcnt,hp->zevcnt);
+    if (zevcnt != hp->zevcnt) warning(Iter,"hop %u zevcnt %u != hp->zevcnt %u",hop,zevcnt,hp->zevcnt);
 
     if (cumevcnt2 + zevcnt > maxzev) {
       warning(0,"hop %u: exceeding total event max %u %s",hop,maxzev,hp->name);

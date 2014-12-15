@@ -31,6 +31,8 @@ static ub4 msgfile;
 
 #include "netio.h"
 
+#include <valgrind/memcheck.h>
+
 static ub4 pdfscale_lat = 1200;
 static ub4 pdfscale_lon = 1200;
 
@@ -41,6 +43,8 @@ static const ub4 pdfmaxports = 1000;
 static const ub4 pdfmaxhops = 1000;
 
 static const ub4 timecntlimit = hi32;
+
+static const ub4 timespanlimit = 365; // in days. todo: in config
 
 static const ub4 hop2watch = 0;
 
@@ -161,7 +165,7 @@ static enum extresult __attribute__ ((format (printf,5,6))) parserr(ub4 fln,cons
     myvsnprintf(buf,pos,len,fmt,ap);
     va_end(ap);
   }
-  errorfln(fln,0,"%s",buf);
+  errorfln(fln,0,FLN,"%s",buf);
   return Parserr;
 }
 
@@ -177,7 +181,7 @@ static int __attribute__ ((format (printf,5,6))) inerr(ub4 fln,const char *fname
     myvsnprintf(buf,pos,len,fmt,ap);
     va_end(ap);
   }
-  return errorfln(fln,0,"%s",buf);
+  return errorfln(fln,0,FLN,"%s",buf);
 }
 
 static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *fname,ub4 linno,ub4 colno,const char *fmt, ...)
@@ -556,7 +560,10 @@ static int rdextports(netbase *net,const char *dir)
   if (rawportcnt == 0) return warning(0,"%s is empty",fname);
 
   extportcnt = 0;
-  extports = ep = alloc(rawportcnt,struct extport,0,"ext ports",rawportcnt);
+  extports = ep = alloc(rawportcnt,struct extport,0xff,"ext ports",rawportcnt);
+  vg_set_undef(ep,rawportcnt * sizeof(struct extport));
+
+//  vg_chk_def(ep,sizeof(struct extport));
 
   id = idhi = subidhi = maxid = 0;
   idlo = hi32;
@@ -614,6 +621,7 @@ static int rdextports(netbase *net,const char *dir)
       if (id > idhi) idhi = id;
       if (id < idlo) idlo = id;
       if (subid > subidhi) subidhi = subid;
+      clear(ep);
       ep->id = id;
       ep->subid = subid;
       if (id > 80000) info(0,"port %u id %u %x hi %u",extportcnt,id,id,idhi);
@@ -637,9 +645,9 @@ static int rdextports(netbase *net,const char *dir)
         namelen = namemax;
       }
       ep->namelen = namelen;
+      memset(ep->name,0,sizeof(ep->name));
       if (namelen) memcpy(ep->name,name,namelen);
-      else { parsewarn(FLN,fname,linno,colno,"port %u has no name",id); }
-      if (id == 12792) info(0,"port %u id %u name %s",extportcnt,id,name);
+      else { parsewarn(FLN,fname,linno,colno,"port %u has no name",id); ep->name[0] = 0; }
       extportcnt++;
       ep++;
       break;  // newitem
@@ -672,14 +680,15 @@ static int rdextports(netbase *net,const char *dir)
     id = ep->id;
     subid = ep->subid;
     error_gt_cc(id,idhi,"port %u",extport);
-    error_gt(subid,subidhi);
+    error_gt(subid,subidhi,extport);
+    ep->subcnt = 0;
 
     if (id == subid) { // parent or plain port
       if (id == 12792 || id == 7440 || id == 7285) info(0,"port %u id %u subid %u name %s",extport,id,subid,ep->name);
       if (id2ports[id] != hi32) warning(0,"port ID %u doubly defined as %x", id,id2ports[id]);
       else id2ports[id] = extport;
       if (subid2ports[id] != hi32) warning(0,"port subID %u doubly defined as %x", subid,subid2ports[subid]);
-      else { subid2ports[id] = extport; if (extport == 0) info(0,"id %u port 0 %s",id,ep->name); port++; }
+      else { subid2ports[id] = extport; if (extport == 0) info(0,"id %u port 0 %s",id,ep->namelen ? ep->name : "(no name)"); port++; }
     } else {
       if (id == 12792 || id == 7440) info(0,"port %u id %u subid %u name %s",extport,id,subid,ep->name);
       if (subid2ports[subid] != hi32) warning(0,"port subID %u doubly defined as %x", subid,subid2ports[subid]);
@@ -701,14 +710,11 @@ static int rdextports(netbase *net,const char *dir)
     subid = ep->subid;
     if (id == subid) continue;
 
-    if (id == 12792) info(0,"port %u id %u subid %u name %s",extport,id,subid,ep->name);
-
     if (subid2ports[id] == hi32) {
       warning(0,"port ID \ax%u has nonexisting parent \ax%u", subid,id);
       ep->id = ep->subid;
       ep->parent = ep->child = 0;
     }
-    if (id == 12792) info(0,"port %u id %u subid %u %u name %s",extport,id,subid,subid2ports[id],ep->name);
   }
 
   // count members
@@ -732,7 +738,7 @@ static int rdextports(netbase *net,const char *dir)
   }
 
   info(0,"%u ports, %u subports", portcnt, subportcnt);
-  error_gt(portcnt,extportcnt);
+  error_gt(portcnt,extportcnt,0);
   error_ge(subportcnt,extportcnt);
 
   if (portcnt == 0) return 0;
@@ -753,9 +759,9 @@ static int rdextports(netbase *net,const char *dir)
     subid = ep->subid;
     if (id != subid) continue;
     cnt = ep->subcnt;
+    ep->subofs = subofs;
     if (cnt == 0) continue;
     vrb(0,"port %u subcnt %u %s",extport,cnt,ep->name);
-    ep->subofs = subofs;
     subofs += cnt;
   }
   error_ne(subofs,subportcnt);
@@ -764,6 +770,7 @@ static int rdextports(netbase *net,const char *dir)
   port = subport = 0;
   for (extport = 0; extport < extportcnt; extport++) {
     ep = extports + extport;
+    vg_chk_def(ep,sizeof(struct extport));
     id = ep->id;
     subid = ep->subid;
     opts = ep->opts;
@@ -790,6 +797,7 @@ static int rdextports(netbase *net,const char *dir)
       pid = id2ports[id];
       error_ge(pid,extportcnt);
       pep = extports + pid;
+      vg_chk_def(pep,sizeof(struct extport));
       cnt = pep->subcnt;
       subofs = pep->subofs;
       error_ge(subofs,subportcnt);
@@ -804,18 +812,22 @@ static int rdextports(netbase *net,const char *dir)
       sp->subid = subid;
       sp->seq = seq;
       sp->namelen = namelen;
+      vg_chk_def(ep,sizeof(struct extport)-1);
+      vg_chk_def(sp,sizeof(struct extport)-1);
       if (namelen) memcpy(sp->name,ep->name,namelen);
     }
   }
 
-  // resequence
+  // resequence and arrange
   for (id = 0; id <= idhi; id++) id2ports[id] = hi32;
+
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     id = pp->id;
     id2ports[id] = port;
-    pp->rlat = lat2rad(pp->lat,latscale);
-    pp->rlon = lon2rad(pp->lon,lonscale);
+    pp->rlat = lat2rad(pp->lat,Latscale);
+    pp->rlon = lon2rad(pp->lon,Lonscale);
+//    info(0,"port %u geo %u,%u %e,%e %s",port,pp->lat,pp->lon,pp->rlat,pp->rlon,pp->name);
   }
   for (subid = 0; subid <= subidhi; subid++) subid2ports[subid] = hi32;
   for (port = 0; port < subportcnt; port++) {
@@ -824,7 +836,7 @@ static int rdextports(netbase *net,const char *dir)
     subid2ports[subid] = port;
   }
 
-  info(0,"read %u ports from %s", portcnt, fname);
+  info(0,"read %u stops into %u ports from %s", extportcnt,portcnt, fname);
   info(0,"bbox lat %u - %u = %u scale %u",lolat,hilat,hilat-lolat,latscale);
   info(0,"bbox lon %u - %u = %u scale %u",lolon,hilon,hilon-lolon,lonscale);
   net->portcnt = portcnt;
@@ -929,10 +941,10 @@ static int rdexttimes(netbase *net,const char *dir)
         daybox0 = cd2day(tbox0);
         daybox1 = cd2day(tbox1) + 1;
         dtbox = daybox1 - daybox0;
-        if (dtbox > 2 * 365) {
-          warning(0,"timebox %u-%u above 2 years not supported",tbox0,tbox1);
-          tbox1 = timebox[1] = tbox0 + 10000;
-          daybox1 = cd2day(tbox1);
+        if (dtbox > timespanlimit) {
+          warning(0,"timebox %u-%u limited to %u days",tbox0,tbox1,timespanlimit);
+          daybox1 = daybox0 + timespanlimit;
+          tbox1 = timebox[1] = day2cd(daybox1);
           dtbox = daybox1 - daybox0 + 1;
         }
         if (utcofs12 < 1200) { warning(0,"UTCoffset %d below lowest -1100", utcofs12 - 1200); utcofs12 = 1200; }
@@ -948,7 +960,7 @@ static int rdexttimes(netbase *net,const char *dir)
       valcnt = eft.valndx;
       linno = eft.linno;
       colno = eft.colno;
-      error_gt(sidcnt+1,rawsidcnt);
+      error_gt(sidcnt+1,rawsidcnt,linno);
       if (valcnt < 6) return parserr(FLN,fname,linno,colno,"expect svcid,sid,dow,start,end,n+,n- args, found only %u args",valcnt);
       rsid = vals[0];
       dow = vals[1];
@@ -963,7 +975,7 @@ static int rdexttimes(netbase *net,const char *dir)
       vrb(0,"rsid %x dow %x %u..%u +%u -%u",rsid,dow,t0_cd,t1_cd,addcnt,subcnt);
 
       if (addcnt > dtbox) {
-        warning(0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,addcnt,dtbox);
+        infovrb(timespanlimit == hi32,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,addcnt,dtbox);
         addcnt = dtbox;
       }
       if (subcnt > dtbox) {
@@ -971,7 +983,7 @@ static int rdexttimes(netbase *net,const char *dir)
         subcnt = dtbox;
       }
       if (valndx + addcnt + subcnt != valcnt) {
-        parsewarn(FLN,fname,linno,colno,"expected 6 + %u + %u args, found %u",addcnt,subcnt,valcnt);
+//        parsewarn(FLN,fname,linno,colno,"expected 6 + %u + %u args, found %u",addcnt,subcnt,valcnt); todo
       }
 
       if (dow > 0x7f) return inerr(FLN,fname,linno,colno,"invalid dayofweek mask %x",dow);
@@ -981,7 +993,7 @@ static int rdexttimes(netbase *net,const char *dir)
         t0_cd = tbox0;
       }
       if (t1_cd > tbox1) {
-        warning(0,"line %u: sid %u has end date %u after %u",linno,rsid,t1_cd,tbox1);
+        infovrb(timespanlimit == hi32,0,"line %u: sid %u has end date %u after %u",linno,rsid,t1_cd,tbox1);
         t1_cd = tbox1;
       }
 
@@ -1006,7 +1018,7 @@ static int rdexttimes(netbase *net,const char *dir)
           continue;
         }
         else if (t_cd > tbox1) {
-          warning(0,"line %u: sid %u has end date %u after %u",linno,rsid,t1_cd,tbox1);
+          infovrb(timespanlimit == hi32,0,"line %u: sid %u has end date %u after %u",linno,rsid,t1_cd,tbox1);
           continue;
         }
         tday = cd2day(t_cd);
@@ -1022,7 +1034,7 @@ static int rdexttimes(netbase *net,const char *dir)
           continue;
         }
         if (t_cd > tbox1) {
-          warning(0,"line %u: sid %u has end date %u before %u",linno,rsid,t1_cd,tbox1);
+          infovrb(timespanlimit == hi32,0,"line %u: sid %u has end date %u before %u",linno,rsid,t1_cd,tbox1);
           continue;
         }
         tday = cd2day(t_cd);
@@ -1070,7 +1082,7 @@ static int rdexttimes(netbase *net,const char *dir)
       sp->lt0day = daybox0;
       sp->lt1day = daybox1;
       sp->maplen = dtbox + 1;
-      error_gt(t0,t1);
+      error_gt(t0,t1,linno);
       error_zz(t0,t1);
 
       if (namelen > namemax) {
@@ -1256,7 +1268,7 @@ static int rdexthops(netbase *net,const char *dir)
         parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
         namelen = namemax;
       }
-      error_gt(hop+1,rawhopcnt);
+      error_gt(hop+1,rawhopcnt,linno);
       if (valndx < 6) return parserr(FLN,fname,linno,colno,"missing dep,arr,type args, only %u",valndx);
       id = vals[0];
       depid = vals[1];
@@ -1345,7 +1357,7 @@ static int rdexthops(netbase *net,const char *dir)
         vndx += 3;
         if (fmt & Fmt_diftid) rtid += prvtid;
 
-        error_gt(rtid,hitripid);
+        error_gt(rtid,hitripid,hop);
         if (rawtripcnt) {
           tid = rtid2tid[rtid];
           if (tid == hi32) {
@@ -1680,7 +1692,7 @@ static ub4 addnetpdf(netbase *net, char *buf, ub4 len)
     if (n == 0) break;
     pos += n;
   }
-  error_gt(pos,len);
+  error_gt(pos,len,0);
   if (pos == len) warning(0,"pdf output buffer limit \ah%u reached: truncated", len);
   return pos;
 }

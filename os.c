@@ -51,7 +51,7 @@ static ub4 pidstrlen;
 
 int oscreate(const char *name)
 {
-  int fd = creat(name,0644);
+  int fd = open(name,O_CREAT|O_RDWR|O_TRUNC,0644);
   return fd;
 }
 
@@ -71,6 +71,14 @@ int osfdinfo(struct myfile *mf,int fd)
   return 0;
 }
 
+int osrewind(int fd)
+{
+  off_t rv;
+
+  rv = lseek(fd,0,SEEK_SET);
+  return (rv == -1 ? 1 : 0);
+}
+
 long oswrite(int fd, const void *buf,ub4 len)
 {
   return write(fd,buf,len);
@@ -84,6 +92,11 @@ long osread(int fd,void *buf,size_t len)
 int osclose(int fd)
 {
   return close(fd);
+}
+
+int osdup2(int oldfd,int newfd)
+{
+  return dup2(oldfd,newfd);
 }
 
 char *getoserr(void)
@@ -108,7 +121,23 @@ static void wrstderrlog(const char *buf,ub4 len)
   int fd = globs.msg_fd;
 
   oswrite(2,buf,len);
+  oswrite(1,buf,len);
   if (fd > 0 && fd != 2) oswrite(fd,buf,len);
+}
+
+static void mysigint(int sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
+{
+  int n = globs.sigint++;
+
+  if (msginfolen) {
+    wrstderrlog(msginfo,msginfolen);
+  }
+  if (n == 0) info0(0,"interrupting: waiting to end current task");
+  else if (n == 1) info0(0,"interrupting: waiting to end current subtask");
+  else {
+    info0(0,"interrupted");
+   _exit(1);
+  }
 }
 
 static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
@@ -138,6 +167,15 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
     nearby = nearblock(adr);
     if (adr == nearby) pos = fmtstring(buf,"\nsigsegv at %lx\n", (unsigned long)adr);
     else pos = mysnprintf(buf,0,sizeof buf,"\nsigsegv at %lx near %lx\n", (unsigned long)adr,(unsigned long)nearby);
+    wrstderrlog(buf,pos);
+    wrstderrlog(pidstr,pidstrlen);
+    pause();
+
+  case SIGBUS:
+    adr = (size_t)si->si_addr;
+    nearby = nearblock(adr);
+    if (adr == nearby) pos = fmtstring(buf,"\nsigbus at %lx\n", (unsigned long)adr);
+    else pos = mysnprintf(buf,0,sizeof buf,"\nsigbus at %lx near %lx\n", (unsigned long)adr,(unsigned long)nearby);
     wrstderrlog(buf,pos);
     wrstderrlog(pidstr,pidstrlen);
     pause();
@@ -178,6 +216,11 @@ int setsigs(void)
 
   sigaction(SIGSEGV, &sa,NULL);
   sigaction(SIGFPE, &sa,NULL);
+  sigaction(SIGBUS, &sa,NULL);
+
+  sa.sa_sigaction = mysigint;
+  sigaction(SIGINT, &sa,NULL);
+
   return 0;
 }
 
@@ -392,7 +435,7 @@ int oslimits(void)
   int rv;
 
   rv = rlimit(RLIMIT_AS,Maxmem,"virtual memory");
-  rv |= rlimit(RLIMIT_CORE,64 * 1024 * 1024,"core size");
+  rv |= rlimit(RLIMIT_CORE,0,"core size");
   return rv;
 }
 
