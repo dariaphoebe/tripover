@@ -13,12 +13,8 @@
 # feeds can be merged, filtered, or verified
 # optional export from tripover format to gtfs
 
-use 5.008;
+use 5.012;
 use strict;
-
-# stop at compile-time warnings
-my $ccmsg = '';
-local $SIG{__WARN__} = sub { print "$ccmsg $_[0]"; exit 1;  };
 
 my $version_maj = 0;
 my $version_min = 16;
@@ -56,6 +52,10 @@ my %rsids2watch;
 
 my $logname = 'gtfstool.log';
 my $logfd;
+
+# stop at compile-time warnings
+my $ccmsg = '';
+local $SIG{__WARN__} = sub { print "$ccmsg $_[0]\n"; exit 1; };
 
 if (-t STDOUT) {
   rename($logname,$logname . '.0') if -f $logname;

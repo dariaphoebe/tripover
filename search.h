@@ -10,15 +10,16 @@
  */
 
 // rudimentary
+// port and hop refs are global
 struct srcctx {
-  ub4 trip[Nleg];
-  ub4 tripports[Nleg];
-  ub4 tripgports[Nleg];
+  ub4 trip[Nxleg];
+  ub2 tripparts[Nxleg];
+  ub4 tripports[Nxleg];
+  ub4 triplen;
   ub4 tripcnt;
   ub4 dist;
   ub4 lodist;
   ub4 dep,arr;
-  ub4 mdep,marr;
   ub4 vias[Nvia];
   ub4 viacnt;
   ub4 lostop,histop;
@@ -28,4 +29,4 @@ struct srcctx {
 typedef struct srcctx search;
 
 extern void inisearch(void);
-extern int searchgeo(search *src,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi);
+extern int searchgeo(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi);

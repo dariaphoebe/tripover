@@ -158,6 +158,7 @@ int prepnet(netbase *basenet)
   struct route *routes,*rp;
 
   ub4 *portsbyhop;
+  char *dname,*aname;
 
   ub4 bportcnt,portcnt,tportcnt;
   ub4 bhopcnt,hopcnt,pridcnt;
@@ -324,6 +325,8 @@ int prepnet(netbase *basenet)
     kind = bhp->kind;
     hp->kind = kind;
 
+    hp->dist = bhp->dist;
+
     hp->dep = dep;
     hp->arr = arr;
     hopcnt++;
@@ -377,6 +380,9 @@ int prepnet(netbase *basenet)
   gnet->evmapmem = &basenet->evmapmem;
   gnet->events = basenet->events;
   gnet->evmaps = basenet->evmaps;
+
+  // write reference for name lookup
+  if (wrportrefs(basenet)) return 1;
 
   if (condense(gnet)) return 1;
 
@@ -944,10 +950,14 @@ int prepnet(netbase *basenet)
   if (cnt) warning(0,"%u port\as in no partition",cnt);
   cnt = partstats[1];
   genmsg(cnt ? Info : Warn,0,"%u port\as in 1 partition",cnt);
+
   for (iv = 2; iv <= partivs; iv++) {
     cnt = partstats[iv];
     if (cnt) info(0,"%u port\as in %u partition\as%s each", cnt,iv,iv == partivs ? "+" : "");
   }
+
+  ub4 hpcnt2,hxcnt2;
+  ub4 dist,*hopdist;
 
   // resequence
   for (port = 0; port < portcnt; port++) {
@@ -1197,7 +1207,7 @@ int prepnet(netbase *basenet)
       pp->ngarr = pp->narr;
       pp->ndep = pp->narr = 0;
       if (part == tpart) gp->tpart = 1;
-      else if (gportparts[port * partcnt + tpart]) {
+      if (gportparts[port * partcnt + tpart]) { // note: includes top
         pp->tpart = 1;
         tcnt = net->tportcnt;
         if (tcnt < Elemcnt(net->tports)) net->tports[tcnt++] = pport;
@@ -1222,10 +1232,10 @@ int prepnet(netbase *basenet)
     info(0,"part %u has %u top ports",part,tcnt);
 
     // separate and resequence hops
-    ub4 hpcnt2,hxcnt2;
-
     hp = phops;
     phop = hpcnt2 = hxcnt2 = 0;
+    hopdist = alloc(phopcnt,ub4,0,"net hopdist",phopcnt);
+
     for (hop = 0; hop < hopcnt; hop++) {
       ghp = hops + hop;
       dep = ghp->dep;
@@ -1240,6 +1250,10 @@ int prepnet(netbase *basenet)
 
       pdep = ports + dep;
       parr = ports + arr;
+      dname = pdep->name;
+      aname = parr->name;
+
+      dist = ghp->dist;
 
       if (phop >= phopcnt) warning(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
       error_ge(phop,phopcnt);
@@ -1254,13 +1268,15 @@ int prepnet(netbase *basenet)
       hp->arr = arrp;
       portsbyhop[phop * 2] = depp;
       portsbyhop[phop * 2 + 1] = arrp;
+      hopdist[phop] = dist;
+      hp->dist = dist;
       hp++;
       phop++;
     }
     error_ne(phop,phopcnt);
 
     net->part = part;
-//    net->partcnt = partcnt;
+    net->istpart = (part == tpart && partcnt > 1);
 
     net->zportcnt = zpportcnt;
     net->portcnt = pportcnt;
@@ -1275,6 +1291,7 @@ int prepnet(netbase *basenet)
     net->zport2port = zp2p;
 
     net->portsbyhop = portsbyhop;
+    net->hopdist = hopdist;
 
     net->routes = routes;  // not partitioned
     net->ridcnt = ridcnt;

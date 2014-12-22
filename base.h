@@ -47,7 +47,7 @@ typedef int sb4;
 
 #define strcopy(dst,src) { _Static_assert(sizeof(dst) > 8,"need array, not pointer"); strncpy((dst),(src),sizeof (dst) ); }
 
-enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runmknet,Runcompound,Runnet0,Runnetn,Runserver,Runcnt };
+enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runmknet,Runcompound,Runnet0,Runnetn,Runserver,Runend,Runcnt };
 
 // program-wide global vars go here
 extern struct globs {

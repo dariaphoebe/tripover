@@ -17,13 +17,17 @@
 
 // search limits: practical
 
-// max stops aka transfers supported
-#define Nstop 8
+// max stops aka transfers supported within a single part
+#define Nstop 6
+
+// idem, inter-part. typically 3 * Nstop
+#define Nxstop 20
 
 #define Nvia 16
 
 #define Querycnt 256
 #define Maxquerysize (1024 * 64)
+#define Queryage 60
 
 // end of limits
 

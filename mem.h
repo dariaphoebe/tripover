@@ -59,6 +59,8 @@ extern void * __attribute__ ((format (printf,8,9))) mkblock_fln(block *blk,size_
 extern void bound_fln(block *blk,size_t pos,ub4 elsize,const char *spos,const char *sel,ub4 fln);
 extern void afree_fln(void *p,ub4 fln, const char *desc);
 
+extern void showmemsums(void);
+
 extern size_t nearblock(size_t adr);
 
 extern void inimem(void);

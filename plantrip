@@ -14,7 +14,7 @@
 # post trip requests to a local queue, and watch that queue for answers
 # the queue location is configured in the server, yet created here if nonexistent
 
-use 5.008;
+use 5.012;
 use strict;
 use integer;
 
@@ -22,7 +22,7 @@ use Fcntl ':mode';
 
 my $version_maj = 0;
 my $version_min = 1;
-my $lastchanged = "25 sep 2014";
+my $lastchanged = "20 dec 2014";
 
 my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -37,9 +37,22 @@ my $currentconfig = 'tripover.curcfg';
 my $querydirvar = 'querydir';
 my $querydir;
 
-my $timeout = 10; # seconds
+my $portrefname = 'portrefs.txt';
 
-my $agelimit = 300; # seconds
+my $timeout = 5; # seconds
+
+my $agelimit = 60; # seconds
+
+# stop at compile-time warnings
+local $SIG{__WARN__} = sub { print "$_[0]\n"; exit 1; };
+
+# unbuffered i/o
+my $orgfh = select STDOUT; $| = 1; select STDERR; $| = 1; select $orgfh;
+
+my %portnames;
+my %portpnames;
+my %portids;
+my $portcnt = 0;
 
 sub vrb($)     { print("$_[0]\n") if $verbose; return 1; }
 sub info($)    { print("$_[0]\n"); return 1; }
@@ -94,21 +107,95 @@ sub agedir($$)
     return error("$path is not a regular file") unless S_ISREG($mode);
 
     if ($mtime < $limit)  {
-      info("removing $path on timestamp $mtime below $limit");
+      vrb("removing $path on timestamp $mtime below $limit");
+      return 1 if $dryrun;
       unlink $path or return error("cannot remove $path: $!");
     }
   }
   return 1;
 }
 
-sub plan($$$)
+sub portbyname($)
 {
-  my ($cmd,$dep,$arr) = @_;
+  my ($name) = @_;
 
+  my ($port,$id,$seq,$lcname,$plen,$line);
+  my @plist;
+
+  $lcname = lc($name);
+  if (exists($portnames{$name})) { return $portnames{$name}; }
+  if (exists($portnames{$lcname})) { return $portnames{$lcname}; }
+  $name = $lcname unless exists($portpnames{$name});
+  unless (exists($portpnames{$name})) {
+    info("no matches for prefix '$name'");
+    return '';
+  }
+  @plist = split("\t",$portpnames{$name});
+  $plen = scalar(@plist);
+  return $plist[0] if $plen == 1;
+  info("$plen matches for $name");
+  if ($plen < 20) {
+    $seq = 1;
+    foreach $id (@plist) {
+      printf("%2u %s\n",$seq++,$portids{$id});
+    }
+    do {
+      print('Choose port by number or q to quit: ');
+      $line = <STDIN>;
+      next unless defined $line and length($line);
+      $line = trimws($line);
+      next unless length($line);
+      return '' if $line eq 'q' or $line eq 'x';
+      if ($line =~ qr'^[0-9]+$') {
+        $seq = $line;
+        if ($seq <= $plen and $seq != 0) {
+          return $plist[$seq - 1];
+        } else {
+          print("port number not in above list\n");
+        }
+      } else {
+        print("expected port number or command\n");
+      }
+    } while 1;
+
+  } else {  # list too long
+    return ''; # todo
+  }
+  return '';
+}
+
+sub iplan($$$)
+{
+  my ($dep,$arr,$stops) = @_;
+
+  my ($depname,$arrname);
+
+  if (exists($portids{$dep})) { $depname = $portids{$dep}; }
+  else { $depname = "unknown"; }
+  if (exists($portids{$arr})) { $arrname = $portids{$arr}; }
+  else { $arrname = "unknown"; }
+
+  info("dep $dep '$depname'");
+  info("arr $arr '$arrname'");
   my $region = 'glob';
 
-# todo determine regio
-  query('p',$region,"$dep $arr");
+  if (length($stops)) { query('p',$region,"$dep $arr $stops"); }
+  else { query('p',$region,"$dep $arr"); }
+}
+
+sub plan($$$)
+{
+  my ($depname,$arrname,$stops) = @_;
+
+  my ($dep,$arr);
+
+  $dep = portbyname($depname);
+  return 1 unless length($dep);
+  info("$depname resolved into $portids{$dep}");
+  $arr = portbyname($arrname);
+  return 1 unless length($arr);
+
+  iplan($dep,$arr,$stops);
 }
 
 sub stop($)
@@ -138,7 +225,7 @@ sub query($$$)
 # query filename: 
 #  [a-z]_     command
 #  [a-z]_     (format todo) region
-#  [0-9a-f]_  hex timestamp in msec plus _
+#  [0-9a-f]_  hex timestamp in sec plus _
 #  [0-9a-f]   hex client id
 #  .sub
 
@@ -147,11 +234,15 @@ sub query($$$)
   $qname_new = $qname . '.new';
   $qname_sub = $qname . '.sub';
   vrb("create $qname_new");
+  return 1 if $dryrun;
+
   open($qfile,'>',$qname_new) or error_exit("cannot create $qname_new: $!");
   print($qfile $str . "\n");
   close($qfile);
 
-# reanme to submit: server will pick up from here. reply has serverid appended
+  info("submit '$cmd' '$str'");
+
+# rename to submit: server will pick up from here. reply has serverid appended
   vrb("rename to $qname_sub");
   rename($qname_new,$qname_sub);
 
@@ -216,7 +307,45 @@ sub readcfg()
     last;
   }
   error_exit("empty query config") unless length($querydir);
-  info("query dir $querydir/");
+  vrb("query dir $querydir/");
+}
+
+# read port to id mappings
+sub readportrefs($)
+{
+  my ($fname) = @_;
+
+  my ($fh,$line,$id,$name,$lcname,$nlen,$lat,$lon);
+
+  open($fh,'<:encoding(UTF-8)',$fname) or error_exit("cannot open $fname: $!");
+
+  my @lines = readline($fh);
+  unless (scalar @lines) { error_exit("$fname is empty"); }
+
+  foreach $line (@lines) {
+    next unless length($line);
+    next if index($line,'#') == 0;
+
+    ($id,$name,$lat,$lon) = split("\t",$line);
+    next unless defined $id and defined $name;
+    $lcname = lc($name);
+    $portnames{$name} = $id;
+    $portnames{$lcname} = $id;
+    $portids{$id} = $name;
+  }
+  $portcnt = scalar(keys %portids);
+  info("$portcnt ports");
+
+  # prepare partial ( prefix) matching
+  while (($name,$id) = each %portnames) {
+    $nlen = length($name);
+    next if $nlen < 4;
+    while ($nlen-- > 3) {
+      chop $name;
+      if (defined($portpnames{$name})) { $portpnames{$name} .= "\t" . $id; }
+      else { $portpnames{$name} = $id; }
+    }
+  }
 }
 
 sub trimws($) {
@@ -257,9 +386,11 @@ sub init()
   unless (-d $querydir) {
     mkdir($querydir) || error_exit("cannot create query dir:$!");
   }
+  readportrefs($portrefname);
 }
 
 my ($arg,$opt,$cmd,$line,$prvline);
+my ($dep,$arr,$stops);
 my @args;
 
 if (@ARGV > 0) {
@@ -278,9 +409,9 @@ if (@ARGV > 0) {
       $opt = $arg;
       $opt =~ s/^-+//;
       if ($opt eq 'v' or $opt eq 'verbose') { info('verbose mode'); $verbose = 1; }
-      if ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
-      if ($opt eq 'h' or $opt eq 'help') { usage(); exit 1; }
-      if ($opt eq 'V' or $opt eq 'version') { showvers(1); exit 1; }
+      elsif ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
+      elsif ($opt eq 'h' or $opt eq 'help') { usage(); exit 1; }
+      elsif ($opt eq 'V' or $opt eq 'version') { showvers(1); exit 1; }
       else { info("ignring unknown option -$opt"); }
     } else {
       push(@args,$arg);
@@ -289,10 +420,21 @@ if (@ARGV > 0) {
   if (@args > 0) {
     init();
     $cmd = $args[0];
-    if ($cmd eq 'stop') { stop($cmd); }
-    elsif ($cmd eq 'plan') {
+    if ($cmd eq 'stop') {
+      stop($cmd);
+    } elsif ($cmd eq 'plan') {
       return info("plan needs 'from' and 'to' arg") unless (@args > 2);
-      plan($cmd,$args[1],$args[2]);
+      $dep = $args[1]; $arr = $args[2];
+      if (@args > 3) { $stops = $args[3]; }
+      else { $stops = ''; }
+      plan($dep,$arr,$stops);
+      agedir($querydir,time() - $agelimit);
+    } elsif ($cmd eq 'iplan') {
+      return info("plan needs 'from' and 'to' arg") unless (@args > 2);
+      $dep = $args[1]; $arr = $args[2];
+      if (@args > 3) { $stops = $args[3]; }
+      else { $stops = ''; }
+      iplan($dep,$arr,$stops);
       agedir($querydir,time() - $agelimit);
     } else { info("unknown command"); }
   }
@@ -318,12 +460,15 @@ while ($cmd ne 'quit') {
   $cmd = 'quit' unless index($line,'quit') < 0;
   $cmd = 'quit' unless index($line,'exit') < 0;
   $cmd = 'plan' unless index($line,'plan') < 0;
+  $cmd = 'iplan' unless index($line,'iplan') < 0;
   $cmd = 'stop' unless index($line,'stop') < 0;
   info("unrecognised command") if length($line) and not length($cmd);
   $prvline = $line;
   if ($cmd eq 'plan') {
-    plan($cmd,$args[1],$args[2]);
+    plan($args[1],$args[2],'');
     agedir($querydir,time() - $agelimit);
-  }
-  elsif ($cmd eq 'stop') { stop($line); }
+  } elsif ($cmd eq 'iplan') {
+    iplan($args[1],$args[2],'');
+    agedir($querydir,time() - $agelimit);
+  } elsif ($cmd eq 'stop') { stop($line); }
 }

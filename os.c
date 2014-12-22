@@ -260,7 +260,7 @@ int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext)
   strcpy(q,".ren");
   strcpy(r,ext);
 
-  info(0,"write %s len %u",mfrep->name,(ub4)(mfrep->len));
+  vrb0(0,"write %s len %u",mfrep->name,(ub4)(mfrep->len));
   fd = oscreate(mfrep->name);
   if (fd == -1) return oserror(0,"cannot create %s",mfrep->name);
   oswrite(fd,mfrep->buf,(ub4)mfrep->len);
@@ -296,9 +296,11 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
   char hiname[256];
   char oldname[512];
   char newname[512];
-  char *pname,*p,*q,*extpos;
+  char *pname,*dname,*p,*q,*extpos;
   ub4 stamp,histamp,lostamp;
   struct stat ino;
+  ub8 usec = gettime_usec();
+  ub4 now = (ub4)(usec / (1000 * 1000));
 
   clear(mf);
 
@@ -322,23 +324,24 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
   do {
     de = readdir(dir);
     if (!de) break;
-    if (de->d_name[0] == '.') continue;
-    namelen = strlen(de->d_name);
+    dname = de->d_name;
+    if (dname[0] == '.') continue;
+    namelen = strlen(dname);
     if (namelen + 1 < sizeof(namepattern)) { info(0,"expected pattern %s",namepattern); continue; }
-    extpos = strstr(de->d_name,ext);
-    if (!extpos) { vrb(0,"skip %s on extension",de->d_name); continue; }
+    extpos = strstr(dname,ext);
+    if (!extpos) { vrb(0,"skip %s on extension",dname); continue; }
 
     // basename
-    q = name; p = de->d_name;
+    q = name; p = dname;
     while (q + 1 < name + sizeof(name) && *p != '.') *q++ = *p++;
     *q = 0;
 
     // region
-    q = regionstr; p = de->d_name + 2;
+    q = regionstr; p = dname + 2;
     while (q + 1 < regionstr + sizeof(regionstr) && *p != '_') *q++ = *p++;
     *q = 0;
     if (*p != '_' || strcmp(regionstr,region)) {
-      vrb(0,"skip %s on region not %s",de->d_name,region);
+      vrb(0,"skip %s on region not %s",dname,region);
       continue;
     }
 
@@ -346,10 +349,15 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
     p++; q = timestr;
     while (q + 1 < timestr + sizeof(timestr) && *p != '_') *q++ = *p++;
     *q = 0;
-    if (*p != '_' || q == timestr) { vrb(0,"skip %s on no timestamp",de->d_name); continue; }
+    if (*p != '_' || q == timestr) { vrb(0,"skip %s on no timestamp",dname); continue; }
 
-    if (hex2ub4(timestr,&stamp)) { vrb(0,"skip %s on no timestamp",de->d_name); continue; }
+    if (hex2ub4(timestr,&stamp)) { vrb(0,"skip %s on no timestamp",dname); continue; }
     vrb(0,"%s stamp %u",name,stamp);
+    if (stamp > now) warning(0,"%s has time %u %u secs in the future",dname,stamp,stamp - now);
+    else if (now - stamp > Queryage) {
+      info(0,"skip %s on age %u secs",dname,now - stamp);
+      continue;
+    }
     if (stamp > histamp) {
       histamp = stamp;
       strcopy(hiname,name);
@@ -370,7 +378,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
 
   fmtstring(oldname,"%s/%s%s",qdir,pname,ext);
   fmtstring(newname,"%s/%s_%u%s",qdir,pname,globs.serverid,".rcv");
-  info(0,"rename %s to %s",oldname,newname);
+  vrb0(0,"rename %s to %s",oldname,newname);
   rv = rename(oldname,newname);
   if (rv) {
     switch(errno) {

@@ -256,6 +256,7 @@ int prepbasenet(void)
   struct sidbase *sids,*sp;
   ub4 portcnt,hopcnt,sidcnt,dep,arr;
   ub4 hop;
+  char *dname,*aname;
 
   hops = basenet.hops;
   hopcnt = basenet.hopcnt;
@@ -310,6 +311,9 @@ int prepbasenet(void)
   ub4 ridcnt = 0;
   ub4 *rrid2rid = alloc(hirrid+1,ub4,0xff,"misc rrid2rid",hirrid);
 
+  double fdist;
+  ub4 dist;
+
   for (chain = 0; chain < rawchaincnt; chain++) {
     cp = chains + chain;
     cp->hopofs = chainofs;
@@ -330,6 +334,21 @@ int prepbasenet(void)
     hp->valid = 1;
     pdep = ports + dep;
     parr = ports + arr;
+
+    dname = pdep->name;
+    aname = parr->name;
+
+    if (pdep->lat == parr->lat && pdep->lon == parr->lon) {
+      info(Iter,"ports %u-%u coloc %u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,dname,aname);
+      dist = 0;
+    } else {
+      fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
+      if (fdist < 1e-10) warning(Iter,"port %u-%u distance ~0 for latlon %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+      else if (fdist < 0.001) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+      else if (fdist > 1.0e+8) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+      dist = (ub4)fdist;
+    }
+    hp->dist = dist;
 
     // routes
     rrid = hp->rrid;
@@ -494,6 +513,7 @@ int prepbasenet(void)
   info(0,"%u routes",ridcnt);
   info(0,"%u hops with constant duration",eqdur);
 
+  // todo from extnet ?
   routes = alloc(ridcnt,struct routebase,0,"routes",ridcnt);
   for (rrid = 0; rrid <= hirrid; rrid++) {
     rid = rrid2rid[rrid];
@@ -519,7 +539,7 @@ int prepbasenet(void)
     else if (cnt > 2) {
       if (cnt > hichlen) { hichlen = cnt; hichain = chain; }
       if (cnt < lochlen) { lochlen = cnt; lochain = chain; }
-      genmsg(cnt > 95 ? Info : Vrb,0,"chain %u has %u hops",chain,cnt);
+      infovrb(cnt > 95,0,"chain %u has %u hops",chain,cnt);
       rrid = cp->rrid;
       error_gt(rrid,hirrid,chain);
       rid = rrid2rid[rrid];

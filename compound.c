@@ -15,10 +15,6 @@
 
  such compound hop points to its first and last actual hop.
  These in turn contain the depart and arrive times.
-
- at network read time, these routes are ignored, yet the ID is marked.
- Note that the 'trip', the complete sequences, are stored. IDs of these are in the time tables
- after condense, reconstruct the 'direct' hops that do not need a physical transfer
  */
 
 #include <string.h>
@@ -66,6 +62,8 @@ int compound(struct network *net)
 
   net->chopcnt = hopcnt;
 
+  if (net->istpart) return info0(0,"no compound for topnet");
+
   port2 = portcnt * portcnt;
 
   docompound = dorun(FLN,Runcompound);
@@ -73,6 +71,19 @@ int compound(struct network *net)
   if (docompound == 0) return info0(0,"compound not enabled");
 
   info(0,"compounding %u ports %u hops",portcnt,hopcnt);
+
+  ub4 *orgportsbyhop = net->portsbyhop;
+  ub4 *orghopdist = net->hopdist;
+  error_zp(orghopdist,hopcnt);
+
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    dep = orgportsbyhop[hop * 2];
+    arr = orgportsbyhop[hop * 2 + 1];
+    error_ge(dep,portcnt);
+    error_ge(arr,portcnt);
+    if (orghopdist[hop] == 0) warning(Iter,"hop %u has distance 0",hop);
+  }
 
   ub4 rawcmphopcnt = 0;
   ub2 *port2rport = alloc(portcnt,ub2,0xff,"port2rport",portcnt);
@@ -85,8 +96,6 @@ int compound(struct network *net)
 
   error_zp(routes,part);
   error_zp(chains,part);
-
-  ub4 *orgportsbyhop = net->portsbyhop;
 
   ub4 hichainlen = 0;
   for (rid = 0; rid < ridcnt; rid++) {
@@ -108,6 +117,9 @@ int compound(struct network *net)
   ub4 *choporg = alloc(newhopcnt * 2,ub4,0,"cmp choporg",newhopcnt);
   memcpy(portsbyhop,orgportsbyhop,hopcnt * 2 * sizeof(ub4));
 
+  ub4 *hopdist = alloc(newhopcnt,ub4,0,"cmp hopdist",newhopcnt);
+  memcpy(hopdist,orghopdist,hopcnt * sizeof(ub4));
+
   ub4 hirportcnt = hichainlen + 1;
   hirportcnt *= hirportcnt;
   ub4 *rdeparr = alloc(hirportcnt,ub4,0xff,"cmp rdeparr",hichainlen);
@@ -119,10 +131,11 @@ int compound(struct network *net)
   ub4 *cmphops = alloc(hirportcnt,ub4,0,"cmp seq",hichainlen);
   ub4 *arrcmps = alloc(hirportcnt,ub4,0,"cmp seq",hichainlen);
 
-  ub4 hop1,hop2;
+  ub4 hop1,hop2,hop3;
   ub4 cmpno,cmplen,cmp1,cmp2,cmp3,cmp4;
   ub4 rdep1,rdep2,rdep3,rarr1,rarr2;
   ub4 legcnt;
+  ub4 dist;
 
   for (rid = 0; rid < ridcnt; rid++) {
 
@@ -139,6 +152,7 @@ int compound(struct network *net)
       error_ge(dep,portcnt);
       error_ge(arr,portcnt);
       rdep = port2rport[dep];
+      error_gt(rportcnt,hichainlen,rid);
       if (rdep == hi16) {
         rdep = port2rport[dep] = (ub2)rportcnt++;
         rport2port[rdep] = dep;
@@ -158,6 +172,8 @@ int compound(struct network *net)
       if (hp->rid != rid) continue;
       dep = portsbyhop[hop * 2];
       arr = portsbyhop[hop * 2 + 1];
+      error_ge(dep,portcnt);
+      error_ge(arr,portcnt);
       rdep = port2rport[dep];
       rarr = port2rport[arr];
       rdeparr[rdep * rportcnt + rarr] = hop;
@@ -179,16 +195,21 @@ int compound(struct network *net)
       rdep1 = cmpdeps[cmp1];
       rarr1 = cmparrs[cmp1];
       hop1 = cmphops[cmp1];
-      for (cmp2 = 0; cmp2 < cmplen; cmp2++) {
+      dist = hopdist[hop1];
+
+      for (cmp2 = 0; cmp2 < cmplen; cmp2++) { // for all combi's
         if (cmp1 == cmp2) continue;
         rdep2 = cmpdeps[cmp2];
         rarr2 = cmparrs[cmp2];
         if (rarr1 == rdep2 || rdep1 == rarr2) continue;  // existing non-compound
         hop2 = cmphops[cmp2];
+        dist = hopdist[hop1];
         legcnt = 0; cmp3 = cmp1; rdep3 = rdep1;
         while (legcnt++ < cmplen && cmp3 != cmp2) {
           cmp3 = arrcmps[rdep3];
           rdep3 = cmpdeps[cmp3];
+          hop3 = cmphops[cmp3];
+          dist += hopdist[hop3];
         }
         if (legcnt == cmplen) continue;
         cmp4 = 0;
@@ -197,12 +218,17 @@ int compound(struct network *net)
 
         // generate compound
         error_ge(chop,newhopcnt);
+        error_ge(rdep1,rportcnt);
+        error_ge(rarr2,rportcnt);
         dep = rport2port[rdep1];
         arr = rport2port[rarr2];
+        error_ge(dep,portcnt);
+        error_ge(arr,portcnt);
         portsbyhop[chop * 2] = dep;
         portsbyhop[chop * 2 + 1] = arr;
         choporg[chop * 2] = hop1;
         choporg[chop * 2 + 1] = hop2;
+        hopdist[chop] = dist;
         chop++;
       }
     }
@@ -212,8 +238,9 @@ int compound(struct network *net)
   info(0,"%u of %u estimated compound hops",chop,newhopcnt);
 
   net->chopcnt = chop;
-//  net->hops = newhops;
+  net->choporg = choporg;
   net->portsbyhop = portsbyhop;
+  net->hopdist = hopdist;
 
   return 0;
 }

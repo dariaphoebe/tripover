@@ -62,7 +62,9 @@ static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
   }
 }
 
-static void showsums(void)
+static int showedmemsums;
+
+void showmemsums(void)
 {
   struct sumbyuse *up = usesums;
 
@@ -74,6 +76,7 @@ static void showsums(void)
     }
     up++;
   }
+  showedmemsums = 1;
 }
 
 void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,const char *desc,ub4 arg,ub4 fln)
@@ -251,5 +254,5 @@ void inimem(void)
 
 void eximem(void)
 {
-  showsums();
+  if (showedmemsums == 0) showmemsums();
 }

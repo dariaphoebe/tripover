@@ -38,6 +38,9 @@
 #define Nlocal 4
 // #define Nxpart 4
 
+#define Nleg (Nstop+1)
+#define Nxleg (Nxstop+1)
+
 struct port {
   ub4 magic;
   ub4 id;      // index in net.ports
@@ -93,8 +96,6 @@ struct port {
   ub4 arids[Nlocal];
 
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
-
-  ub2 depcnts[Nstop];
 };
 
 struct chain {
@@ -188,8 +189,6 @@ struct sidtable {
   ub4 t0,t1;
 };
 
-#define Nleg (Nstop+1)
-
 // holds all for a partition
 struct network {
   ub4 part;
@@ -215,6 +214,8 @@ struct network {
   ub4 *routechains;
   ub8 *chainhops;   // points to gnet
 
+  bool istpart;
+
 // timetables: pointer to basenet
   block *eventmem;
   block *evmapmem;
@@ -232,8 +233,9 @@ struct network {
   ub4 fports2ports[Portcnt];
 
   ub4 *dist0;      // [portcnt2] distance
-  ub4 *hopdist;    // [hopcnt] idem
-  ub4 *portsbyhop; // [hopcnt * 2] <dep,arr>
+  ub4 *hopdist;    // [chopcnt] idem
+  ub4 *portsbyhop; // [chopcnt * 2] <dep,arr>
+  ub4 *choporg;    // [chopcnt * 2] <first,last>
 
   ub4 *mac2port;   // [nmac < portcnt]
 
@@ -241,7 +243,8 @@ struct network {
   ub2 *con0cnt;    // [port2]  0-stop connections
   ub4 *con0ofs;    // [port2]  offsets in lst
 
-  ub4 maxstop;     // highest n-stop connections inited
+  ub4 histop;      // highest n-stop connections inited
+  ub4 maxstop;     // highest n-stop connections to be inited
 
   ub4 hirrid;
 
@@ -263,7 +266,7 @@ struct network {
 
 // partitions
   ub4 tportcnt;         // number of ports in global part
-  ub4 tports[256];
+  ub4 tports[2048];
 
 // pools
 // ?  datetime *gopool;
@@ -321,6 +324,9 @@ struct gnetwork {
   ub4 *routechains;
   ub8 *chainhops;
 
+  ub4 maxstop;    // highest n-stop connections to init
+  ub4 histop;     // highest n-stop connections inited
+
   ub4 hirrid;
   ub4 maxvariants,routevarmask;
 };
@@ -329,6 +335,7 @@ extern int mknet(ub4 maxstop);
 extern struct network *getnet(ub4 part);
 extern struct gnetwork *getgnet(void);
 extern int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports);
+extern int gtriptoports(struct gnetwork *net,ub4 *trip,ub2 *parts,ub4 triplen,ub4 *ports);
 
 #define checktrip(net,legs,nleg,dep,arr,dist) checktrip_fln((net),(legs),(nleg),(dep),(arr),(dist),FLN)
 #define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)

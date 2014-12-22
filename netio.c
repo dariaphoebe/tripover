@@ -44,7 +44,7 @@ static const ub4 pdfmaxhops = 1000;
 
 static const ub4 timecntlimit = hi32;
 
-static const ub4 timespanlimit = 365; // in days. todo: in config
+static const ub4 timespanlimit = 30; // in days. todo: in config
 
 static const ub4 hop2watch = 0;
 
@@ -1576,6 +1576,58 @@ int readextnet(netbase *net,const char *dir)
 
 static ub4 lat2ext(ub4 lat) { return lat; }
 static ub4 lon2ext(ub4 lon) { return lon; }
+
+// write port reference for name and lat/lon lookup
+int wrportrefs(netbase *net)
+{
+  int fd;
+  char buf[4096];
+  ub4 pos,x,y;
+  ub4 buflen = sizeof(buf);
+
+  struct portbase *pp,*ports = net->ports;
+
+  ub4 port,wportcnt = 0,portcnt = net->portcnt;
+  const char *portsname = "portrefs.txt";
+
+  char nowstr[64];
+  const char *tz;
+
+#ifdef NOW
+  sec70toyymmdd(NOW,nowstr,sizeof(nowstr));
+  tz = "utc";
+#else
+  strcopy(nowstr,__DATE__);
+  tz = "localtime";
+#endif
+
+  info(0,"writing %u-ports reference ",portcnt);
+
+  fd = filecreate(portsname);
+  if (fd == -1) return 1;
+
+  pos = fmtstring(buf,"# %s - tripover port name and lat/lon lookup table\n\n",portsname);
+
+  pos += mysnprintf(buf,pos,buflen,"# written by tripover version %u.%u  %s %s\n\n", Version_maj,Version_min,nowstr,tz);
+  pos += mysnprintf(buf,pos,buflen,"# %u ports, bounding box todo\n\n",portcnt);
+
+  pos += mysnprintf(buf,pos,buflen,"# gid\tname\tlat\tlon\n\n");
+
+  if (filewrite(fd,buf,pos,portsname)) return 1;
+
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    if (pp->ndep == 0 && pp->narr == 0) continue;
+
+    y = lat2ext(pp->lat);
+    x = lon2ext(pp->lon);
+    pos = fmtstring(buf,"%u\t%s\t%u\t%u\n", port,pp->name,y,x);
+    if (filewrite(fd,buf,pos,portsname)) return 1;
+    wportcnt++;
+  }
+  fileclose(fd,portsname);
+  return info(0,"wrote %u ports to %s",wportcnt,portsname);
+}
 
 int net2ext(netbase *net)
 {

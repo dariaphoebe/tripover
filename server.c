@@ -57,7 +57,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
 {
   char *lp = req->buf;
   ub4 pos=0,len = (ub4)req->len;
-  ub4 dep,arr,lostop = 0,histop = 2;
+  ub4 dep,arr,lostop = 0,histop = 0;
   int rv;
   search src;
 
@@ -67,19 +67,28 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
   while (pos < len && lp[pos] != ' ') pos++;
   if (pos == len) return error(0,"expected integer departure port for %s",lp);
   if (str2ub4(lp+pos,&arr)) return error(0,"expected integer arrival port for %s",lp);
+  while (pos < len && lp[pos] != ' ') pos++;
+  if (pos < len) {
+    if (str2ub4(lp+pos,&histop)) {
+      warning(0,"expected integer number of stops %s",lp);
+      histop = 1;
+    }
+  }
 
   // invoke actual plan here
-  info(0,"plan %u to %u",dep,arr);
+  info(0,"plan %u to %u in %u stops",dep,arr,histop);
+  clear(&src);
 
-  rv = searchgeo(&src,dep,arr,lostop,histop);
+  rv = searchgeo(&src,req->name,dep,arr,lostop,histop);
 
   // prepare reply
   rep->buf = rep->localbuf;
   if (rv) len = fmtstring(rep->localbuf,"reply plan %u-%u error code %d\n",dep,arr,rv);
-  else len = fmtstring(rep->localbuf,"reply plan %u-%u = \av%u%p distance %u\n",dep,arr,src.lostop+1,src.trip,src.lodist);
+  else if (src.tripcnt) len = fmtstring(rep->localbuf,"reply plan %u-%u = \av%u%p distance %u\n",dep,arr,src.lostop+1,src.trip,src.lodist);
+  else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
   info(0,"reply len %u",len);
   rep->len = len;
-  osmillisleep(500);
+  osmillisleep(100);
   return 0;
 }
 
@@ -89,17 +98,21 @@ int serverloop(void)
   struct myfile req,rep;
   int rv;
   enum Cmds cmd = Cmd_nil;
+  ub4 prvseq = 0,seq = 0;
   char c;
   const char *region = "glob"; // todo
 
   info(0,"entering server loop for id %u",globs.serverid);
 
   do {
+    infovrb(seq > prvseq,0,"wait for new cmd %u",seq);
     rv = getqentry(querydir,&req,region,".sub");
     if (rv) break;
 
+    prvseq = seq;
+
     if (req.direxist == 0) osmillisleep(5000);
-    else if (req.exist == 0) osmillisleep(1000);
+    else if (req.exist == 0) osmillisleep(500);
     else {
       info(0,"new client entry %s",req.name);
       c = req.name[req.basename];
@@ -115,9 +128,10 @@ int serverloop(void)
         if (req.alloced) afree(req.buf,"client request");
         setqentry(&req,&rep,".rep");
         rv = 0;
+        seq++;
       }
     }
-  } while(rv == 0 && cmd != Cmd_stop);
+  } while (rv == 0 && cmd != Cmd_stop && globs.sigint == 0);
 
   info(0,"leaving server loop for id %u",globs.serverid);
 

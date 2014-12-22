@@ -52,7 +52,8 @@ int inicfg(void)
   lvlnames[Runcompound] = "compound";
   lvlnames[Runnetn] = "mknetn";
   lvlnames[Runserver] = "server";
-  lvlnames[Runcnt] = "end";
+  lvlnames[Runend] = "end";
+  lvlnames[Runcnt] = "";
 
   return 0;
 }
