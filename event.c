@@ -65,9 +65,10 @@ void inievent(int pass)
 
  expand for search and merged per dep,arr in netn
  */
-void showxtime(struct timepatbase *tp,ub4 *xp,ub4 xlim)
+void showxtime(struct timepatbase *tp,ub8 *xp,ub4 xlim)
 {
-  ub4 t,x,min,lmin;
+  ub8 x;
+  ub4 t,min,lmin;
   ub4 t0 = tp->t0, t1 = tp->t1;
 
   t = t0;
@@ -79,14 +80,14 @@ void showxtime(struct timepatbase *tp,ub4 *xp,ub4 xlim)
 
     min = t; // todo + tp->ht0;
     lmin = min2lmin(min,tp->utcofs);
-    vrb(0,"hop %u \ad%u \ad%u tid %x",tp->hop,min,lmin,x & 0xffffff);
+    vrb(0,"hop %u \ad%u \ad%u tid %x",tp->hop,min,lmin,(ub4)(x & hi24));
     t++;
   }
 }
 
 // expand gtfs-style entries into a minute-time axis over validity range
 // returns number of unique departures
-ub4 fillxtime(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,ub4 ht1,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid)
+ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid)
 {
   ub4 t,n = 0;
   ub4 t0,t1,tt,tlo,thi,rdep,dayid,tday;
@@ -137,7 +138,7 @@ ub4 fillxtime(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,ub4 ht1
         warning(0,"t %u tdep %u xlen %u n %u",t,tdep,xlen,n);
         return n;
       }
-      if (xp[tt] == hi32) {
+      if ( (xp[tt] & hi32) == hi32) {
         xp[tt] = tid | (dayid << 24);
         tlo = min(tlo,tt);
         thi = max(thi,tt);
@@ -160,11 +161,12 @@ ub4 fillxtime(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,ub4 ht1
 }
 
 // similar to above, second pass after alloc
-ub4 fillxtime2(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,ub4 ht1,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid)
+ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid,ub4 dur)
 {
   ub4 t,n = 0;
   ub4 t0,t1,tt,tlo,thi,tday;
   ub4 dayid = 0;
+  ub8 x;
   ub4 hop = tp->hop;
   ub4 t0map = sp->t0map;
 
@@ -180,7 +182,7 @@ ub4 fillxtime2(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,ub4 ht
   if (tdep >= t1 - t0) return warning(0,"hop %u deptime %u above schedule period \ad%u-\ad%u",hop,tdep,t0,t1);
 
   dayid = (t0 - gt0) / daymin;
-
+  error_gt(dayid,255,0); // todo rearrange
   t = t0;
   while (t < t1 && n + tp->evcnt < evlimit) {
     tday = (t - t0map) / daymin;
@@ -191,26 +193,30 @@ ub4 fillxtime2(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,ub4 ht
         warning(0,"tdep %u xlen %u n %u",tdep,xlen,n);
         return n;
       }
-      if (xp[tt] == hi32) {
-        if (hop == 144) hoplog(hop,0,"evt %u at t %u dayid %x",n,tt,dayid);
-        xp[tt] = tid | (dayid << 24);
+      if ( (xp[tt] & hi32) == hi32) {
+        hoplog(hop,0,"evt %u at t %u dayid %x",n,tt,dayid);
+        x = tid | (dayid << 24);
+        x |= (ub8)dur << 32;
+        xp[tt] = x;
         n++;
         xpacc[tt >> 4] = 1;
       }
     }
     t += daymin;
   }
+  infocc(n + tp->evcnt == evlimit,0,"%u + %u events at limit",n,tp->evcnt);
   return n;
 }
 
 // find day-repeatable patterns. returns number of compressed departures
 // result is 4 times a repeat pattern + leftover
 // times are relative to hop origin
-ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evcnt)
+ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evcnt)
 {
   ub4 hop = tp->hop;
   ub4 t0,t1;
-  ub4 t,x,tid,prvt,rep,hirep = 0,evcnt2 = 0,zevcnt = 0;
+  ub8 x;
+  ub4 t,tid,prvt,rep,hirep = 0,evcnt2 = 0,zevcnt = 0;
   ub4 rt,hit,dayid,tlo = hi32,thi = 0;
   ub8 sum,sum1,sum2;
   ub4 gt0 = tp->gt0;
@@ -227,10 +233,10 @@ ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
   while (t < t1) {
     if (xpacc[t >> 4] == 0) { t += 16; continue; }
     x = xp[t];
-    if (x == hi32) { t++; continue; }
+    if ( (x & hi32) == hi32) { t++; continue; }
 
     tid = x & 0xffffff;
-    dayid = x >> 24;       // first day in localtime this dep is valid
+    dayid = (ub4)(x >> 24);       // first day in localtime this dep is valid
 
     tlo = min(tlo,t);
     thi = max(thi,t);
@@ -270,7 +276,7 @@ ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
   if (hirep == 0) {
     warning(0,"hop %u hirep 0 for %u event\as",hop,evcnt);
     return evcnt;
-  } else if (hirep < 3) { // not worth to compress. todo: criteria
+  } else if (hirep < 3000) { // not worth to compress. todo: criteria
     genmsg(evcnt > 100 ? Info : Vrb,Iter,"hop %u hirep %u for %u events",hop,hirep,evcnt);
     tp->genevcnt = evcnt;
     return evcnt;
@@ -289,7 +295,7 @@ ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
   t = t0;
   while (t < t1 /* && evcnt2 < evcnt */) {
     if (xpacc[t >> 4] == 0) { t += 16; continue; }
-    if (xp[t] == hi32) { t++; continue; }
+    if ( (xp[t] & hi32) == hi32) { t++; continue; }
 
     rep = (ub4)xp2[t * 2];   // from above
     sum = xp2[2 * t + 1];
@@ -392,11 +398,12 @@ ub4 findtrep(struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
 }
 
 // comparable to above, fill pass using info above
-ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,ub1 *xpacc,ub4 xlim)
+ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlim)
 {
   ub4 hop = tp->hop;
   ub4 t0,t1,t,tdays,tdays5,day;
-  ub4 x,tid,prvt,rep,zevcnt = 0;
+  ub4 tid,dur,prvt,rep,zevcnt = 0;
+  ub8 x;
   ub4 rt,dayid;
   ub8 sum,sum1,sum2;
 
@@ -405,12 +412,12 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,ub1 *xp
   ub8 hi0sum,hi1sum,hi2sum,hi3sum;
   ub4 hi0rep,hi1rep,hi2rep,hi3rep;
   ub4 hi0ndx = 0,hi1ndx = 0,hi2ndx = 0,hi3ndx = 0;
-  ub4 *evs;
+  ub8 *evs;
   ub2 *days;
   ub4 hi0pat,hi1pat,hi2pat,hi3pat,gen,hi0day,hi1day,hi2day,hi3day,genday;
   ub4 gndx = 0;
 
-  evs = blkdata(evmem,tp->evofs,ub4);
+  evs = blkdata(evmem,tp->evofs,ub8);
   days = blkdata(evmapmem,tp->dayofs,ub2);
 
   t0 = tp->t0; t1 = tp->t1;
@@ -462,16 +469,16 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,ub1 *xp
   hoplog(hop,0,"span %u,%u,%u,%u",hi0span,hi1span,hi2span,hi3span);
 
   gen = (hi0span + hi1span + hi2span + hi3span) * 2;
-  bound(evmem,gen,ub4);
+  bound(evmem,gen,ub8);
 
   if (gen == 0) { // no repetition
     while (t < t1) {
       if (xpacc[t >> 4] == 0) { t += 16; continue; }
       x = xp[t];
-      if (x == hi32) { t++; continue; }
+      if ( (x & hi32) == hi32) { t++; continue; }
 
       error_ge(gndx,2 * tp->genevcnt);
-      bound(evmem,gen + gndx + 2,ub4);
+      bound(evmem,gen + gndx + 2,ub8);
       evs[gen + gndx++] = t;
       evs[gen + gndx++] = x;
       day = (t - t0) / daymin;
@@ -479,7 +486,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,ub1 *xp
       days[genday + day]++;
       t++;
     }
-    genmsg(gndx > 256 ? Info : Vrb,0,"hop %u fill %u nonrepeating events",hop,gndx / 2);
+    infovrb(gndx > 512,Iter,"hop %u fill %u nonrepeating events",hop,gndx / 2);
     return gndx / 2;
   }
 
@@ -487,10 +494,10 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub4 *xp,ub1 *xp
   while (t < t1) {
 //    if (xpacc[t >> 4] == 0) { t += 16; continue; }
     x = xp[t];
-    if (x == hi32) { t++; continue; }
+    if ( (x & hi32) == hi32) { t++; continue; }
 
     tid = x & 0xffffff;
-    dayid = x >> 24;
+    dayid = (ub4)(x >> 24);
 
     rep = 0; sum1 = sum2 = 0;
 

@@ -247,7 +247,7 @@ struct networkbase {
   ub8 *chainhops;    // tdep,hop
   ub4 *routechains;
   ub4 *timesbase;
-  ub4 *events;
+  ub8 *events;
   ub2 *evmaps;
   ub1 *sidmaps;
 

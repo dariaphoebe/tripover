@@ -125,9 +125,11 @@ static void wrstderrlog(const char *buf,ub4 len)
   if (fd > 0 && fd != 2) oswrite(fd,buf,len);
 }
 
-static void mysigint(int sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
+static void mysigint(int __attribute__ ((unused)) sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
 {
   int n = globs.sigint++;
+
+  if (globs.sig) _exit(1);
 
   if (msginfolen) {
     wrstderrlog(msginfo,msginfolen);
@@ -135,7 +137,7 @@ static void mysigint(int sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
   if (n == 0) info0(0,"interrupting: waiting to end current task");
   else if (n == 1) info0(0,"interrupting: waiting to end current subtask");
   else {
-    info0(0,"interrupted");
+    info(0,"interrupted: code %d",si->si_code);
    _exit(1);
   }
 }
@@ -147,6 +149,8 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
   size_t adr,nearby;
   int code;
   const char *codestr = "";
+
+  globs.sig++;
 
   if (msginfolen) {
     wrstderrlog(msginfo,msginfolen);
@@ -440,9 +444,9 @@ static int rlimit(int res,rlim_t lim,const char *desc)
 
 int oslimits(void)
 {
-  int rv;
+  int rv = 0;
 
-  rv = rlimit(RLIMIT_AS,Maxmem,"virtual memory");
+//  rv |= rlimit(RLIMIT_AS,Maxmem,"virtual memory");
   rv |= rlimit(RLIMIT_CORE,0,"core size");
   return rv;
 }

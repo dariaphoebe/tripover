@@ -62,7 +62,7 @@ int compound(struct network *net)
 
   net->chopcnt = hopcnt;
 
-  if (net->istpart) return info0(0,"no compound for topnet");
+  if (net->istpart) return warning(0,"todo: no compound for topnet in part %u",part);
 
   port2 = portcnt * portcnt;
 
@@ -203,7 +203,7 @@ int compound(struct network *net)
         rarr2 = cmparrs[cmp2];
         if (rarr1 == rdep2 || rdep1 == rarr2) continue;  // existing non-compound
         hop2 = cmphops[cmp2];
-        dist = hopdist[hop1];
+        dist += hopdist[hop2];
         legcnt = 0; cmp3 = cmp1; rdep3 = rdep1;
         while (legcnt++ < cmplen && cmp3 != cmp2) {
           cmp3 = arrcmps[rdep3];

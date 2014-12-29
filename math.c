@@ -27,6 +27,8 @@ static ub4 msgfile;
 #include "util.h"
 #include "time.h"
 
+static int vrbena;
+
 int minmax(ub4 *x, ub4 n, struct range *rp)
 {
   ub4 lo = hi32;
@@ -142,7 +144,7 @@ static ub8 xorshift64star(void)
   x ^= x >> 12; // a
   x ^= x << 25; // b
   x ^= x >> 27; // c
-  return x * 2685821657736338717ULL;
+  return (x * 2685821657736338717ULL);
 }
 
 static ub8 rndstate[ 16 ];
@@ -157,7 +159,7 @@ static ub4 xorshift1024star(void)
   s1 ^= s1 >> 11; // b
   s0 ^= s0 >> 30; // c
   rndstate[p] = s0 ^ s1;
-  
+
   return (ub4)(rndstate[p] * 1181783497276652981ULL);
 }
 
@@ -304,7 +306,7 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
     vrb(0,"geodist 0 below |%e|",geolimit);
     return 0.0;
   } else if (dlam > -geolow && dlam < geolow && dphi > -geolow && dphi < geolow) { // approx trivial case
-    vrb(0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
+    vrbcc(vrbena,0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
     dlat = dlam * mean_earth_radius / 4 * M_PI;
     dlon = dphi * mean_earth_radius / 4 * M_PI;
     fdist = sqrt(dlat * dlat + dlon * dlon);
@@ -330,6 +332,8 @@ int inimath(void)
 
   msgfile = setmsgfile(__FILE__);
   iniassert();
+
+  vrbena = (getmsglvl() >= Vrb);
 
   for (x = 0; x < 16; x++) rndstate[x] = xorshift64star();
 

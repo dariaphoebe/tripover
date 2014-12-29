@@ -46,15 +46,20 @@ struct eta {
 #define vrb(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
 #define vrb0(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
 #define info(code,fmt,...) infofln(FLN,(code),(fmt),__VA_ARGS__)
-#define warning(code,fmt,...) warningfln(FLN,(code),(fmt),__VA_ARGS__)
+#define warning(code,fmt,...) warnfln(FLN,(code),(fmt),__VA_ARGS__)
 #define error(code,fmt,...) errorfln(FLN,(code),0,(fmt),__VA_ARGS__)
 #define oserror(code,fmt,...) oserrorfln(FLN,(code),(fmt),__VA_ARGS__)
 #define oswarning(code,fmt,...) oswarningfln(FLN,(code),(fmt),__VA_ARGS__)
+#define osinfo(code,fmt,...) osinfofln(FLN,(code),(fmt),__VA_ARGS__)
 
 #define info0(code,s) info0fln(FLN,(code),(s))
+
+#define vrbcc(cc,code,fmt,...) if ((cc)) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
 #define infocc(cc,code,fmt,...) if ((cc)) infofln(FLN,(code),(fmt),__VA_ARGS__)
+#define warncc(cc,code,fmt,...) if ((cc)) warnfln(FLN,(code),(fmt),__VA_ARGS__)
 
 #define infovrb(cc,code,fmt,...) genmsgfln(FLN,(cc) ? Info : Vrb,(code),(fmt),__VA_ARGS__)
+#define warninfo(cc,code,fmt,...) genmsgfln(FLN,(cc) ? Warn : Info,(code),(fmt),__VA_ARGS__)
 
 // no misprint: access first two format args
 #define progress(eta,fmt,cur,end,...) progress2((eta),FLN,(cur),(end),(fmt),(cur),(end),__VA_ARGS__)
@@ -80,6 +85,7 @@ extern void inimsg(char *progname, const char *logname, ub4 opts);
 extern void eximsg(void);
 
 extern void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert);
+extern enum Msglvl getmsglvl(void);
 extern void setmsglog(const char *dir,const char *logname);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
@@ -113,12 +119,13 @@ extern int msg_doexit;
 #define doexit msg_doexit = 2;
 
 extern int genmsgfln(ub4 fln,enum Msglvl lvl,ub4 code,const char *fmt,...) __attribute__ ((format (printf,4,5)));
-extern void vrbfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
+extern int vrbfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int infofln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
-extern int warningfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
+extern int warnfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int errorfln(ub4 fln,ub4 code,ub4 fln2,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 extern int oserrorfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int oswarningfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
+extern int osinfofln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 
 extern int info0fln(ub4 fln, ub4 code, const char *s);

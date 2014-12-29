@@ -26,7 +26,9 @@ typedef int sb4;
 
 // handful of useful macros
 #define hi16 0xffff
+#define hi24 0xffffff
 #define hi32 0xffffffff
+#define hi64 0xffffffffffffffff
 
 #define Elemcnt(a) (sizeof(a) / sizeof(*a))
 
@@ -76,7 +78,7 @@ extern struct globs {
   int msg_fd;
   char logname[256];
   int pid;
-  int sigint;
+  int sigint,sig;
 
   ub4 limassert;
   ub4 testa,testb;

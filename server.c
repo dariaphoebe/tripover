@@ -56,30 +56,35 @@ enum Cmds { Cmd_nil,Cmd_plan,Cmd_stop,Cmd_cnt };
 static int cmd_plan(struct myfile *req,struct myfile *rep)
 {
   char *lp = req->buf;
-  ub4 pos=0,len = (ub4)req->len;
+  ub4 n,pos = 0,len = (ub4)req->len;
   ub4 dep,arr,lostop = 0,histop = 0;
   int rv;
   search src;
 
   if (len == 0) return 1;
 
-  if (str2ub4(lp,&dep)) return error(0,"expected integer departure port for %s",lp);
-  while (pos < len && lp[pos] != ' ') pos++;
-  if (pos == len) return error(0,"expected integer departure port for %s",lp);
-  if (str2ub4(lp+pos,&arr)) return error(0,"expected integer arrival port for %s",lp);
-  while (pos < len && lp[pos] != ' ') pos++;
+  n = str2ub4(lp,&dep);
+  if (n == 0) return error(0,"expected integer departure port for %s",lp);
+  pos += n;
+  while (pos < len && lp[pos] == ' ') pos++;
+  if (pos == len) return error(0,"missing arrival port for %s",lp);
+  n = str2ub4(lp+pos,&arr);
+  if (n == 0) return error(0,"expected integer arrival port for %s",lp);
+  pos += n;
+  while (pos < len && lp[pos] == ' ') pos++;
   if (pos < len) {
-    if (str2ub4(lp+pos,&histop)) {
+    if (str2ub4(lp+pos,&histop) == 0) {
       warning(0,"expected integer number of stops %s",lp);
       histop = 1;
     }
   }
+  if (dep == arr) warning(0,"dep %u equal to arr",dep);
 
   // invoke actual plan here
   info(0,"plan %u to %u in %u stops",dep,arr,histop);
-  clear(&src);
+  oclear(src);
 
-  rv = searchgeo(&src,req->name,dep,arr,lostop,histop);
+  rv = plantrip(&src,req->name,dep,arr,lostop,histop);
 
   // prepare reply
   rep->buf = rep->localbuf;

@@ -44,6 +44,8 @@ netbase *getnetbase(void) { return &basenet; }
 
 #include "watch.h"
 
+static int vrbena;
+
 static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rlat,double rlon,ub4 size,enum txkind kind)
 {
   struct portbase *pp;
@@ -286,12 +288,12 @@ int prepbasenet(void)
 
   // workspace to expand single time 
   ub4 xtimelen = gdt + 3 * daymin;
-  ub4 *xp = alloc(xtimelen,ub4,0xff,"time",gdt);
+  ub8 *xp = alloc(xtimelen,ub8,0xff,"time",gdt);
   ub8 *xp2 = alloc(xtimelen * 2,ub8,0,"time",gdt);
   ub1 *xpacc = alloc((xtimelen >> 4) + 2,ub1,0,"time",gdt);
   block *eventmem,*evmapmem;
 
-  ub4 *events;
+  ub8 *events;
   struct timepatbase *tp;
   struct routebase *routes,*rp;
   ub1 *daymap,*sidmaps = basenet.sidmaps;
@@ -325,6 +327,8 @@ int prepbasenet(void)
   for (hop = 0; hop < hopcnt; hop++) {
 
     if (progress(&eta,"hop %u of %u in pass 1, \ah%lu events",hop,hopcnt,cumevcnt)) return 1;
+
+    msgprefix(0,"hop %u",hop);
 
     hp = hops + hop;
     dep = hp->dep;
@@ -372,8 +376,8 @@ int prepbasenet(void)
     error_le(hp->t1,hp->t0);
     hdt = hp->t1 - gt0 + 1 * daymin;
     error_ge(hdt,xtimelen);
-    memset(xp,0xff,hdt * sizeof(ub4));
-    memset(xp2,0,hdt * 2 * sizeof(ub8));
+    memset(xp,0xff,hdt * sizeof(*xp));
+    memset(xp2,0,hdt * 2 * sizeof(*xp2));
     memset(xpacc,0,(hdt >> 4) + 1);
     ht0 = hi32; ht1 = 0;
     tp = &hp->tp;
@@ -411,9 +415,10 @@ int prepbasenet(void)
 
 //      rsidlog(rsid,"hop %u tndx %u tid %x dep %u t0 %u t1 %u days %u",hop,tndx,tid,tdep,t0,t1,(t1 - t0) / 1440);
 
-      cnt = fillxtime(tp,xp,xpacc,xtimelen,gt0,t1,sp,daymap,tdep,tid);
+      cnt = fillxtime(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid);
+      hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",tid,sp->rsid,t0,t1,tdep,tarr,cnt);
       if (cnt == 0) {
-        hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u no events",tid,sp->rsid,t0,t1,tdep,tarr);
+        vrbcc(vrbena,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u no events",tid,sp->rsid,t0,t1,tdep,tarr);
 //        return 1;
         tbp[0] = sidcnt; // disable for next pass
         tbp += 4;
@@ -475,7 +480,10 @@ int prepbasenet(void)
     lodur = min(lodur,hidur);
     tp->lodur = lodur;
     tp->hidur = hidur;
+//    infocc(lodur == 0,0,"hop %u lodur 0 hidur %u",hop,hidur);
     if (lodur == hidur) eqdur++;
+//    else if (hidur > 2 * lodur) info(0,"hop %u lodur %u hidur %u",hop,lodur,hidur);
+//    else vrb0(0,"hop %u lodur %u hidur %u",hop,lodur,hidur);
 
     error_ne(hp->t0,ht0);
     ht1 += daymin;  // make end date exclusive
@@ -507,6 +515,7 @@ int prepbasenet(void)
 
     cumzevcnt += zevcnt;
   }
+  msgprefix(0,NULL);
 
   info(0,"\ah%lu org time events to \ah%lu",cumevcnt,cumzevcnt);
   info(0,"\ah%u org chainhops to \ah%u",cumhoprefs,cumhoprefs2);
@@ -643,7 +652,7 @@ int prepbasenet(void)
 
   eventmem = &basenet.eventmem;
   evmapmem = &basenet.evmapmem;
-  events = basenet.events = mkblock(eventmem,cumzevcnt * 2,ub4,Init0,"time events");
+  events = basenet.events = mkblock(eventmem,cumzevcnt * 2,ub8,Init0,"time events");
 
   basenet.evmaps = mkblock(evmapmem,cumtdays * 5,ub2,Init0,"time eventmaps");
   
@@ -666,7 +675,9 @@ int prepbasenet(void)
   ub8 cumevcnt2 = 0,cumzevcnt2 = 0;
   for (hop = 0; hop < hopcnt; hop++) {
 
-    progress(&eta,"hop %u of %u in pass 2, \ah%lu events",hop,hopcnt,cumevcnt2);
+    if (progress(&eta,"hop %u of %u in pass 2, \ah%lu events",hop,hopcnt,cumevcnt2)) return 1;
+
+    msgprefix(0,"hop %u",hop);
 
     hp = hops + hop;
     dep = hp->dep;
@@ -678,7 +689,7 @@ int prepbasenet(void)
     hdt = hp->t1 - gt0 + daymin;
     tp = &hp->tp;
     tp->evcnt = 0;
-    memset(xp,0xff,hdt * sizeof(ub4));
+    memset(xp,0xff,hdt * sizeof(*xp));
     memset(xpacc,0,(hdt >> 4) + 1);
     ht0 = hi32; ht1 = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
@@ -697,7 +708,8 @@ int prepbasenet(void)
       mapofs = sp->mapofs;
       daymap = sidmaps + mapofs;
 
-      cnt = fillxtime2(tp,xp,xpacc,xtimelen,gt0,hp->t1,sp,daymap,tdep,tid);
+      cnt = fillxtime2(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid,dur);
+      hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",tid,sp->rsid,t0,t1,tdep,tarr,cnt);
       error_z(cnt,hop);
       evcnt += cnt;
       if (evcnt > maxev4hop) {
@@ -742,4 +754,5 @@ void ininetbase(void)
 {
   msgfile = setmsgfile(__FILE__);
   iniassert();
+  vrbena = (getmsglvl() >= Vrb);
 }

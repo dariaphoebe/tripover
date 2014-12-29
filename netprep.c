@@ -134,7 +134,7 @@ static int hicmp(const void *a,const void *b)
   struct hisort *aa = (struct hisort *)a;
   struct hisort *bb = (struct hisort *)b;
 
-  return (bb->cnt - aa->cnt);
+  return ((int)bb->cnt - (int)aa->cnt);
 }
 
 int prepnet(netbase *basenet)
@@ -156,6 +156,8 @@ int prepnet(netbase *basenet)
   struct sidtable *sids,*sp;
   struct chain *chains,*cp;
   struct route *routes,*rp;
+  struct timepatbase *btp;
+  struct timepat *tp;
 
   ub4 *portsbyhop;
   char *dname,*aname;
@@ -195,7 +197,7 @@ int prepnet(netbase *basenet)
 
     pp = ports + port;
     pp->valid = 1;
-    pp->id = pp->allid = pp->gid = bportcnt;
+    pp->id = pp->allid = pp->gid = portcnt;
     pp->cid = bpp->cid;
     nlen = bpp->namelen;
     if (nlen) {
@@ -250,6 +252,7 @@ int prepnet(netbase *basenet)
 
   ub4 *gportsbyhop = alloc(bhopcnt * 2, ub4,0xff,"net portsbyhop",bhopcnt);
   ub4 *drids,*arids,*deps,*arrs;
+  ub4 t0,t1,evcnt;
 
   hops = alloc(bhopcnt,struct hop,0,"hops",bhopcnt);
   hopcnt = 0;
@@ -286,6 +289,22 @@ int prepnet(netbase *basenet)
     hp->rrid = rrid;
     rid = rrid2rid[rrid];
     hp->rid = rid;
+
+    tp = &hp->tp;
+    btp = &bhp->tp;
+    t0 = btp->t0;
+    t1 = btp->t1;
+    evcnt = btp->evcnt;
+//    warninfo(t1 == t0,0,"hop %u tt range %u-%u",hop,t0,t1);
+    tp->utcofs = btp->utcofs;
+    tp->tdays = btp->tdays;
+    tp->gt0 = btp->gt0;
+    tp->t0 = t0;
+    tp->t1 = t1;
+    tp->evcnt = evcnt;
+    tp->genevcnt = btp->genevcnt;
+    tp->evofs = btp->evofs;
+    tp->dayofs = btp->dayofs;
 
     // mark local links, filtering duplicates e.g on loops
     pdep = ports + dep;
@@ -334,6 +353,8 @@ int prepnet(netbase *basenet)
   if (hopcnt == 0) return error(0,"nil hops out of %u",bhopcnt);
   info(0,"%u from %u hops",hopcnt,bhopcnt);
   hopcnt = bhopcnt;
+
+//  return 1;
 
   info0(0,"global connectivity");
   showconn(ports,portcnt,0);
@@ -756,7 +777,7 @@ int prepnet(netbase *basenet)
     aclear(partstats);
     for (port = 0; port < portcnt; port++) {
 
-      progress(&eta,"pass 1 port %u of %u parts %u",port,portcnt,partcnt);
+      if (progress(&eta,"pass 1 port %u of %u parts %u",port,portcnt,partcnt)) return 1;
 
       cnt = partcnts[port];
       mpp = portparts + port * Npart;
@@ -834,8 +855,9 @@ int prepnet(netbase *basenet)
     nclear(rid2cnts,ridrid);
     nclear(lrid2cnts,ridrid);
     nclear(portsperpart,ridcnt);
+
     for (port = 0; port < portcnt; port++) {
-      progress(&eta,"pass 2 port %u of %u parts %u",port,portcnt,partcnt);
+      if (progress(&eta,"pass 2 port %u of %u parts %u",port,portcnt,partcnt)) return 1;
 
       cnt = partcnts[port];
       mpp = portparts + port * Npart;
@@ -1140,11 +1162,6 @@ int prepnet(netbase *basenet)
 
   tportcnt = portcnts[tpart];
 
-  xmaplen = tportcnt * portcnt;
-
-  info(0,"alloc xmap %u ports * %u tports",portcnt,tportcnt);
-  gnet->xpartbase = mkblock(&gnet->xpartmap,xmaplen,ub2,Init0,"part xmap for %u parts", partcnt);
-
   gnet->partcnt = partcnt;
   gnet->portparts = gportparts;
 
@@ -1260,6 +1277,9 @@ int prepnet(netbase *basenet)
       g2phop[hop] = phop;
       memcpy(hp,ghp,sizeof(*hp));
       hp->gid = hop;
+      t0 = hp->tp.t0;
+      t1 = hp->tp.t1;
+//      info(0,"hop %u tt range %u-%u",hop,t0,t1);
       depp = g2p[dep];
       error_ge(depp,pportcnt);
       hp->dep = depp;

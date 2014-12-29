@@ -136,6 +136,8 @@ static int do_main(void)
     int rv;
     search src;
 
+    oclear(src);
+
     dep = globs.testset[0];
     arr = globs.testset[1];
     if (globs.testcnt > 3) {
@@ -144,7 +146,7 @@ static int do_main(void)
     }
     info(0,"test plan %u to %u minstop %u maxstop %u",dep,arr,lostop,histop);
 
-    rv = searchgeo(&src,(char *)"buildin test",dep,arr,lostop,histop);
+    rv = plantrip(&src,(char *)"buildin test",dep,arr,lostop,histop);
     if (rv) warning(0,"search returned error %d",rv);
     else if (src.tripcnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.tripports,src.lodist);
     else info(0,"%u to %u : no trip\n",dep,arr);

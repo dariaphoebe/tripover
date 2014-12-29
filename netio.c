@@ -196,7 +196,7 @@ static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *f
     myvsnprintf(buf,pos,len,fmt,ap);
     va_end(ap);
   }
-  return warningfln(fln,0,"%s",buf);
+  return warnfln(fln,0,"%s",buf);
 }
 
 /* basic tab-separated ints parser.
@@ -664,6 +664,7 @@ static int rdextports(netbase *net,const char *dir)
 
   ub4 pid,subofs,seq;
   ub4 cnt,extport,subport,subportcnt;
+  ub8 vgadr;
   struct subportbase *subports,*sp;
 
   // create mappings
@@ -812,8 +813,10 @@ static int rdextports(netbase *net,const char *dir)
       sp->subid = subid;
       sp->seq = seq;
       sp->namelen = namelen;
-      vg_chk_def(ep,sizeof(struct extport)-1);
-      vg_chk_def(sp,sizeof(struct extport)-1);
+      vgadr = vg_chk_def(ep,sizeof(struct extport)-1);
+      infocc(vgadr != 0,0,"port %u ep undefined at ofs %ld",extport,(char *)vgadr - (char *)ep);
+      vgadr = vg_chk_def(sp,sizeof(struct subportbase)-1);
+      infocc(vgadr != 0,0,"port %u sp undefined at ofs %ld",subport,(char *)vgadr - (char *)sp);
       if (namelen) memcpy(sp->name,ep->name,namelen);
     }
   }
@@ -1256,7 +1259,7 @@ static int rdexthops(netbase *net,const char *dir)
         inited = 1;
       }
 
-      progress(&eta,"reading hop %u of %u, \ah%u time entries",hop,rawhopcnt,timespos);
+      if (progress(&eta,"reading hop %u of %u, \ah%u time entries",hop,rawhopcnt,timespos)) return 1;
 
       namelen = eft.namelen;
       valndx = eft.valndx;
@@ -1603,7 +1606,7 @@ int wrportrefs(netbase *net)
 
   info(0,"writing %u-ports reference ",portcnt);
 
-  fd = filecreate(portsname);
+  fd = filecreate(portsname,1);
   if (fd == -1) return 1;
 
   pos = fmtstring(buf,"# %s - tripover port name and lat/lon lookup table\n\n",portsname);
@@ -1646,7 +1649,7 @@ int net2ext(netbase *net)
 
   info(0,"writing %u-ports %u-hops base net to dir '.' in external format",portcnt,hopcnt);
 
-  fd = filecreate(portsname);
+  fd = filecreate(portsname,1);
   if (fd == -1) return 1;
 
   pos = fmtstring(buf,"# hops %u ports %u\n# id name lat lon\n",hopcnt,portcnt);
@@ -1664,7 +1667,7 @@ int net2ext(netbase *net)
   fileclose(fd,portsname);
   info(0,"wrote %u ports to %s",portcnt,portsname);
 
-  fd = filecreate(hopsname);
+  fd = filecreate(hopsname,1);
   if (fd == -1) return 1;
 
   pos = fmtstring(buf,"# hops %u ports %u\n# id dep arr\n",hopcnt,portcnt);
@@ -1770,7 +1773,7 @@ static char pagebuf[64 * 1024];
 
   info(0,"writing %u-ports %u-hops base net to %s in pdf format",net->portcnt,net->hopcnt,name);
 
-  fd = filecreate("net.pdf");
+  fd = filecreate("net.pdf",1);
   if (fd == -1) return 1;
 
   pos = mysnprintf(pagebuf,0,plen,"%%PDF-1.4\n");

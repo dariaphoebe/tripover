@@ -66,7 +66,7 @@ int inicfgcl(void)
   char *stagename = globs.stopatstr;
 
   if (*stagename) {
-    if (str2ub4(stagename,&v) == 0) lvl = v;
+    if (str2ub4(stagename,&v)) lvl = v;
     else { while (lvl < Runcnt && strcomp(globs.stopatstr,lvlnames[lvl])) lvl++; }
 
     if (lvl >= Runcnt) {
@@ -129,7 +129,7 @@ static int writecfg(const char *curname)
   enum Runlvl lvl;
   char origin;
 
-  fd = filecreate(curname);
+  fd = filecreate(curname,1);
   if (fd == -1) return 1;
 
   now = gettime_sec();
@@ -283,7 +283,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
   switch(vp->cnv) {
 
   case Uint: val[vallen] = 0;
-             if (str2ub4(val,&uval)) return error(0,"%s: needs numerical arg, has '%s'",fln,val);
+             if (str2ub4(val,&uval) == 0) return error(0,"%s: needs numerical arg, has '%s'",fln,val);
              break;
 
   case Bool: if (vallen) {

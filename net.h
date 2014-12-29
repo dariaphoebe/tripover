@@ -107,21 +107,15 @@ struct chain {
 };
 
 struct timepat {
-  ub4 hop;
   ub4 utcofs;
   ub4 ht0,ht1; // min utc overall validity range
   ub4 tdays;
+  ub4 gt0;
   ub4 t0,t1;   // relative to above actual event range
   ub4 evcnt;
   ub4 genevcnt;
-  ub4 evofs;
-  ub4 dayofs;
-
-  ub4 hispans[4];
-  ub4 hireps[4];
-  ub8 hisums[4];
-  ub4 hit0s[4];
-  ub4 hit1s[4];
+  ub4 evofs;   // offset in net.events
+  ub4 dayofs;  // offset in net.evmaps
 };
 
 struct hop {
@@ -219,8 +213,8 @@ struct network {
 // timetables: pointer to basenet
   block *eventmem;
   block *evmapmem;
-  ub4 *events;
-  ub2 *evmaps;
+  ub8 *events;       // <time,tid> tuples
+  ub2 *evmaps;       // day maps
 
 // access
   ub4 *g2pport;      // [gportcnt] global to partition port id
@@ -229,8 +223,6 @@ struct network {
 
   ub4 *port2zport; //  [portcnt]
   ub4 *zport2port; //  [zportcnt]
-
-  ub4 fports2ports[Portcnt];
 
   ub4 *dist0;      // [portcnt2] distance
   ub4 *hopdist;    // [chopcnt] idem
@@ -263,6 +255,8 @@ struct network {
   ub4 *hidist[Nstop];  // [port2] lowest over-route distance
 
   ub4 *portdst[Nstop];  // [portcnt] #destinations per port
+
+  ub1 *conmask;         // [port2] overall connectivity stopmask
 
 // partitions
   ub4 tportcnt;         // number of ports in global part
@@ -311,14 +305,15 @@ struct gnetwork {
 
   ub1 *portparts;  // [partcnt * portcnt] port memberships
 
-  block xpartmap;
-  ub2 *xpartbase;
+// local-to-topnet connectivity
+  block xpartdmap,xpartamap; // [portcnt * tportcnt] (stopset,part)
+  ub2 *xpartdbase,*xpartabase;
   ub4 xpartlen;
 
 // timetables: pointer to basenet
   block *eventmem;
   block *evmapmem;
-  ub4 *events;
+  ub8 *events;
   ub2 *evmaps;
 
   ub4 *routechains;
@@ -331,16 +326,21 @@ struct gnetwork {
   ub4 maxvariants,routevarmask;
 };
 
+#define triptoports(net,trip,triplen,ports,gports) triptoports_fln(FLN,(net),(trip),(triplen),(ports),(gports))
+
 extern int mknet(ub4 maxstop);
 extern struct network *getnet(ub4 part);
 extern struct gnetwork *getgnet(void);
-extern int triptoports(struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports);
+extern int triptoports_fln(ub4 fln,struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports);
 extern int gtriptoports(struct gnetwork *net,ub4 *trip,ub2 *parts,ub4 triplen,ub4 *ports);
 
 #define checktrip(net,legs,nleg,dep,arr,dist) checktrip_fln((net),(legs),(nleg),(dep),(arr),(dist),FLN)
 #define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)
 extern void checktrip_fln(struct network *net,ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 dist,ub4 fln);
 extern void checktrip3_fln(struct network *net,ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln);
+
+extern ub4 fgeodist(struct port *pdep,struct port *parr);
+
 extern int showconn(struct port *ports,ub4 portcnt,int local);
 
 extern void ininet(void);

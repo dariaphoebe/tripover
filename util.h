@@ -26,7 +26,8 @@ struct cmdarg { // commandline arg defines
   int (*fn)(struct cmdval *cp);
 };
 
-extern int filecreate(const char *name);
+extern int filecreate(const char *name,int mustsucceed);
+extern int fileopen(const char *name,int mustexist);
 extern int filewrite(int fd, const void *buf,ub4 len,const char *name);
 extern int fileread(int fd,void *buf,ub4 len,const char *name);
 extern int fileclose(int fd,const char *name);
@@ -44,7 +45,7 @@ extern void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln);
 #define strcomp(a,b) strcompfln((a),(b),#a,#b,FLN)
 extern int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln);
 
-extern int str2ub4(const char *s, ub4 *pv);
+extern ub4 str2ub4(const char *s, ub4 *pv);
 extern int hex2ub4(const char *s, ub4 *pv);
 
 #define oclear(p) do_clear(&(p),sizeof(p))

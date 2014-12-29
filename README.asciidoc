@@ -45,8 +45,8 @@ The planner is targeted to run on a server, accessed by local and web clients.
 == Status
 Developing
 
-* Initial artificial network
 * preliminary GTFS reader and 'external' readable network file format
+* initial artificial network
 * timetable handling
 * Static connectivity matrix aka graph builing
 * rudimentary local commandline client / server interface
@@ -112,7 +112,7 @@ Run tripover server with this network
 
 Invoke the commandline client :
 
-`./plantrip plan 12 34`
+`./plantrip plan nambour bunya`
 
 Currently, tripover only calculates a possible route, disregarding time or cost.
 

@@ -31,18 +31,19 @@ static ub4 msgfile;
 
 static const char logitemfile[] = "watches.cfg";
 
-int str2ub4(const char *s, ub4 *pv)
+ub4 str2ub4(const char *s, ub4 *pv)
 {
   unsigned long n;
+  ub4 pos = 0;
   char *ep;
 
   *pv = 0;
-  if (!s || !*s) return 1;
+  if (!s || !*s) return 0;
   n = strtoul(s,&ep,0);
-  if (ep == s) return 1;
+  if (ep == s) return 0;
   if (n > hi32) *pv = hi32;
   else *pv = (ub4)n;
-  return 0;
+  return (ub4)(ep - s);
 }
 
 int hex2ub4(const char *s, ub4 *pv)
@@ -78,10 +79,23 @@ int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln
   else return strcmp(a,b);
 }
 
-int filecreate(const char *name)
+int filecreate(const char *name,int mustsucceed)
 {
   int fd = oscreate(name);
-  if (fd == -1) oserror(0,"cannot create %s",name);
+  if (fd == -1) {
+    if (mustsucceed) oserror(0,"cannot create %s",name);
+    else osinfo(0,"not creating %s",name);
+  }
+  return fd;
+}
+
+int fileopen(const char *name,int mustexist)
+{
+  int fd = osopen(name);
+  if (fd == -1) {
+    if (mustexist) oserror(0,"cannot open %s",name);
+    else osinfo(0,"not reading %s",name);
+  }
   return fd;
 }
 
@@ -171,7 +185,7 @@ ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc)
   ub8 v;
 
   switch (n) {  // trivia
-  case 0: return warningfln(fln,0,"sort of nil items for %s",desc);
+  case 0: return warnfln(fln,0,"sort of nil items for %s",desc);
   case 1: return 0;
   case 2: v = p[0]; if (v > p[1]) { p[0] = p[1]; p[1] = v; } return 1;
   };
@@ -191,7 +205,7 @@ ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc)
   rv = combsort8(p,n);
   for (i = 1; i < n; i++) if (p[i] < p[i-1]) break;
   if (i < n) {
-    warningfln(fln,0,"csort of %u not in order in %u runs",n,rv);
+    warnfln(fln,0,"csort of %u not in order in %u runs",n,rv);
     for (i = 0; i < n; i++) info(0,"%u %lx",i,p[i]);
     error_z(0,0);
   }
@@ -205,7 +219,7 @@ ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc)
   ub4 v,dv,kv;
 
   switch (n) {  // trivia
-  case 0: return warningfln(fln,0,"search in nil items for %s",desc);
+  case 0: return warnfln(fln,0,"search in nil items for %s",desc);
   case 1: return *p == key ? 0 : 1;
   case 2: if (p[0] == key) return 0;
           else if (p[1] == key) return 1;
@@ -511,7 +525,7 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
         } else cnv = 's';
         if (*vp != '[' && !valp) { warning(User,"%smissing value",msg); continue; }
         if (cnv == 'u') {
-          if (str2ub4(valp,&cv.uval)) {
+          if (str2ub4(valp,&cv.uval) == 0) {
           if (*vp != '[' || valp)
             warning(User,"%signoring non-integer value %s",msg,valp); continue;
           }

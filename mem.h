@@ -57,7 +57,7 @@ enum Blkopts { Noinit, Init0, Init1 };
 extern void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,const char *desc,ub4 arg,ub4 fln);
 extern void * __attribute__ ((format (printf,8,9))) mkblock_fln(block *blk,size_t elems,ub4 elsize,enum Blkopts opts,const char *selems,const char *selsize,ub4 fln,const char *fmt,...);
 extern void bound_fln(block *blk,size_t pos,ub4 elsize,const char *spos,const char *sel,ub4 fln);
-extern void afree_fln(void *p,ub4 fln, const char *desc);
+extern int afree_fln(void *p,ub4 fln, const char *desc);
 
 extern void showmemsums(void);
 

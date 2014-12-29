@@ -27,6 +27,8 @@ static ub4 msgfile;
 // soft limit for wrappers only
 static const ub4 Maxmem_mb = 1024 * 10;
 
+#define Ablocks 8192
+
 static ub4 totalMB;
 
 struct sumbyuse {
@@ -38,12 +40,29 @@ struct sumbyuse {
   ub4 fln,hifln;
 };
 
+struct ainfo {
+  char *base;
+  ub4 len;
+  ub4 allocfln;
+  ub4 freefln;
+  ub4 alloced;
+};
+
 static struct sumbyuse usesums[32];
+
+static block lrupool[256];
+
+static block *lruhead = lrupool;
+
+static struct ainfo ainfos[Ablocks];
+static ub4 curainfo;
 
 static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
 {
   ub4 idlen = 0;
   struct sumbyuse *up = usesums;
+
+  totalMB += mbcnt;
 
   while (desc[idlen] && desc[idlen] != ' ' && idlen < sizeof(up->id)-1) idlen++;
   if (idlen == 0) return;
@@ -60,6 +79,21 @@ static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
     up->hifln = fln;
     strncpy(up->hidesc,desc,sizeof(up->hidesc)-1);
   }
+}
+
+static void subsum(const char *desc,ub4 mbcnt)
+{
+  ub4 idlen = 0;
+  struct sumbyuse *up = usesums;
+
+  totalMB -= min(mbcnt,totalMB);
+
+  while (desc[idlen] && desc[idlen] != ' ' && idlen < sizeof(up->id)-1) idlen++;
+  if (idlen == 0) return;
+
+  while (up < usesums + Elemcnt(usesums) && up->idlen && (up->idlen != idlen || memcmp(up->id,desc,idlen))) up++;
+  if (up == usesums + Elemcnt(usesums)) return;
+  up->sum -= min(mbcnt,up->sum);
 }
 
 static int showedmemsums;
@@ -84,7 +118,11 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   ub8 n8 = (ub8)elems * (ub8)elsize;
   size_t n;
   ub4 nm;
+  ub4 andx;
   void *p;
+  struct ainfo *ai = ainfos + curainfo;
+
+  if (curainfo + 1 == Ablocks) errorfln(fln,Exit,FLN,"exceeding limit of %u memblocks allocating %s",Ablocks,desc);
 
   vrbfln(fln,V0|CC,"alloc %s:\ah%u * %s:\ah%u for %s-%u",slen,elems,sel,elsize,desc,arg);
 
@@ -94,7 +132,7 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
 
   error_zp(desc,0);
 
-  if (fill != 0 && fill != 0xff) warningfln(fln,0,"fill with %u",fill);
+  if (fill != 0 && fill != 0xff) warnfln(fln,0,"fill with %u",fill);
 
   n = (size_t)n8;
   nm = (ub4)(n8 >> 20);
@@ -109,24 +147,63 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
 
   if (nm > 64) infofln(fln,0,"clear %u MB for %s",nm,desc);
   memset(p, fill, n);
-  totalMB += nm;
 
   addsum(fln,desc,nm);
+
+  for (andx = 0; andx < curainfo; andx++) {
+    ai = ainfos + andx;
+    if (p == ai->base) break;
+  }
+  if (curainfo && andx < curainfo) {
+    if (ai->alloced) {
+      doexit errorfln(fln,Exit,ai->allocfln,"previously allocated %s",desc);
+    }
+  } else ai = ainfos + curainfo++;
+
+  ai->base = p;
+  ai->allocfln = fln;
+  ai->freefln = 0;
+  ai->alloced = 1;
+  ai->len = nm;
 
   if (nm > 64) info(0,"alloced %u MB for %s, total %u", nm, desc, totalMB);
   return p;
 }
 
-void afree_fln(void *p,ub4 fln, const char *desc)
+int afree_fln(void *p,ub4 fln, const char *desc)
 {
+  block *b = lrupool;
+  struct ainfo *ai = ainfos;
+  ub4 andx;
+  ub4 nm;
+
   vrbfln(fln,0,"free %p",p);
-  if (!p) warningfln(fln,0,"free nil pointer for %s",desc);
-  else free(p);
+  if (!p) return errorfln(fln,0,FLN,"free nil pointer for %s",desc);
+
+  // check if allocated with mkblock
+  for (b = lrupool; b < lrupool + Elemcnt(lrupool); b++) {
+    if (b->seq == 0) continue;
+    if (p == b->base) return errorfln(fln,Exit,FLN,"free pointer '%s' allocated with '%s'",desc,b->desc);
+  }
+
+  // check if previously allocated
+  for (andx = 0; andx < curainfo; andx++) {
+    ai = ainfos + andx;
+    if (p == ai->base) break;
+  }
+  if (andx == curainfo) return errorfln(fln,0,FLN,"free pointer %p '%s' was not allocated with alloc",p,desc);
+  if (ai->freefln) {
+    errorfln(fln,0,FLN,"double free of pointer %p '%s'",p,desc);
+    return errorfln(ai->freefln,0,ai->allocfln,"allocated and previously freed %s",desc);
+  }
+  ai->freefln = fln;
+  ai->alloced = 0;
+  nm = ai->len;
+  subsum(desc,nm);
+  free(p);
+  return 0;
 }
 
-static block lrupool[256];
-
-static block *lruhead = lrupool;
 // static block *lrutail = lrupool;
 static ub4 blockseq = 1;
 
@@ -192,7 +269,6 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   if (opts & Init0) memset(p, 0, n);
   else if (opts & Init1) memset(p, 0xff, n);
 
-  totalMB += nm;
   if (nm > 64) infofln(fln,0,"alloc %u MB for %s, total %u", nm, desc, totalMB);
 
   addsum(fln,desc,nm);
@@ -242,7 +318,7 @@ void bound_fln(block *blk,size_t pos,ub4 elsize,const char *spos,const char *sel
 {
 //  vrbfln(fln,V0|CC,"bounds on block '%s' use ",blk->desc);
 
-  if (elsize != blk->elsize) errorfln(fln,Exit,FLN,"%s size %u on %s size %u block '%s'",selsize,elsize,blk->selsize,blk->elsize,blk->desc);
+  if (elsize != blk->elsize) errorfln(fln,Exit,FLN,"size mismatch: %s size %u on %s size %u block '%s'",selsize,elsize,blk->selsize,blk->elsize,blk->desc);
   if (pos >= blk->elems) errorfln(fln,Exit,FLN,"%s pos %lu %u above %s len %lu block '%s'",spos,pos,(ub4)(pos - blk->elems),blk->selems,blk->elems,blk->desc);
 }
 
