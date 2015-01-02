@@ -284,6 +284,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
       switch(*p++) {
         case 'h': do_U = 1; break;
         case 'v': do_vec = 1; break;
+        case 'V': do_vec = 2; break;
         case '.': do_dot = 1; break;
         case 'u': do_utcofs = 1; break;
         case 'd': do_mindate = 1; break;
@@ -373,11 +374,14 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     n += ucnv(dst + n,uval,wid,'0');
                     break;
                   } else if (do_mindate) {
-                    if (do_mindate == 2) n += ucnv(dst + n,uval,wid,pad);
+                    if (do_mindate == 2) {
+                      n += ucnv(dst + n,uval,wid,pad);
+                      dst[n++] = ' ';
+                    }
                     do_mindate = 0;
                     if (uval >= 30000000) { // minutes
                       cdval = lmin2cd(uval);
-                      n += ucnv(dst + n,cdval,wid,pad);
+                      n += ucnv(dst + n,cdval,4,'0');
                       uval %= 1440;
                       if (uval) dst[n++] = '.';
                     } else if (uval > 1440) { // yyyymmdd
@@ -458,11 +462,17 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   if (do_vec) {
                     n += ucnv(dst + n,vlen,0,0);
                     dst[n++] = '.'; dst[n++] = '[';
-                    while (vlen--) {
+                    while (vlen) {
                       uval = *puval++;
                       if (len - n <= 10) break;
                       n += ucnv(dst + n,uval,wid,pad);
-                      if (vlen) dst[n++] = '-';
+                      if (do_vec == 2) {
+                        dst[n++] = '.';
+                        uval = *puval++;
+                        if (len - n <= 10) break;
+                        n += ucnv(dst + n,uval,wid,pad);
+                      }
+                      if (--vlen) dst[n++] = '-';
                     }
                     dst[n++] = ']'; dst[n++] = ' ';
                     do_vec = 0;
@@ -655,7 +665,7 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
     hicnts[lvl] = cnt;
     hiflns[lvl] = fline;
     memcpy(himsgbufs[lvl],msgbuf,pos+1);
-  } else if (cnt > hicnts2[lvl]) {
+  } else if (cnt > hicnts2[lvl] && fline != hiflns[lvl]) {
     hicnts2[lvl] = cnt;
     hiflns2[lvl] = fline;
     memcpy(himsgbufs2[lvl],msgbuf,pos+1);

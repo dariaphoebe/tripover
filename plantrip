@@ -164,9 +164,9 @@ sub portbyname($)
   return '';
 }
 
-sub iplan($$$)
+sub iplan($$$$$)
 {
-  my ($dep,$arr,$stops) = @_;
+  my ($dep,$arr,$stops,$dayrange,$startday) = @_;
 
   my ($depname,$arrname);
 
@@ -180,12 +180,12 @@ sub iplan($$$)
   my $region = 'glob';
 
   if (length($stops)) { query('p',$region,"$dep $arr $stops"); }
-  else { query('p',$region,"$dep $arr"); }
+  else { query('p',$region,"$dep $arr $dayrange $startday"); }
 }
 
-sub plan($$$)
+sub plan($$$$$)
 {
-  my ($depname,$arrname,$stops) = @_;
+  my ($depname,$arrname,$stops,$dayrange,$startday) = @_;
 
   my ($dep,$arr);
 
@@ -195,7 +195,7 @@ sub plan($$$)
   $arr = portbyname($arrname);
   return 1 unless length($arr);
 
-  iplan($dep,$arr,$stops);
+  iplan($dep,$arr,$stops,$dayrange,$startday);
 }
 
 sub stop($)
@@ -390,7 +390,7 @@ sub init()
 }
 
 my ($arg,$opt,$cmd,$line,$prvline);
-my ($dep,$arr,$stops);
+my ($dep,$arr,$stops,$dayrange,$startday);
 my @args;
 
 if (@ARGV > 0) {
@@ -423,18 +423,26 @@ if (@ARGV > 0) {
     if ($cmd eq 'stop') {
       stop($cmd);
     } elsif ($cmd eq 'plan') {
-      return info("plan needs 'from' and 'to' arg") unless (@args > 2);
+      exit info("plan needs 'from' and 'to' arg") unless (@args > 2);
       $dep = $args[1]; $arr = $args[2];
       if (@args > 3) { $stops = $args[3]; }
       else { $stops = ''; }
-      plan($dep,$arr,$stops);
+      if (@args > 4) { $dayrange = $args[4]; }
+      else { $dayrange = 3; }
+      if (@args > 5) { $startday = $args[5]; }
+      else { $startday = 20140916; } # eng provision: typ 
+      plan($dep,$arr,$stops,$dayrange,$startday);
       agedir($querydir,time() - $agelimit);
     } elsif ($cmd eq 'iplan') {
-      return info("plan needs 'from' and 'to' arg") unless (@args > 2);
+      exit info("iplan needs 'from' and 'to' arg") unless (@args > 2);
       $dep = $args[1]; $arr = $args[2];
       if (@args > 3) { $stops = $args[3]; }
       else { $stops = ''; }
-      iplan($dep,$arr,$stops);
+      if (@args > 4) { $dayrange = $args[4]; }
+      else { $dayrange = 3; }
+      if (@args > 5) { $startday = $args[5]; }
+      else { $startday = 20140916; } # eng provision: typ 
+      iplan($dep,$arr,$stops,$dayrange,$startday);
       agedir($querydir,time() - $agelimit);
     } else { info("unknown command"); }
   }
@@ -463,12 +471,13 @@ while ($cmd ne 'quit') {
   $cmd = 'iplan' unless index($line,'iplan') < 0;
   $cmd = 'stop' unless index($line,'stop') < 0;
   info("unrecognised command") if length($line) and not length($cmd);
+  $dayrange = 3; $startday = 20140916; $stops = 2;
   $prvline = $line;
   if ($cmd eq 'plan') {
-    plan($args[1],$args[2],'');
+    plan($args[1],$args[2],$stops,$dayrange,$startday);
     agedir($querydir,time() - $agelimit);
   } elsif ($cmd eq 'iplan') {
-    iplan($args[1],$args[2],'');
+    iplan($args[1],$args[2],$stops,$dayrange,$startday);
     agedir($querydir,time() - $agelimit);
   } elsif ($cmd eq 'stop') { stop($line); }
 }

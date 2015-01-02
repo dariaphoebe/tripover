@@ -47,6 +47,7 @@ struct eta {
 #define vrb0(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
 #define info(code,fmt,...) infofln(FLN,(code),(fmt),__VA_ARGS__)
 #define warning(code,fmt,...) warnfln(FLN,(code),(fmt),__VA_ARGS__)
+#define warn(code,fmt,...) warnfln(FLN,(code),(fmt),__VA_ARGS__)
 #define error(code,fmt,...) errorfln(FLN,(code),0,(fmt),__VA_ARGS__)
 #define oserror(code,fmt,...) oserrorfln(FLN,(code),(fmt),__VA_ARGS__)
 #define oswarning(code,fmt,...) oswarningfln(FLN,(code),(fmt),__VA_ARGS__)

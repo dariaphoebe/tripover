@@ -326,13 +326,25 @@ struct gnetwork {
   ub4 maxvariants,routevarmask;
 };
 
+struct trip {
+  ub4 trip[Nxleg * 2]; // part,leg
+  ub4 port[Nxleg];
+  ub4 t[Nxleg];
+  ub4 tid[Nxleg];
+  ub4 dur[Nxleg];
+
+  ub4 len;
+  ub4 cnt;
+  ub4 dist;
+};
+
 #define triptoports(net,trip,triplen,ports,gports) triptoports_fln(FLN,(net),(trip),(triplen),(ports),(gports))
 
 extern int mknet(ub4 maxstop);
 extern struct network *getnet(ub4 part);
 extern struct gnetwork *getgnet(void);
 extern int triptoports_fln(ub4 fln,struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports);
-extern int gtriptoports(struct gnetwork *net,ub4 *trip,ub2 *parts,ub4 triplen,ub4 *ports);
+extern int gtriptoports(struct gnetwork *net,struct trip *ptrip,char *buf,ub4 *pbuflen);
 
 #define checktrip(net,legs,nleg,dep,arr,dist) checktrip_fln((net),(legs),(nleg),(dep),(arr),(dist),FLN)
 #define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)

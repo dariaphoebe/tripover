@@ -11,17 +11,18 @@
 
 #define Maxevs 2048
 
+#define Topdts 64
+
 // rudimentary
 // port and hop refs are global
 struct srcctx {
   char desc[256];
 
-  ub4 trip[Nxleg];
-  ub2 tripparts[Nxleg];
-  ub4 tripports[Nxleg];
-  ub4 triplen;
-  ub4 tripcnt;
-  ub4 dist;
+  char resbuf[Nxleg * 128];
+  ub4 reslen;
+
+  struct trip trip;
+
   ub4 dep,arr;
   ub4 vias[Nvia];
   ub4 viacnt;
@@ -32,18 +33,30 @@ struct srcctx {
 
   ub4 lodt,hidt;
   ub4 lodist,hidist,geodist;
+  ub4 lot,lotid;
+
+  ub4 curdts[Nxleg];
+  ub4 curdurs[Nxleg];
+  ub4 curts[Nxleg];
+  ub4 curtids[Nxleg];
+  ub4 curdt,curt;
 
   ub4 locvarcnt;
   ub4 locnocnt;
   ub4 locsrccnt;
+  ub4 varcnt;
   ub4 dvarcnt,tvarcnt,avarcnt,dvarxcnt,tvarxcnt,avarxcnt;
 
   struct timepat *tps[Nxleg];
   ub4 dcnts[Nxleg];
   ub4 dtlos[Nxleg];
+  ub4 dtcurs[Nxleg];
+  ub4 devcurs[Nxleg];
   ub4 *depevs[Nxleg];
-  ub4 *evpool;
 
+  ub4 topdts[Topdts];
+
+  ub4 *evpool;
 };
 typedef struct srcctx search;
 

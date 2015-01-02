@@ -277,6 +277,7 @@ int prepbasenet(void)
   ub4 rrid,chcnt,i;
   ub4 t0,t1,ht0,ht1,hdt,tdays,mapofs;
   ub8 cumevcnt = 0,cumzevcnt = 0,cumtdays = 0;
+  ub4 evhops = 0;
   ub4 dur,lodur,hidur,eqdur = 0;
   ub4 sumtimes = 0;
 
@@ -323,6 +324,7 @@ int prepbasenet(void)
   }
   error_ne(chainofs,cumhoprefs);
 
+  
   // pass 1: expand time entries, determine memuse and derive routes
   for (hop = 0; hop < hopcnt; hop++) {
 
@@ -382,9 +384,12 @@ int prepbasenet(void)
     ht0 = hi32; ht1 = 0;
     tp = &hp->tp;
     tp->hop = hop;
-    tp->t0 = hi32; tp->t1 = 0;
+    tp->t0 = tp->t1 = 0;
     tp->gt0 = gt0;
 
+    if (timecnt == 0) continue;
+
+    tp->t0 = hi32;
     lodur = hi32; hidur = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
       sid = tbp[0];
@@ -470,11 +475,12 @@ int prepbasenet(void)
       sumtimes++;
     }
 
-    if (timecnt == 0) continue;
     if (evcnt == 0) {
       genmsg(timecnt > 600 ? Info : Vrb,0,"hop %u no events for %u time entries",hop,timecnt);
+      tp->t0 = min(tp->t0,tp->t1);
       continue;
     }
+    evhops++;
     hoplog(hop,0,"final date range %u-%u",tp->t0,tp->t1);
 
     lodur = min(lodur,hidur);
@@ -520,6 +526,7 @@ int prepbasenet(void)
   info(0,"\ah%lu org time events to \ah%lu",cumevcnt,cumzevcnt);
   info(0,"\ah%u org chainhops to \ah%u",cumhoprefs,cumhoprefs2);
   info(0,"%u routes",ridcnt);
+  infocc(evhops < hopcnt,0,"%u of %u hops without time events",hopcnt - evhops,hopcnt);
   info(0,"%u hops with constant duration",eqdur);
 
   // todo from extnet ?

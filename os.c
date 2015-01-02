@@ -283,7 +283,7 @@ int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext)
   rcv = received
   rep = reply
 
-  local cliont deletes used entries
+  local client deletes used entries
  */
 int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *ext)
 {
@@ -305,6 +305,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
   struct stat ino;
   ub8 usec = gettime_usec();
   ub4 now = (ub4)(usec / (1000 * 1000));
+  ub4 iter = 0;
 
   clear(mf);
 
@@ -330,6 +331,8 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
     if (!de) break;
     dname = de->d_name;
     if (dname[0] == '.') continue;
+
+    iter++;
     namelen = strlen(dname);
     if (namelen + 1 < sizeof(namepattern)) { info(0,"expected pattern %s",namepattern); continue; }
     extpos = strstr(dname,ext);
@@ -359,7 +362,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
     vrb(0,"%s stamp %u",name,stamp);
     if (stamp > now) warning(0,"%s has time %u %u secs in the future",dname,stamp,stamp - now);
     else if (now - stamp > Queryage) {
-      info(0,"skip %s on age %u secs",dname,now - stamp);
+      infocc(iter == 1,0,"skip %s on age %u secs",dname,now - stamp);
       continue;
     }
     if (stamp > histamp) {
@@ -416,7 +419,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
   if (nr == -1) { oswarning(0,"cannot read %s",newname); return osclose(fd); }
   osclose(fd);
   if (nr != (ssize_t)len) return warning(0,"partial read %u of %u bytes of %s",(ub4)nr,(ub4)len,newname);
-  else info(0,"read %u bytes of %s",(ub4)len,newname);
+  else vrb0(0,"read %u bytes of %s",(ub4)len,newname);
   return 0;
 }
 

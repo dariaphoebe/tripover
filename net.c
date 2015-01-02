@@ -204,7 +204,7 @@ static int mknet0(struct network *net)
     hidists[da] = max(hidists[da],dist);
 //    error_z(dist,hop);
     if (hop < hopcnt && dist != dist0[da]) warning(0,"hop %u dist %u vs %u",hop,dist,dist0[da]);
-    else if (dist < dist0[da]) warning(Iter,"chop %u dist %u vs %u",hop,dist,dist0[da]);
+//    else if (dist < dist0[da]) warning(Iter,"chop %u dist %u vs %u",hop,dist,dist0[da]); // todo
   }
   if (ovfcnt) warning(0,"limiting 0-stop net by \ah%u",ovfcnt);
 
@@ -389,6 +389,9 @@ static int mknetn(struct network *net,ub4 nstop)
 
   nleg = nstop + 1;
   nstop1 = nstop - 1;
+
+  memset(trip1ports,0xff,sizeof(trip1ports));
+  memset(trip2ports,0xff,sizeof(trip1ports));
 
 /* Essentially we do for each (departure,arrival) pair:
    Search for a 'via' port such that trip (departure,via) and (via,arrival) exist
@@ -1103,18 +1106,16 @@ static int mknetn(struct network *net,ub4 nstop)
 }
 
 // count connections within part
-static ub2 hasconn(ub4 callee,struct network *net,ub4 deparr)
+static ub2 hasconn(struct network *net,ub4 deparr)
 {
   ub4 nstop = 0;
   ub2 **concnts = net->concnt,*cnts,cnt = 0;
 
-  enter(callee);
-  error_ge(deparr,net->portcnt * net->portcnt);
   while (nstop <= net->histop && cnt == 0) {
     cnts = concnts[nstop++];
     if (cnts) cnt = cnts[deparr];
   }
-  leave(callee);
+
   return cnt;
 }
 
@@ -1277,157 +1278,144 @@ static int mkxmap(ub4 callee,struct gnetwork *gnet)
 
   info(0,"%u of %u arrs with any top part connection, %u total conns",nxcon,gportcnt,npxcon);
 
+  leave(callee);
+
   return 0;
 }
 
-// show cumulative connectivity
+// show cumulative global connectivity
 static int dogconn(ub4 callee,struct gnetwork *gnet)
 {
   struct network *net,*tnet,*anet,*danet;
   struct port *gpdep,*gparr,*gports = gnet->ports;
+  char *dname,*aname;
   ub1 *portparts = gnet->portparts;
   ub4 partcnt = gnet->partcnt;
   ub4 daportcnt,gportcnt = gnet->portcnt;
-  ub4 gdep,garr,dep,arr;
+  ub4 gdep,garr,dep,arr,tdmid,tamid,gdmid,gamid;
   ub4 part,apart;
   ub2 cnt;
   ub4 xconn;
   ub4 tpart;
   ub4 ti,ati,tcnt,tacnt;
-  ub4 dtmid,gdtmid,atmid,depmid,midarr,gatmid,xamid,xmid,xda;
+  ub4 dtmid,gdtmid,atmid,depmid,midarr,deparr,gatmid,xamid,xmid,xda;
+  ub4 *tp2g;
   ub4 portcnt,tportcnt,aportcnt;
   ub8 gconn = 0,gxconn = 0;
+  ub4 lconn;
   ub4 sample,shareparts;
   ub4 stats[4];
   struct eta eta;
   int dbg = 0,tdepfirst,tarrfirst;
 
-  if (partcnt < 2) return info(0,"no inter-partition maps for %u partition\as",partcnt);
+  ub2 *xmap,*xamap,*xmapdbase,*xmapabase,stopset,xm,xam;
+  ub1 *tmap;
+  block *xpartdmap = &gnet->xpartdmap;
+  block *xpartamap = &gnet->xpartamap;
+
+  if (gportcnt < 2) return info(0,"skip global conn for %u ports net",gportcnt);
 
   enter(callee);
+
+  if (partcnt > 1) {
+    xmapdbase = blkdata(xpartdmap,0,ub2);
+    xmapabase = blkdata(xpartamap,0,ub2);
+  } else {
+    xmapdbase = xmapabase = NULL;
+  }
 
   tpart = partcnt - 1;
   tnet = getnet(tpart);
   tportcnt = tnet->portcnt;
-
-//  xmappos = xmapbase = blkdata(xpartmap,0,ub2);
+  tmap = tnet->conmask;
+  tp2g = tnet->p2gport;
 
   if (gportcnt > 500) {
-    sample = gportcnt / 125;
+    sample = gportcnt / 500;
     info(0,"sampling connectivity in %u steps",sample);
-  } else sample = 0;
+  } else sample = 1;
+
+  gdmid = gamid = 0;
 
   info(0,"global connectivity, sample %u",sample);
 
-  for (gdep = 0; gdep < gportcnt; gdep += rnd(sample) ) {
+  for (gdep = 0; gdep < gportcnt; gdep += sample) {
 
-    if (progress(&eta,"port %u of %u in global connect : \ah%lu + \ah%lu",gdep,gportcnt,gconn,gxconn)) return 1;
+    if (gdep == 0) progress(&eta,"port %u of %u in %u-part global connect",gdep,gportcnt,partcnt);
+    else if (progress(&eta,"port %u of %u in global connect : \ah%lu + \ah%lu",gdep,gportcnt,gconn,gxconn)) return 1;
 
     gpdep = gports + gdep;
+    dname = gpdep->name;
 
-//    dxmappos = xmapbase + gdep * tportcnt;
+    xmap = xmapdbase + gdep * tportcnt;
 
-    for (garr = 0; garr < gportcnt; garr += rnd(sample) ) {
+    for (garr = 0; garr < gportcnt; garr += sample) {
 
-      dbg = (gxconn < 2);
+      if (garr == gdep) continue;
 
-//      axmappos = xmapbase + garr * tportcnt;
+      gparr = gports + garr;
+      aname = gparr->name;
 
-      // local conn if shared part
-      cnt = shareparts = 0;
-      for (part = 0; part < partcnt; part++) {
+      lconn = xconn = 0;
+      part = 0;
+      while (part < partcnt && lconn == 0) {
         if (portparts[gdep * partcnt + part] && portparts[garr * partcnt + part]) {
-          shareparts++;
           danet = getnet(part);
-          daportcnt = danet->portcnt;
           dep = danet->g2pport[gdep];
           arr = danet->g2pport[garr];
+          daportcnt = danet->portcnt;
           error_ge(dep,daportcnt);
           error_ge(arr,daportcnt);
-          cnt += hasconn(caller,danet,dep * daportcnt + arr);
+          lconn = hasconn(danet,dep * daportcnt + arr);
         }
+        part++;
       }
-      if (cnt) {
-        gparr = gports + garr;
-        if (gconn < 3) info(0,"local conn %u-%u %s to %s",gdep,garr,gpdep->name,gparr->name);
+      if (lconn) {
         gconn++;
+        infocc(gconn < 3,0,"local conn %u-%u %s to %s",gdep,garr,dname,aname);
+        continue;
+      } else if (partcnt == 1) continue;
+      else if (gpdep->tpart) { // todo
+        continue;
+      } else if (gparr->tpart) { // todo
+        continue;
       }
 
-      // no shared part : go through topnet
-      else if (shareparts == 0) {
-        xconn = 0;
-        for (part = 0; part < partcnt && xconn == 0; part++) {
-          if (portparts[gdep * partcnt + part] == 0) continue;
+      // no shared part or no conn in such: go through topnet
+      xamap = xmapabase + garr * tportcnt;
 
-          net = getnet(part);
-          portcnt = net->portcnt;
-          dep = net->g2pport[gdep];
-          error_ge(dep,portcnt);
-          tcnt = net->tportcnt;
-          ti = 0;
-          tdepfirst = 1;
-          while (ti < tcnt && xconn == 0) {
-            // if dep is in top, use top.dep first
-            if (part == tpart && tdepfirst) { dtmid = dep; tdepfirst = 0; }
-            else dtmid = net->tports[ti++];
-            error_ge(dtmid,portcnt);
-            if (dep != dtmid) {
-              depmid = dep * portcnt + dtmid;
-              cnt = hasconn(caller,net,depmid);
-              if (cnt == 0) continue;
-            }
+      for (tdmid = 0; tdmid < tportcnt; tdmid++) {
+        xm = xmap[tdmid];
+        if (xm == 0) continue;
+        gdmid = tp2g[tdmid];
+        for (tamid = 0; tamid < tportcnt; tamid++) {
+          if (tdmid == tamid) continue;
 
-            // dep.part has via in top
-            gdtmid = net->p2gport[dtmid];
-            infocc(dbg,0,"part %u gdep %u conn with gmid %u",part,gdep,gdtmid);
-            for (apart = 0; apart < partcnt && xconn == 0; apart++) {
-              if (portparts[garr * partcnt + apart] == 0) continue;
-              anet = getnet(apart);
-              aportcnt = anet->portcnt;
-              arr = anet->g2pport[garr];
-              error_ge(arr,aportcnt);
-              tacnt = anet->tportcnt;
-              ati = 0;
-              tarrfirst = 1;
-              while (ati < tacnt) {
-                if (apart == tpart && tarrfirst) { atmid = arr; tarrfirst = 0; }
-                else atmid = anet->tports[ati++];
-                error_ge(atmid,aportcnt);
-                if (arr != atmid) {
-                  midarr = atmid * aportcnt + arr;
-                  cnt = hasconn(caller,anet,midarr);
-                  if (cnt == 0) continue;
-                }
+          xam = xamap[tamid];
+          if (xam == 0) continue;
 
-                // now check if top connects both mids
-                gatmid = anet->p2gport[atmid];
-//                infocc(dbg,0,"part %u garr %u conn with gmid %u",apart,garr,gatmid);
+          deparr = tdmid * tportcnt + tamid;
+          if (tmap[deparr] == 0) continue;
+          gamid = tp2g[tamid];
 
-                if (gdtmid == gatmid) { stats[1]++; xconn++; break; }
-
-                xmid = tnet->g2pport[gdtmid];
-                error_ge(xmid,tportcnt);
-                xamid = tnet->g2pport[gatmid];
-                error_ge(xamid,tportcnt);
-                xda = xmid * tportcnt + xamid;
-                cnt = hasconn(caller,tnet,xda);
-                if (cnt) { stats[2]++; xconn++; break; }
-              }
-            }
-          }
-
+          xconn = 1;
+          break;
         }
-        if (xconn) {
-          gparr = gports + garr;
-          if (gxconn < 3) info(0,"interpart conn %u-%u %s to %s",gdep,garr,gpdep->name,gparr->name);
-          gxconn++;
-        }
-      } // shared part or not
+        if (xconn) break;
+      }
+      if (xconn) {
+        gxconn++;
+        infocc(gxconn < 3,0,"interpart conn %u-%u via %u-%u %s to %s",gdep,garr,gdmid,gamid,dname,aname);
+      }
+
     } // each arr
-  } // each dep
-  ub8 gneedconn = gportcnt * (gportcnt - 1);
-  info(0,"global connectivity \ah%lu+\ah%lu of \ah%lu",gconn,gxconn,gneedconn);
 
+  } // each dep
+
+  ub8 gneedconn = gportcnt * (gportcnt - 1);
+  ub8 sample2 = sample * sample;
+  if (sample == 1) info(0,"global connectivity \ah%lu+\ah%lu of \ah%lu = %lu%%",gconn,gxconn,gneedconn,(gconn + gxconn) * 100 / gneedconn);
+  else info(0,"global connectivity ~\ah%lu+\ah%lu of \ah%lu ~ %lu%%",gconn * sample2,gxconn * sample2,gneedconn,(gconn + gxconn) * sample2 * 100 / gneedconn);
   leave(callee);
 
   return 0;
@@ -1673,12 +1661,13 @@ int triptoports_fln(ub4 fln,struct network *net,ub4 *trip,ub4 triplen,ub4 *ports
   return 0;
 }
 
-int gtriptoports(struct gnetwork *gnet,ub4 *trip,ub2 *parts,ub4 triplen,ub4 *ports)
+int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen)
 {
   struct network *net;
   struct port *gports = gnet->ports,*pdep,*parr = gports;
   struct hop *hops,*hp;
-  ub4 part,leg,l,l1,l2,dep,arr = hi32,gdep,garr = hi32;
+  ub4 *trip = ptrip->trip;
+  ub4 part,leg,prvleg,l,l1 = 0,l2 = 0,dep,arr = hi32,tdep,tarr,gdep,garr = hi32;
   ub4 gportcnt = gnet->portcnt;
   ub4 partcnt = gnet->partcnt;
   ub4 hopcnt;
@@ -1687,13 +1676,17 @@ int gtriptoports(struct gnetwork *gnet,ub4 *trip,ub2 *parts,ub4 triplen,ub4 *por
   ub4 *portsbyhop;
   ub4 *choporg;
   ub4 *p2g;
+  ub4 pos = 0;
+  ub4 buflen = *pbuflen;
+  ub4 triplen = ptrip->len;
+  ub4 *ports = ptrip->port;
 
   if (triplen == 0) return warning(0,"nil trip for %u port net",gportcnt);
   error_ge(triplen,Nxleg);
 
   for (leg = 0; leg < triplen; leg++) {
-    part = parts[leg];
-    error_ge(part,partcnt);
+    part = trip[leg * 2];
+    error_ge_cc(part,partcnt,"leg %u of %u",leg,triplen);
     net = getnet(part);
     hops = net->hops;
     hopcnt = net->hopcnt;
@@ -1702,22 +1695,13 @@ int gtriptoports(struct gnetwork *gnet,ub4 *trip,ub2 *parts,ub4 triplen,ub4 *por
     portsbyhop = net->portsbyhop;
     choporg = net->choporg;
     p2g = net->p2gport;
-    l = trip[leg];
+    l = trip[leg * 2 + 1];
     if (l >= chopcnt) return error(0,"part %u leg %u hop %u >= %u",part,leg,l,chopcnt);
     dep = portsbyhop[2 * l];
     error_ge(dep,portcnt);
     gdep = p2g[dep];
     error_ge(gdep,gportcnt);
     pdep = gports + gdep;
-    if (leg) {
-      if (gdep != garr) return error(0,"leg %u hop %u dep %u not connects to preceding arr %u %s %s",leg,l,gdep,garr,pdep->name,parr->name);
-    }
-    arr = portsbyhop[2 * l + 1];
-    error_ge(arr,portcnt);
-    ports[leg] = gdep;
-    garr = p2g[arr];
-    error_ge(garr,gportcnt);
-    parr = gports + garr;
     if (l < hopcnt) hp = hops + l;
     else {
       l1 = choporg[2 * l];
@@ -1725,8 +1709,25 @@ int gtriptoports(struct gnetwork *gnet,ub4 *trip,ub2 *parts,ub4 triplen,ub4 *por
       if (l1 >= hopcnt) return error(0,"part %u compound leg %u = %u-%u >= %u",part,l,l1,l2,hopcnt);
       hp = hops + l1;
     }
-    info(0,"add dep %u %s from part %u arr %u %s route %s",gdep,pdep->name,part,garr,parr->name,hp->name);
+    if (leg) {
+      if (gdep != garr) {
+        prvleg = leg - 1;
+        if (l < hopcnt) return error(0,"leg %u hop %u.%u dep %u not connects to preceding arr %u.%u %s vs %s route %s",leg,part,l,gdep,trip[prvleg * 2],garr,pdep->name,parr->name,hp->name);
+        else return error(0,"leg %u chop %u.%u = %u-%u dep %u not connects to preceding arr %u.%u %s vs %s route %s",leg,part,l,l1,l2,gdep,trip[prvleg * 2],garr,pdep->name,parr->name,hp->name);
+      }
+    }
+    arr = portsbyhop[2 * l + 1];
+    error_ge(arr,portcnt);
+    ports[leg] = gdep;
+    garr = p2g[arr];
+    error_ge(garr,gportcnt);
+    parr = gports + garr;
+    tdep = ptrip->t[leg];
+    tarr = tdep + ptrip->dur[leg];
+    info(0,"leg %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s",leg,part,gdep,tdep,garr,tarr,pdep->name,parr->name,hp->name);
+    pos += mysnprintf(buf,pos,buflen,"leg %u dep \ad%u %s arr \ad%u %s route %s\n",leg,tdep,pdep->name,tarr,parr->name,hp->name);
   }
+  *pbuflen = pos;
   error_ge(garr,gportcnt);
   ports[triplen] = garr;
   return 0;

@@ -148,7 +148,7 @@ static int do_main(void)
 
     rv = plantrip(&src,(char *)"buildin test",dep,arr,lostop,histop);
     if (rv) warning(0,"search returned error %d",rv);
-    else if (src.tripcnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.tripports,src.lodist);
+    else if (src.trip.cnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.trip.port,src.lodist);
     else info(0,"%u to %u : no trip\n",dep,arr);
   }
 

@@ -57,7 +57,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
 {
   char *lp = req->buf;
   ub4 n,pos = 0,len = (ub4)req->len;
-  ub4 dep,arr,lostop = 0,histop = 0;
+  ub4 dep,arr,lostop = 0,histop = 1;
   int rv;
   search src;
 
@@ -72,16 +72,16 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
   if (n == 0) return error(0,"expected integer arrival port for %s",lp);
   pos += n;
   while (pos < len && lp[pos] == ' ') pos++;
-  if (pos < len) {
+  if (pos < len && lp[pos] != '\n') {
     if (str2ub4(lp+pos,&histop) == 0) {
-      warning(0,"expected integer number of stops %s",lp);
+      warning(0,"expected integer number of stops in '%s'",lp);
       histop = 1;
     }
   }
   if (dep == arr) warning(0,"dep %u equal to arr",dep);
 
   // invoke actual plan here
-  info(0,"plan %u to %u in %u stops",dep,arr,histop);
+  info(0,"plan %u to %u in %u stop\as",dep,arr,histop);
   oclear(src);
 
   rv = plantrip(&src,req->name,dep,arr,lostop,histop);
@@ -89,9 +89,11 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
   // prepare reply
   rep->buf = rep->localbuf;
   if (rv) len = fmtstring(rep->localbuf,"reply plan %u-%u error code %d\n",dep,arr,rv);
-  else if (src.tripcnt) len = fmtstring(rep->localbuf,"reply plan %u-%u = \av%u%p distance %u\n",dep,arr,src.lostop+1,src.trip,src.lodist);
-  else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
-  info(0,"reply len %u",len);
+  else if (src.trip.cnt && src.reslen) {
+    len = src.reslen;
+    memcpy(rep->localbuf,src.resbuf,len);
+  } else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
+  vrb0(0,"reply len %u",len);
   rep->len = len;
   osmillisleep(100);
   return 0;

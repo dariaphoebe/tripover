@@ -1313,6 +1313,7 @@ static int rdexthops(netbase *net,const char *dir)
         warning(0,"%s.%u: hop %u has %u time entries, sum %u",fname,linno,hop,timecnt,sumtimes);
       }
       error_zp(timesbase,0);
+      if (timesbase == NULL) return 1;
       if (timecnt * 4 > valndx - 6) return parserr(FLN,fname,linno,colno,"%u time entries, but only %u args",timecnt,valndx);
 
       error_zp(timesbase,timecnt);
