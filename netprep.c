@@ -3,7 +3,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -134,7 +134,9 @@ static int hicmp(const void *a,const void *b)
   struct hisort *aa = (struct hisort *)a;
   struct hisort *bb = (struct hisort *)b;
 
-  return ((int)bb->cnt - (int)aa->cnt);
+  if (aa->cnt < bb->cnt) return 1;
+  else if (aa->cnt > bb->cnt) return -1;
+  else return ((int)bb->rid1 - (int)aa->rid2);
 }
 
 int prepnet(netbase *basenet)
@@ -306,6 +308,11 @@ int prepnet(netbase *basenet)
     tp->evofs = btp->evofs;
     tp->dayofs = btp->dayofs;
 
+    tp->lodur = btp->lodur;
+    tp->hidur = btp->hidur;
+    tp->midur = btp->midur;
+    tp->duracc = btp->duracc;
+
     // mark local links, filtering duplicates e.g on loops
     pdep = ports + dep;
     parr = ports + arr;
@@ -396,6 +403,7 @@ int prepnet(netbase *basenet)
 
   gnet->maxvariants = variants = basenet->maxvariants;
   gnet->routevarmask = varmask = basenet->routevarmask;
+  gnet->hichainlen = basenet->hichainlen;
 
   gnet->eventmem = &basenet->eventmem;
   gnet->evmapmem = &basenet->evmapmem;
@@ -780,9 +788,10 @@ int prepnet(netbase *basenet)
       if (progress(&eta,"pass 1 port %u of %u parts %u",port,portcnt,partcnt)) return 1;
 
       cnt = partcnts[port];
+      if (cnt == 0) continue;
+
       mpp = portparts + port * Npart;
       ppm = partportcnts + port * ridcnt;  // ppm is updated in place
-      error_z(cnt,port);
 
       mi = 0;
       while(mi < cnt) {
@@ -860,6 +869,8 @@ int prepnet(netbase *basenet)
       if (progress(&eta,"pass 2 port %u of %u parts %u",port,portcnt,partcnt)) return 1;
 
       cnt = partcnts[port];
+      if (cnt == 0) continue;
+
       mpp = portparts + port * Npart;
       ppm = partportcnts + port * ridcnt;
 
@@ -980,6 +991,7 @@ int prepnet(netbase *basenet)
 
   ub4 hpcnt2,hxcnt2;
   ub4 dist,*hopdist;
+  ub4 midur,*hopdur;
 
   // resequence
   for (port = 0; port < portcnt; port++) {
@@ -1125,7 +1137,8 @@ int prepnet(netbase *basenet)
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     cnt = lpartcnts[port];
-    error_z(cnt,port);
+    if (cnt == 0) continue;
+
     pp->partcnt = cnt;
     mpp = lportparts + port * Npart;
     for (mi = 0; mi < cnt; mi++) {
@@ -1211,11 +1224,14 @@ int prepnet(netbase *basenet)
     pport = tcnt = 0;
     for (port = 0; port < portcnt; port++) {
       gp = ports + port;
-      error_z(gp->partcnt,port);
+      if (gp->partcnt == 0) continue;
+
       if (gportparts[port * partcnt + part] == 0) {
         if (part == tpart) gp->tpart = 0;
         continue;
       }
+
+      error_z(gp->partcnt,port);
 
       memcpy(pp,gp,sizeof(*pp));
       pp->id = pport;
@@ -1252,6 +1268,7 @@ int prepnet(netbase *basenet)
     hp = phops;
     phop = hpcnt2 = hxcnt2 = 0;
     hopdist = alloc(phopcnt,ub4,0,"net hopdist",phopcnt);
+    hopdur = alloc(phopcnt,ub4,0,"net hopdur",phopcnt);
 
     for (hop = 0; hop < hopcnt; hop++) {
       ghp = hops + hop;
@@ -1279,6 +1296,9 @@ int prepnet(netbase *basenet)
       hp->gid = hop;
       t0 = hp->tp.t0;
       t1 = hp->tp.t1;
+      midur = hp->tp.midur;
+      hopdur[phop] = midur;
+
 //      info(0,"hop %u tt range %u-%u",hop,t0,t1);
       depp = g2p[dep];
       error_ge(depp,pportcnt);
@@ -1293,7 +1313,8 @@ int prepnet(netbase *basenet)
       hp++;
       phop++;
     }
-    error_ne(phop,phopcnt);
+    warncc(phop < phopcnt,0,"%u out of %u hops",phop,phopcnt);
+    phopcnt = phop;
 
     net->part = part;
     net->istpart = (part == tpart && partcnt > 1);
@@ -1312,6 +1333,7 @@ int prepnet(netbase *basenet)
 
     net->portsbyhop = portsbyhop;
     net->hopdist = hopdist;
+    net->hopdur = hopdur;
 
     net->routes = routes;  // not partitioned
     net->ridcnt = ridcnt;
@@ -1331,6 +1353,7 @@ int prepnet(netbase *basenet)
 
     net->maxvariants = variants;
     net->routevarmask = varmask;
+    net->hichainlen = gnet->hichainlen;
 
     marklocal(net);
 

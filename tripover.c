@@ -3,7 +3,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -41,7 +41,7 @@ static ub4 msgfile;
 
 struct globs globs;
 
-static const char copyright[] = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
+static const char copyright[] = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
 static int streq(const char *s,const char *q) { return !strcmp(s,q); }
 
@@ -229,7 +229,7 @@ static struct cmdarg cmdargs[] = {
 
 int main(int argc, char *argv[])
 {
-  int rv;
+  int rv = 1;
 
   // temporary defaults
   globs.msglvl = Info;

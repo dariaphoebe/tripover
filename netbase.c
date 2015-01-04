@@ -3,7 +3,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -38,7 +38,7 @@ static netbase basenet;
 
 static const ub4 hop2watch = hi32; // tmp debug provision
 static const ub4 tid2watch = hi32;
-static const ub4 rrid2watch = hi32;
+static const ub4 rrid2watch = 54273;
 
 netbase *getnetbase(void) { return &basenet; }
 
@@ -278,7 +278,7 @@ int prepbasenet(void)
   ub4 t0,t1,ht0,ht1,hdt,tdays,mapofs;
   ub8 cumevcnt = 0,cumzevcnt = 0,cumtdays = 0;
   ub4 evhops = 0;
-  ub4 dur,lodur,hidur,eqdur = 0;
+  ub4 dur,lodur,hidur,duracc,eqdur = 0,accdur = 0;
   ub4 sumtimes = 0;
 
   info(0,"preparing %u base hops",hopcnt);
@@ -486,8 +486,29 @@ int prepbasenet(void)
     lodur = min(lodur,hidur);
     tp->lodur = lodur;
     tp->hidur = hidur;
+
+    switch (hp->kind) {
+      case Air:  duracc = 15; break;
+      case Rail: if (lodur > 12 * 60) duracc = 10; else duracc = 2; break;
+      case Bus:  if (lodur > 60) duracc = 10; else duracc = 5; break;
+      case Ferry: duracc = 15; break;
+      case Walk: duracc = 15; break;
+      case Unknown: duracc = 15; break;
+      case Kindcnt: duracc = 15; break;
+    }
+
 //    infocc(lodur == 0,0,"hop %u lodur 0 hidur %u",hop,hidur);
-    if (lodur == hidur) eqdur++;
+    if (lodur == hidur) {
+      tp->midur = hidur;
+      eqdur++;
+    } else if ( hidur - lodur <= duracc) {
+      tp->midur = hidur;
+      accdur++;
+    } else {
+      tp->midur = hi32;
+    }
+    tp->duracc = duracc;
+
 //    else if (hidur > 2 * lodur) info(0,"hop %u lodur %u hidur %u",hop,lodur,hidur);
 //    else vrb0(0,"hop %u lodur %u hidur %u",hop,lodur,hidur);
 
@@ -527,7 +548,7 @@ int prepbasenet(void)
   info(0,"\ah%u org chainhops to \ah%u",cumhoprefs,cumhoprefs2);
   info(0,"%u routes",ridcnt);
   infocc(evhops < hopcnt,0,"%u of %u hops without time events",hopcnt - evhops,hopcnt);
-  info(0,"%u hops with constant duration",eqdur);
+  info(0,"%u of %u hops with constant duration, %u within accuracy",eqdur,hopcnt,accdur);
 
   // todo from extnet ?
   routes = alloc(ridcnt,struct routebase,0,"routes",ridcnt);
@@ -555,7 +576,7 @@ int prepbasenet(void)
     else if (cnt > 2) {
       if (cnt > hichlen) { hichlen = cnt; hichain = chain; }
       if (cnt < lochlen) { lochlen = cnt; lochain = chain; }
-      infovrb(cnt > 95,0,"chain %u has %u hops",chain,cnt);
+      infovrb(cnt > 120,0,"chain %u has %u hops",chain,cnt);
       rrid = cp->rrid;
       error_gt(rrid,hirrid,chain);
       rid = rrid2rid[rrid];
@@ -653,6 +674,7 @@ int prepbasenet(void)
   basenet.routes = routes;
   basenet.ridcnt = ridcnt;
   basenet.rrid2rid = rrid2rid;
+  basenet.hichainlen = hichlen;
 
   basenet.routechains = routechains;
   basenet.chainhops = chainhops;
@@ -748,6 +770,7 @@ int prepbasenet(void)
     cumevcnt2 += evcnt;
     cumzevcnt2 += zevcnt;
   }
+  msgprefix(0,NULL);
   info(0,"\ah%lu org time events to \ah%lu",cumevcnt,cumzevcnt2);
   error_ne(cumevcnt,cumevcnt2);
   error_ne(cumzevcnt,cumzevcnt2);

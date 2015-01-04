@@ -3,7 +3,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -143,14 +143,14 @@ extern void leave(ub4 fln);
 
 static void error_eq_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
-  if (a != b) return;
+  if (a != b) { msg_doexit |= 1; return; }
 
   assertfln(line,Exit,"%s:\ah%u == %s:\ah%u", sa,a,sb,b);
 }
 
 static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
-  if (a == b) return;
+  if (a == b) { msg_doexit |= 1; return; }
 
   long d = a - b;
 
@@ -160,14 +160,14 @@ static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 lin
 
 static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 x,const char *sx,ub4 line)
 {
-  if (a <= b) return;
+  if (a <= b) { msg_doexit |= 1; return; }
 
   assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu %s %u", sa,a,sb,b,sx,x);
 }
 
 static void error_ge_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
-  if (a < b) return;
+  if (a < b) { msg_doexit |= 1; return; }
   else if (a == b) assertfln(line,Exit,"%s:\ah%lu == %s:\ah%lu", sa,a,sb,b);
   else if (a - b < 10000) assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu by %lu", sa,a,sb,b,a-b);
   else assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu", sa,a,sb,b);
@@ -175,28 +175,28 @@ static void error_ge_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 lin
 
 static void error_lt_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
-  if (a >= b) return;
+  if (a >= b) { msg_doexit |= 1; return; }
 
   assertfln(line,Exit,"%s:%u < %s:%u", sa,a,sb,b);
 }
 
 static void error_le_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
-  if (a > b) return;
+  if (a > b) { msg_doexit |= 1; return; }
 
   assertfln(line,Exit,"%s:%u <= %s:%u", sa,a,sb,b);
 }
 
 static void error_z_fln(size_t a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
-  if (a != 0) return;
+  if (a != 0) { msg_doexit |= 1; return; }
 
   assertfln(line,Exit,"%s = 0 at %s:%u", sa,sb,b);
 }
 
 static void error_nz_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
-  if (a == 0) return;
+  if (a == 0) { msg_doexit |= 1; return; }
 
   assertfln(line,Exit,"%s:%u != 0 at %s:%u", sa,a,sb,b);
 }
@@ -209,7 +209,7 @@ static void error_zz_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 lin
 
 static void error_zp_fln(void *a,ub4 b,const char *sa,const char *sb,ub4 line)
 {
-  if (a) return;
+  if (a) { msg_doexit |= 1; return; }
 
   assertfln(line,Exit,"%s == nil at %s:%u", sa,sb,b);
 }
@@ -230,7 +230,7 @@ static void error_ovf_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
   if (b > 7) assertfln(line,Exit,"%s:%u overflows sizeof %s:%u", sa,a,sb,b);
 
   bb = ovfsizes[b];
-  if (a < bb) return;
+  if (a < bb) { msg_doexit |= 1; return; }
 
   assertfln(line,Exit,"%s:%u overflows sizeof %s:%u", sa,a,sb,b);
 }

@@ -4,7 +4,7 @@
 
 # This file is part of Tripover, a broad-search journey planner.
 
-#  Copyright (C) 2014 Joris van der Geer.
+#  Copyright (C) 2014-2015 Joris van der Geer.
 
 #  This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
 #  To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -17,10 +17,10 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 16;
-my $lastchanged = "15 dec 2014";
+my $version_min = 17;
+my $lastchanged = "4 jan 2015";
 
-my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
+my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
 my $license = "This work is licensed under the Creative Commons\n" .
   "Attribution-NonCommercial-NoDerivatives 4.0 International License.\n" .
@@ -42,12 +42,12 @@ my $verbose_hops = 1;
 
 my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
 my $infer_parent = 0;   # infer parent when seemingly missing : seq
-my $infer_limit = 0.25;
+my $infer_limit = 0.20;
 
 my $watchfile = 'watches.cfg';
 my $gtfscfgfile = 'gtfsfeed.cfg';
 
-my %stops2watch = ('600484','glasshouse mtn','94414','innsbruck','stoparea:30398','innsbruck sta' );
+my %stops2watch = ('0','noname');
 my %rsids2watch;
 
 my $logname = 'gtfstool.log';
@@ -58,6 +58,9 @@ my $ccmsg = '';
 local $SIG{__WARN__} = sub { print "$ccmsg $_[0]\n"; exit 1; };
 
 if (-t STDOUT) {
+  for my $bck (8 .. 0) {
+    rename($logname . '.' . $bck+1,$logname . '.' . $bck) if -f $logname . '.' . $bck;
+  }
   rename($logname,$logname . '.0') if -f $logname;
   open($logfd,'>',$logname) or print("cannot create $logname:$!");
 }
@@ -592,30 +595,46 @@ sub str2lon($$)
 }
 
 my $geolow = $pi * 1.0e-4;
+my $geolimit = $pi * 1.0e-8;
 my $mean_earth_radius = 6371.0;
+
+sub acos { atan2( sqrt(1 - $_[0] * $_[0]), $_[0] ) }
 
 sub geodist($$$$)
 {
   my ($slat,$slon,$lat,$lon) = @_;
 
-  my $dist;
-  my $srlat = ($slat * $pi) / 180;
-  my $srlon = ($slon * $pi) / 180;
-  my $rlat = ($lat * $pi) / 180;
-  my $rlon = ($lon * $pi) / 180;
+  my ($dist,$dlat,$dlon);
 
-  my $dlon = $srlon - $rlon;
-  my $dlat = $srlat - $rlat;
+  my $phi1 = ($slat * $pi) / 180;
+  my $lam1 = ($slon * $pi) / 180;
+  my $phi2 = ($lat * $pi) / 180;
+  my $lam2 = ($lon * $pi) / 180;
 
-  if (abs($dlon) < $geolow and abs($dlat) < $geolow) { # trivial case: assume flat
-    $dlat = ($dlat * $mean_earth_radius * 2) / $pi;
-    $dlon = ($dlon * $mean_earth_radius * 2) / $pi;
+  my $dlam = $lam2 - $lam1;
+  my $dphi = $phi2 - $phi1;
+
+  if (abs($dlam) < $geolow and abs($dphi) < $geolow) { # trivial case: assume flat
+    if (abs($dlam) < $geolimit and abs($dphi) < $geolimit) { # flush to zero
+      return 0;
+    }
+    $dlat = ($dlam * $mean_earth_radius * 2) / $pi;
+    $dlon = ($dphi * $mean_earth_radius * 2) / $pi;
     $dist = sqrt( ($dlat * $dlat) + ($dlon * $dlon));
 #    info("geodist $dist");
     return $dist;
   }
 # info("geodist $dlon $dlat");
-  return 1000;
+
+  my ($d,$dsig);
+
+  $d = sin($phi1) * sin($phi2) + cos($phi1) * cos($phi2) * cos($dlam);
+  if ($d >= 1.0) { error("geodist d $d for $phi1 $phi2 $lam1 $lam2",__LINE__); return 0; }
+  elsif ($d <= -1.0) { error("geodist d $d for $phi1 $phi2 $lam1 $lam2",__LINE__); return 0; }
+
+  $dsig = acos($d);
+
+  return $dsig * $mean_earth_radius;
 }
 
 sub readstops($)
@@ -624,13 +643,15 @@ sub readstops($)
 
   my ($stopfile,$stopsname,$anafile,$canonfile);
   my ($col,$colid,$colname,$line,$comma,$endq,$c,$req,$val);
-  my ($id,$stopid,$code,$name,$desc,$lat,$lon,$zone_id,$url,$loctype,$parent,$platform,$opt);
+  my ($id,$stopid,$code,$name,$sname,$desc,$lat,$lon,$zone_id,$url,$loctype,$parent,$platform,$opt);
   my ($uniparent,$parent1,$isparent,$hasparent,$newparent,$newparentid);
   my ($ilat,$ilon);
   my ($simlst,$simstr,$simstop,$stopstr);
   my ($slat,$slon,$dist,$nearby);
-  my (%similar,%simlats,%simlons);
-  my @sims;
+  my (%simlats,%simlons);
+  my ($ilatcell,$iloncell,$acell,$ocell,$candidate,$candidates);
+  my %sims;
+  my (@simocells,@simacells);
 
   return error("missing dir arg for import",__LINE__) unless defined $dir and length($dir);
 
@@ -813,24 +834,40 @@ sub readstops($)
     $simlons{$stopid} = $lon;
 
     if ($infer_parent and not $isparent and not $hasparent and length($name) > 3) {
-      $simstr = sprintf("%u_%u",$ilat / 5000,$ilon / 5000);
-      if (exists($similar{$simstr})) {
-        info("check $simstr for $id") if $name eq 'Gold Coast Airport';
-        ($simstop) = split('_',$similar{$simstr});
-        $slat = $simlats{$simstop};
-        $slon = $simlons{$simstop};
-        warning("nil lat for $simstop") unless defined $slat;
-        warning("nil lat for $stopid") unless defined $lat;
-        $dist = geodist($slat,$slon,$lat,$lon);
-        info("$dist for $slat $slon $lat $lon") if $name eq 'Gold Coast Airport';
-        if ($dist < $infer_limit) {
-          $similar{$simstr} .= '_' . $stopid;
-        } else {
-          info("$name not nearby $similar{$simstr} $dist") if $name eq 'Gold Coast Airport';
-        }
-      } else {
-        $similar{$simstr} = $stopid;
+
+      $ilatcell = ($ilat / 1000) + 1;
+      $iloncell = ($ilon / 1000) + 1;
+
+      $candidates = '';
+      for ($acell = $ilatcell - 1; $acell < $ilatcell + 2; $acell++) {
+        $candidates .= $simacells[$acell]  . '_' if length $simacells[$acell];
       }
+      for ($ocell = $iloncell - 1; $ocell < $iloncell + 2; $ocell++) {
+        $candidates .= $simocells[$ocell] . '_' if length $simocells[$ocell];
+      }
+
+      foreach $candidate (split('_',$candidates)) {
+        next unless length $candidate and $candidate ne '_' and $candidate != $stopid;
+        next unless exists $simlats{$candidate} and exists $simlons{$candidate};
+        next if exists $parent_ids{$candidate} or exists $parentbyid{$candidate};
+
+        $slat = $simlats{$candidate};
+        $slon = $simlons{$candidate};
+        $sname = $stopnames{$candidate};
+        $dist = geodist($slat,$slon,$lat,$lon);
+        if ($name eq $sname and $dist < $infer_limit * 8) {
+          info("infer common parent for '$name' within $dist of samenamed");
+          $sims{$candidate} .= $stopid . '_';
+        } elsif ($dist < $infer_limit) {
+          info("infer common parent for '$name' within $dist of '$sname'");
+          $sims{$candidate} .= $stopid . '_';
+        } elsif ($name eq $sname) {
+          info("not infer common parent for '$name' within $dist of samenamed");
+        }
+      }
+
+      $simacells[$ilatcell] .= $stopid . '_';
+      $simocells[$iloncell] .= $stopid . '_';
     }
 
     # use external id, as parent ids can refer forward
@@ -874,16 +911,37 @@ sub readstops($)
     $stops{$stopid} = join("\t",$name,$id,$parent,$ilat,$ilon,$code,$desc,$opt);
   }
 
-  my ($simname,$simdiff);
+  my ($simname,$simdiff,$candidate2);
+  my (@sims1);
+  my %simdups;
 
   $stopcnt = scalar(keys %stops);
   $infercnt = 0;
-  while ( ($simstr,$simlst) = each %similar) {
-    @sims = split('_',$simlst);
-    next unless @sims > 1;
+  while ( ($candidate,$simlst) = each %sims) {
+    @sims1 = split('_',$simlst);
+    next if @sims1 == 0;
+
+    my @sims2;
+    foreach $stopid (@sims1) {
+      push @sims2,$sims{$stopid} if exists $sims{$stopid};
+    }
+    push @sims2,@sims1;
+
+    my @sims3;
+    push @sims3,$candidate;
+    $simdups{$candidate} = $candidate;
+    foreach $simlst (@sims2) {
+      foreach $candidate2 (split('_',$simlst)) {
+        next if exists $simdups{$candidate2};
+        push @sims3,$candidate2;
+        $simdups{$candidate2} = $candidate;
+      }
+    }
+    next if @sims3 < 2;
+
     $infercnt++;
     $newparentid = $infercnt + $stopcnt;
-    $newparent = join('_','inferred',$newparentid,$simstr);
+    $newparent = join('_','inferred',$newparentid,@sims3);
 
     $parentids{$newparent} = $newparentid;
     $parent_ids{$newparentid} = $newparent;
@@ -894,26 +952,14 @@ sub readstops($)
     $stopdeps[$newparentid] = 0;
     $stoparrs[$newparentid] = 0;
 
-    $simstop = $sims[0];
-    $simname = $stopnames{$simstop};
-    $slat = $simlats{$simstop};
-    $slon = $simlons{$simstop};
-
-    $simdiff = 0;
-    foreach $stopid (@sims) {
-      $name = $stopnames{$stopid};
-      $simdiff++ if $name ne $simname;
-    }
-    info("infer common parent $infercnt $simname on $simstr") if $simdiff;
-
-    foreach $stopid (@sims) {
+    info("inferred parent id $newparentid name $newparent");
+    foreach $stopid (@sims3) {
+      next unless length $stopid and $stopid ne '_';
+      error_exit("no name for '$stopid'",__LINE__) unless exists $stopnames{$stopid};
       $name = $stopnames{$stopid};
       $lat = $simlats{$stopid};
       $lon = $simlons{$stopid};
-      $dist = geodist($slat,$slon,$lat,$lon);
-      if ($simdiff) {
-        info("  $name dist $dist id $stopid"); $simdiff++;
-      }
+      info("  member id $stopid name $name lat $lat lon $lon");
       $parents{$newparent} .= $stopid . ' ';
       $parentbyid{$stopid} = $newparent;
       $stopstr = $stops{$stopid};
@@ -1980,7 +2026,6 @@ sub writext($$)
   my ($uniqid,$hoptime,$mark,$ref,$fmt,$timestr);
   my $xinfo = '';
   my $hopno = 0;
-  my @hopln;
   my @times;
   my @hoptimes;
   my ($tid,$tdep,$tarr,$tdeparr,$ztid,$ztdep,$ztarr,$prvsid,$prvtid,$prvtdep,$prvtarr);
@@ -1992,12 +2037,8 @@ sub writext($$)
 
     error_exit("invalid hop id $hopno",__LINE__) if ($hopno >= $hopcnt);
 
-    @hopln = split('_',$uniqid);
-    error_exit("missing hop arguments",__LINE__) if (@hopln < 3);
-
-    $rid = $hopln[0];
-    $dep = $hopln[1];
-    $arr = $hopln[2];
+    ($rid,$dep,$arr) = split('_',$uniqid);
+    error_exit("missing hop arguments",__LINE__) unless defined $arr;
 
     $hopid = $hopno;
 
@@ -2022,7 +2063,7 @@ sub writext($$)
     $rtype = $rtypes{$rid};
     $mark = ($rid eq $walkroute) ? 'walk ' : '';
     $route = '.' . $route if (substr($route,0,1) eq '.');
-    $xinfo = "\t# $mark $ref $depname,$arrname" if ($verbose_hops > 0);
+    $xinfo = "\t# $mark $ref '$depname' to '$arrname'" if ($verbose_hops > 0);
 
     ($sid,$tid,$tdeparr) = @times[0 .. 2];
     $tdep = $tdeparr >> 16;

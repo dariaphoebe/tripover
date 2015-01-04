@@ -7,7 +7,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -112,6 +112,7 @@ struct timepat {
   ub4 tdays;
   ub4 gt0;
   ub4 t0,t1;   // relative to above actual event range
+  ub4 lodur,hidur,midur,duracc;
   ub4 evcnt;
   ub4 genevcnt;
   ub4 evofs;   // offset in net.events
@@ -228,6 +229,7 @@ struct network {
   ub4 *hopdist;    // [chopcnt] idem
   ub4 *portsbyhop; // [chopcnt * 2] <dep,arr>
   ub4 *choporg;    // [chopcnt * 2] <first,last>
+  ub4 *hopdur;     // [chopcnt]
 
   ub4 *mac2port;   // [nmac < portcnt]
 
@@ -240,7 +242,7 @@ struct network {
 
   ub4 hirrid;
 
-  ub4 maxvariants,routevarmask;
+  ub4 maxvariants,routevarmask,hichainlen;
 
   size_t needconn;    // final required any-stop connectivity
 
@@ -319,11 +321,10 @@ struct gnetwork {
   ub4 *routechains;
   ub8 *chainhops;
 
-  ub4 maxstop;    // highest n-stop connections to init
   ub4 histop;     // highest n-stop connections inited
 
   ub4 hirrid;
-  ub4 maxvariants,routevarmask;
+  ub4 maxvariants,routevarmask,hichainlen;
 };
 
 struct trip {

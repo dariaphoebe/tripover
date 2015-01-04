@@ -4,7 +4,7 @@
 
 # This file is part of Tripover, a broad-search journey planner.
 
-#  Copyright (C) 2014 Joris van der Geer.
+#  Copyright (C) 2014-2015 Joris van der Geer.
 
 #  This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
 #  To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -21,10 +21,10 @@ use integer;
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 1;
-my $lastchanged = "20 dec 2014";
+my $version_min = 11;
+my $lastchanged = "4 jan 2015";
 
-my $copyright = "Copyright (C) 2014, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
+my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
 my $license = "This work is licensed under the Creative Commons\n" .
   "Attribution-NonCommercial-NoDerivatives 4.0 International License.\n" .
@@ -46,6 +46,17 @@ my $agelimit = 60; # seconds
 # stop at compile-time warnings
 local $SIG{__WARN__} = sub { print "$_[0]\n"; exit 1; };
 
+my $logname = 'plantrip.log';
+my $logfd;
+
+if (-t STDOUT) {
+  for my $bck (8 .. 0) {
+    rename($logname . '.' . $bck+1,$logname . '.' . $bck) if -f $logname . '.' . $bck;
+  }
+  rename($logname,$logname . '.0') if -f $logname;
+  open($logfd,'>',$logname) or print("cannot create $logname:$!");
+}
+
 # unbuffered i/o
 my $orgfh = select STDOUT; $| = 1; select STDERR; $| = 1; select $orgfh;
 
@@ -54,10 +65,18 @@ my %portpnames;
 my %portids;
 my $portcnt = 0;
 
-sub vrb($)     { print("$_[0]\n") if $verbose; return 1; }
-sub info($)    { print("$_[0]\n"); return 1; }
-sub warning($) { print("warning: $_[0]\n"); return 1; }
-sub error($)   { print("error: $_[0]\n"); return 0; }
+sub msg($) {
+  my ($m) = @_;
+
+  print("$m\n");
+  print($logfd "$m\n") if defined $logfd;
+  return 1;
+}
+
+sub vrb($)     { msg("$_[0]") if $verbose; return 1; }
+sub info($)    { return msg("$_[0]"); }
+sub warning($) { return msg("warning: $_[0]"); }
+sub error($)   { msg("error: $_[0]"); return 0; }
 
 sub error_exit($) { print ("error: $_[0]\n"); exit 1; }
 
@@ -115,12 +134,55 @@ sub agedir($$)
   return 1;
 }
 
+my $haveportrefs = 0;
+
+# read port to id mappings
+sub readportrefs($)
+{
+  my ($fname) = @_;
+
+  my ($fh,$line,$id,$subid,$name,$lcname,$nlen,$lat,$lon);
+
+  open($fh,'<:encoding(UTF-8)',$fname) or error_exit("cannot open $fname: $!");
+
+  my @lines = readline($fh);
+  unless (scalar @lines) { error_exit("$fname is empty"); }
+
+  foreach $line (@lines) {
+    next unless length($line);
+    next if index($line,'#') == 0;
+
+    ($id,$subid,$name,$lat,$lon) = split("\t",$line);
+    next unless defined $id and defined $name;
+    $lcname = lc($name);
+    $portnames{$name} = $id;
+    $portnames{$lcname} = $id;
+    $portids{$id} = $name unless defined $portids{$id};
+  }
+  $portcnt = scalar(keys %portids);
+  info("$portcnt ports");
+
+  # prepare partial ( prefix) matching
+  while (($name,$id) = each %portnames) {
+    $nlen = length($name);
+    next if $nlen < 4;
+    while ($nlen-- > 3) {
+      chop $name;
+      if (defined($portpnames{$name})) { $portpnames{$name} .= "\t" . $id; }
+      else { $portpnames{$name} = $id; }
+    }
+  }
+  $haveportrefs = 1;
+}
+
 sub portbyname($)
 {
   my ($name) = @_;
 
   my ($port,$id,$seq,$lcname,$plen,$line);
   my @plist;
+
+  readportrefs($portrefname) unless $haveportrefs;
 
   $lcname = lc($name);
   if (exists($portnames{$name})) { return $portnames{$name}; }
@@ -170,13 +232,19 @@ sub iplan($$$$$)
 
   my ($depname,$arrname);
 
-  if (exists($portids{$dep})) { $depname = $portids{$dep}; }
-  else { $depname = "unknown"; }
-  if (exists($portids{$arr})) { $arrname = $portids{$arr}; }
-  else { $arrname = "unknown"; }
+  if ($haveportrefs) {
+    if (exists($portids{$dep})) { $depname = $portids{$dep}; }
+    else { $depname = "unknown"; }
+    if (exists($portids{$arr})) { $arrname = $portids{$arr}; }
+    else { $arrname = "unknown"; }
 
-  info("dep $dep '$depname'");
-  info("arr $arr '$arrname'");
+    info("dep $dep '$depname'");
+    info("arr $arr '$arrname'");
+  } else {
+    info("dep $dep");
+    info("arr $arr");
+  }
+
   my $region = 'glob';
 
   if (length($stops)) { query('p',$region,"$dep $arr $stops"); }
@@ -194,6 +262,7 @@ sub plan($$$$$)
   info("$depname resolved into $portids{$dep}");
   $arr = portbyname($arrname);
   return 1 unless length($arr);
+  info("$arrname resolved into $portids{$arr}");
 
   iplan($dep,$arr,$stops,$dayrange,$startday);
 }
@@ -284,7 +353,7 @@ sub query($$$)
   return error("$qname_rep is empty") unless (scalar @lines);
 #  foreach my $line (@lines) info("$line");
   print @lines;
-  unlink $qname_rcv or return error("cannot remove $qname_rep:$!");
+  unlink $qname_rcv or return error("cannot remove $qname_rcv:$!");
 }
 
 # obtain query dir from current config
@@ -308,44 +377,6 @@ sub readcfg()
   }
   error_exit("empty query config") unless length($querydir);
   vrb("query dir $querydir/");
-}
-
-# read port to id mappings
-sub readportrefs($)
-{
-  my ($fname) = @_;
-
-  my ($fh,$line,$id,$name,$lcname,$nlen,$lat,$lon);
-
-  open($fh,'<:encoding(UTF-8)',$fname) or error_exit("cannot open $fname: $!");
-
-  my @lines = readline($fh);
-  unless (scalar @lines) { error_exit("$fname is empty"); }
-
-  foreach $line (@lines) {
-    next unless length($line);
-    next if index($line,'#') == 0;
-
-    ($id,$name,$lat,$lon) = split("\t",$line);
-    next unless defined $id and defined $name;
-    $lcname = lc($name);
-    $portnames{$name} = $id;
-    $portnames{$lcname} = $id;
-    $portids{$id} = $name;
-  }
-  $portcnt = scalar(keys %portids);
-  info("$portcnt ports");
-
-  # prepare partial ( prefix) matching
-  while (($name,$id) = each %portnames) {
-    $nlen = length($name);
-    next if $nlen < 4;
-    while ($nlen-- > 3) {
-      chop $name;
-      if (defined($portpnames{$name})) { $portpnames{$name} .= "\t" . $id; }
-      else { $portpnames{$name} = $id; }
-    }
-  }
 }
 
 sub trimws($) {
@@ -386,7 +417,6 @@ sub init()
   unless (-d $querydir) {
     mkdir($querydir) || error_exit("cannot create query dir:$!");
   }
-  readportrefs($portrefname);
 }
 
 my ($arg,$opt,$cmd,$line,$prvline);

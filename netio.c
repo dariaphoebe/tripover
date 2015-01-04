@@ -3,7 +3,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -624,12 +624,12 @@ static int rdextports(netbase *net,const char *dir)
       clear(ep);
       ep->id = id;
       ep->subid = subid;
-      if (id > 80000) info(0,"port %u id %u %x hi %u",extportcnt,id,id,idhi);
+      infocc(id > 160000,0,"port %u id %u %x hi %u",extportcnt,id,id,idhi);
       ep->opts = opts;
       ep->parent = (opts & Stopopt_parent);
       ep->child  = (opts & Stopopt_child);
       if (id != subid && ep->parent) parsewarn(FLN,fname,linno,colno,"parent port %u has parent %u",subid,id);
-      if (id == subid && ep->child) parsewarn(FLN,fname,linno,colno,"child port %u has no parent",id);
+      if (id == subid && ep->child) parsewarn(FLN,fname,linno,colno,"child port %u %s has no parent",id,name);
 
       if (lat >= 180 * latscale) { parsewarn(FLN,fname,linno,colno,"port %u lat %u out of range",id,lat); lat = 0; }
       if (lon >= 360 * lonscale) { parsewarn(FLN,fname,linno,colno,"port %u lon %u out of range",id,lon); lon = 0; }
@@ -812,6 +812,8 @@ static int rdextports(netbase *net,const char *dir)
       sp->id = id;
       sp->subid = subid;
       sp->seq = seq;
+      sp->lat = lat;
+      sp->lon = lon;
       sp->namelen = namelen;
       vgadr = vg_chk_def(ep,sizeof(struct extport)-1);
       infocc(vgadr != 0,0,"port %u ep undefined at ofs %ld",extport,(char *)vgadr - (char *)ep);
@@ -1278,8 +1280,6 @@ static int rdexthops(netbase *net,const char *dir)
       arrid = vals[2];
       rtype = vals[3];
       routeid = vals[4];
-      if (routeid != hi32) maxrid = max(maxrid,routeid);
-
       timecnt = vals[5];
 
       if (depid == arrid) return inerr(FLN,fname,linno,colno,"dep id %u,%x equal to arr id",depid,depid);
@@ -1307,6 +1307,9 @@ static int rdexthops(netbase *net,const char *dir)
       if (arr >= portcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest port %u",arr,portcnt);
       pdep = ports + dep;
       parr = ports + arr;
+
+      if (routeid != hi32) maxrid = max(maxrid,routeid);
+      else info(0,"hop %u has no route id %s to %s",hop,pdep->name,parr->name);
 
       if (timecnt && !sumtimes) return inerr(FLN,fname,linno,colno,"hop %u-%u has %u times, sumtimes var zero",depid,arrid,timecnt);
       if (timespos + timecnt > sumtimes) {
@@ -1587,11 +1590,13 @@ int wrportrefs(netbase *net)
   int fd;
   char buf[4096];
   ub4 pos,x,y;
+  ub4 scnt,sofs;
   ub4 buflen = sizeof(buf);
 
   struct portbase *pp,*ports = net->ports;
+  struct subportbase *spp,*sports = net->subports;
 
-  ub4 port,wportcnt = 0,portcnt = net->portcnt;
+  ub4 port,sport,wportcnt = 0,portcnt = net->portcnt,subportcnt = net->subportcnt;
   const char *portsname = "portrefs.txt";
 
   char nowstr[64];
@@ -1625,9 +1630,19 @@ int wrportrefs(netbase *net)
 
     y = lat2ext(pp->lat);
     x = lon2ext(pp->lon);
-    pos = fmtstring(buf,"%u\t%s\t%u\t%u\n", port,pp->name,y,x);
+    pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\n", port,port,pp->name,y,x);
     if (filewrite(fd,buf,pos,portsname)) return 1;
     wportcnt++;
+    scnt = pp->subcnt;
+    sofs = pp->subofs;
+    for (sport = 0; sport < scnt; sport++) {
+      spp = sports + sofs + scnt;
+      y = lat2ext(spp->lat);
+      x = lon2ext(spp->lon);
+      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\n",port,spp->subid,spp->name,y,x); // use parent port to make alias
+      if (filewrite(fd,buf,pos,portsname)) return 1;
+      wportcnt++;
+    }
   }
   fileclose(fd,portsname);
   return info(0,"wrote %u ports to %s",wportcnt,portsname);

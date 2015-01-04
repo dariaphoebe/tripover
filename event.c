@@ -3,7 +3,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -277,7 +277,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
     warning(0,"hop %u hirep 0 for %u event\as",hop,evcnt);
     return evcnt;
   } else if (hirep < 3000) { // not worth to compress. todo: criteria
-    genmsg(evcnt > 100 ? Info : Vrb,Iter,"hop %u hirep %u for %u events",hop,hirep,evcnt);
+    genmsg(evcnt > 10000 ? Info : Vrb,Iter,"hirep %u for %u events",hirep,evcnt);
     tp->genevcnt = evcnt;
     return evcnt;
   }

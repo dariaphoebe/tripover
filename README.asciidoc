@@ -45,17 +45,17 @@ The planner is targeted to run on a server, accessed by local and web clients.
 == Status
 Developing
 
-* preliminary GTFS reader and 'external' readable network file format
+* preliminary GTFS reader and external readable network file format
 * initial artificial network
 * timetable handling
 * Static connectivity matrix aka graph builing
 * rudimentary local commandline client / server interface
-* rudimentary route-only search
+* rudimentary route and time search
 
 == Installation
 
-Unless mentioned otherwise, actions below are to be run with the current dir at the project root.
-The latter can be any dir that contains the source code.
+You can compile, install and run the program in any directory. The chosen dir is henceforth referred to by +project root+.
+In the examples below, this project root is shown as current dir +./+.
 
 === Configure compilers
 
@@ -92,7 +92,7 @@ This will create a small artificial network, then enters a loop waiting for clie
 
 === GTFS feed
 
-Prepare a GTFS feed by unpacking into any directory:
+Prepare a GTFS feed by unpacking into any directory. Below southeast Queensland is used as example:
 
 `mkdir data/seq && cd data/seq`
 
@@ -114,7 +114,10 @@ Invoke the commandline client :
 
 `./plantrip plan nambour bunya`
 
-Currently, tripover only calculates a possible route, disregarding time or cost.
+Currently, tripover calculates a single possible trip, preferring shorter overall travel time.
+Minimum and maximum transfer times are taken into account, yet you cannot specify these.
+
+No cost yet.
 
 == Configuration
 
@@ -134,3 +137,5 @@ Joris van der Geer
 == License
 This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
 To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/.
+
+Last changed 4 jan 2015

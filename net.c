@@ -3,7 +3,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -73,7 +73,7 @@ static ub4 watches = 0;
 static ub4 watch_dep[Watches] = { 20, 0 };
 static ub4 watch_arr[Watches] = { 3, 0 };
 
-static ub2 cnt0lim_part = 16;
+static ub2 cnt0lim_part = 32; // todo configurable
 
 // create 0-stop connectivity matrix and derived info.
 // n-stop builds on this
@@ -257,7 +257,7 @@ static int mknet0(struct network *net)
     }
   }
   net->lstlen[0] = ofs;
-  info(0,"0-stop connectivity \ah%u of \ah%u  left \ah%u",haveconn,needconn,needconn - haveconn);
+  info(0,"0-stop reachability \ah%u of \ah%u  left \ah%u",haveconn,needconn,needconn - haveconn);
 
   // get connectivity stats
   ub4 hicnt = 0,hiport = 0;
@@ -280,10 +280,10 @@ static int mknet0(struct network *net)
     depstats[min(depivs,depcnt)]++;
   }
   for (iv = 0; iv <= depivs; iv++) {
-    if (depstats[iv]) info(0,"%u port\as with %u departure\as", depstats[iv], iv);
+    if (depstats[iv]) info(0,"%u port\as reaches %u ports\as", depstats[iv], iv);
   }
   pdep = ports + hiport;
-  info(0,"port %u has %u deps %s",hiport,hicnt,pdep->name);
+  info(0,"port %u is reached by %u ports %s",hiport,hicnt,pdep->name);
 
   hicnt = hiport = 0;
   for (arr = 0; arr < portcnt; arr++) {
@@ -297,10 +297,10 @@ static int mknet0(struct network *net)
     arrstats[min(arrivs,arrcnt)]++;
   }
   for (iv = 0; iv <= arrivs; iv++) {
-    if (arrstats[iv]) info(0,"%u port\as with %u arrival\as", arrstats[iv], iv);
+    if (arrstats[iv]) info(0,"%u port\as reached by %u port\as", arrstats[iv], iv);
   }
   parr = ports + hiport;
-  info(0,"port %u has %u arrs %s",hiport,hicnt,parr->name);
+  info(0,"port %u reached by %u ports %s",hiport,hicnt,parr->name);
 
   net->dist0 = dist0;
 
@@ -328,6 +328,7 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
+  bool topnet = net->istpart;
 
   struct port *ports,*pmid,*pdep,*parr;
   char *dname,*aname;
@@ -350,11 +351,15 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 cntlim,sumcnt,gen,outcnt;
   ub4 constats[16];
 
-  ub4 varlimit = 64; // todo configurable and dependent on other aspects
-  ub4 var12limit = 32;
+  // only fill n-stop if no (nstop-1) exists
+  bool nilonly;
 
+  // max #variants per [dep,arr]
+  ub4 varlimit,var12limit;
+
+  // todo
   ub4 portlimit = 4000;
-  ub4 lstlimit = 1024 * 1024 * 256;
+  ub4 lstlimit = 1024 * 1024 * 128;
 
   ub4 dupcode,legport1,legport2;
   ub4 trip1ports[Nleg * 2];
@@ -366,6 +371,14 @@ static int mknetn(struct network *net,ub4 nstop)
   error_zz(portcnt,hopcnt);
 
   info(0,"init %u-stop connections for %u port %u hop network",nstop,portcnt,hopcnt);
+
+  // todo configurable
+  switch (nstop) {
+  case 1: nilonly = 0; varlimit = 32; var12limit = 16; break;
+  case 2: nilonly = 0; varlimit = 12; var12limit = 6; break;
+  case 3: nilonly = 1; varlimit = 4; var12limit = 2; break;
+  default: nilonly = 1; varlimit = 2; var12limit = 2; break;
+  }
 
   port2 = portcnt * portcnt;
 
@@ -439,6 +452,8 @@ static int mknetn(struct network *net,ub4 nstop)
     info(0,"using dist limit cache file %s",cachefile);
   }
 
+  ub2 *lwrcnts = net->concnt[nstop-1];
+
   // for each departure port
   for (dep = 0; dep < portcnt; dep++) {
 
@@ -506,11 +521,13 @@ static int mknetn(struct network *net,ub4 nstop)
     for (arr = 0; arr < portcnt; arr++) {
       if (arr == dep) continue;
 
+      deparr = dep * portcnt + arr;
+
+      if (nilonly && lwrcnts[deparr]) { cntstats[9]++; continue; }
+
       parr = ports + arr;
       if (parr->narr == 0) { cntstats[1]++; continue; }
       aname = parr->name;
-
-      deparr = dep * portcnt + arr;
 
       lodist = hi32; hidist = 0;
       cnt = cntlim = 0;
@@ -1426,7 +1443,7 @@ static int dogconn(ub4 callee,struct gnetwork *gnet)
 int mknet(ub4 maxstop)
 {
   ub4 portcnt,hopcnt;
-  ub4 nstop,part,partcnt;
+  ub4 nstop,histop,part,partcnt;
   int rv;
   struct gnetwork *gnet = getgnet();
   struct network *net;
@@ -1456,10 +1473,12 @@ int mknet(ub4 maxstop)
       if (mknet0(net)) return msgprefix(1,NULL);
     } else continue;
 
-    limit_gt(maxstop,Nstop,0);
+    histop = maxstop;
+    if (net->istpart) histop++;
+    limit_gt(histop,Nstop,0);
 
     if (dorun(FLN,Runnetn)) {
-      for (nstop = 1; nstop <= maxstop; nstop++) {
+      for (nstop = 1; nstop <= histop; nstop++) {
         if (mknetn(net,nstop)) return msgprefix(1,NULL);
         net->histop = nstop;
         if (net->lstlen[nstop] == 0) {
@@ -1471,7 +1490,6 @@ int mknet(ub4 maxstop)
 
   } // each part
 
-  gnet->maxstop = gnet->histop = maxstop;
   for (part = 0; part < partcnt; part++) {
     net = getnet(part);
     gnet->histop = min(gnet->histop,net->histop);
@@ -1665,7 +1683,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
 {
   struct network *net;
   struct port *gports = gnet->ports,*pdep,*parr = gports;
-  struct hop *hops,*hp;
+  struct hop *hops,*hp,*hp2;
   ub4 *trip = ptrip->trip;
   ub4 part,leg,prvleg,l,l1 = 0,l2 = 0,dep,arr = hi32,tdep,tarr,gdep,garr = hi32;
   ub4 gportcnt = gnet->portcnt;
@@ -1724,8 +1742,15 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
     parr = gports + garr;
     tdep = ptrip->t[leg];
     tarr = tdep + ptrip->dur[leg];
-    info(0,"leg %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s",leg,part,gdep,tdep,garr,tarr,pdep->name,parr->name,hp->name);
-    pos += mysnprintf(buf,pos,buflen,"leg %u dep \ad%u %s arr \ad%u %s route %s\n",leg,tdep,pdep->name,tarr,parr->name,hp->name);
+    if (l < hopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s rid %u",leg,hp->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,hp->name,hp->rid);
+    else {
+      hp2 = hops + l2;
+      error_ne(hp->rid,hp2->rid);
+      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s rid %u",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,hp->name,hp->rid);
+    }
+    pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s\n",leg+1,tdep,pdep->name);
+    pos += mysnprintf(buf,pos,buflen,"       arr \ad%u %s\n",tarr,parr->name);
+    pos += mysnprintf(buf,pos,buflen,"       route %s id %u\n\n",hp->name,hp->rrid);
   }
   *pbuflen = pos;
   error_ge(garr,gportcnt);

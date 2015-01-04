@@ -21,7 +21,7 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 13
+#define Version_min 14
 #define Version_phase "initial"
 
 // handful of useful macros
@@ -44,10 +44,16 @@ typedef int sb4;
 #endif
 
 #define clear(p) memset((p),0,sizeof(*(p)))
-#define aclear(p) { _Static_assert(sizeof(p) > 8,"need array, not pointer"); memset((p),0,sizeof(p)); }
 #define nclear(p,n) memset((p),0,(n) * sizeof(*(p)))
 
-#define strcopy(dst,src) { _Static_assert(sizeof(dst) > 8,"need array, not pointer"); strncpy((dst),(src),sizeof (dst) ); }
+// c11 langage only
+#if defined  __STDC_VERSION__ && __STDC_VERSION__ >= 201101
+ #define aclear(p) { _Static_assert(sizeof(p) > 8,"need array, not pointer"); memset((p),0,sizeof(p)); }
+ #define strcopy(dst,src) { _Static_assert(sizeof(dst) > 8,"need array, not pointer"); strncpy((dst),(src),sizeof (dst) ); }
+#else
+ #define aclear(p) memset((p),0,sizeof(p));
+ #define strcopy(dst,src) strncpy((dst),(src),sizeof (dst) );
+#endif
 
 enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runmknet,Runcompound,Runnet0,Runnetn,Runserver,Runend,Runcnt };
 
