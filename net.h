@@ -41,6 +41,8 @@
 #define Nleg (Nstop+1)
 #define Nxleg (Nxstop+1)
 
+#define Chainlen 256
+
 struct port {
   ub4 magic;
   ub4 id;      // index in net.ports
@@ -99,7 +101,7 @@ struct port {
 };
 
 struct chain {
-  ub4 rrid;
+  ub4 rrid,rid;
   ub4 hopcnt;
   ub4 hopofs;
   ub8 code;
@@ -207,7 +209,7 @@ struct network {
   struct sidtable *sids;
 
   ub4 *routechains;
-  ub8 *chainhops;   // points to gnet
+  ub8 *chainhops,*chainmets;   // points to gnet
 
   bool istpart;
 
@@ -242,7 +244,8 @@ struct network {
 
   ub4 hirrid;
 
-  ub4 maxvariants,routevarmask,hichainlen;
+  ub4 maxvariants,routevarmask;
+  ub4 hichainlen;
 
   size_t needconn;    // final required any-stop connectivity
 
@@ -319,7 +322,7 @@ struct gnetwork {
   ub2 *evmaps;
 
   ub4 *routechains;
-  ub8 *chainhops;
+  ub8 *chainhops,*chainmets;
 
   ub4 histop;     // highest n-stop connections inited
 

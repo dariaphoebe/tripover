@@ -17,8 +17,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 17;
-my $lastchanged = "4 jan 2015";
+my $version_min = 18;
+my $lastchanged = "5 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -107,7 +107,8 @@ sub dinfo($) {
 
 sub warning($) {
   my ($package,$filename,$line,$sub,$hasargs) = caller(0);
-  msg("warning: " . $_[0] . "  at fn $sub.$line");
+#  msg("warning: " . $_[0] . "  at fn $sub.$line");
+  msg("warning: " . $_[0]);
   $warningcnt++;
   return 1;
 }
@@ -856,13 +857,13 @@ sub readstops($)
         $sname = $stopnames{$candidate};
         $dist = geodist($slat,$slon,$lat,$lon);
         if ($name eq $sname and $dist < $infer_limit * 8) {
-          info("infer common parent for '$name' within $dist of samenamed");
+#          info("infer common parent for '$name' within $dist of samenamed");
           $sims{$candidate} .= $stopid . '_';
         } elsif ($dist < $infer_limit) {
-          info("infer common parent for '$name' within $dist of '$sname'");
+#          info("infer common parent for '$name' within $dist of '$sname'");
           $sims{$candidate} .= $stopid . '_';
         } elsif ($name eq $sname) {
-          info("not infer common parent for '$name' within $dist of samenamed");
+#          info("not infer common parent for '$name' within $dist of samenamed");
         }
       }
 
@@ -952,14 +953,14 @@ sub readstops($)
     $stopdeps[$newparentid] = 0;
     $stoparrs[$newparentid] = 0;
 
-    info("inferred parent id $newparentid name $newparent");
+#    info("inferred parent id $newparentid name $newparent");
     foreach $stopid (@sims3) {
       next unless length $stopid and $stopid ne '_';
       error_exit("no name for '$stopid'",__LINE__) unless exists $stopnames{$stopid};
       $name = $stopnames{$stopid};
       $lat = $simlats{$stopid};
       $lon = $simlons{$stopid};
-      info("  member id $stopid name $name lat $lat lon $lon");
+#      info("  member id $stopid name $name lat $lat lon $lon");
       $parents{$newparent} .= $stopid . ' ';
       $parentbyid{$stopid} = $newparent;
       $stopstr = $stops{$stopid};
@@ -1595,7 +1596,7 @@ sub readstoptimes($)
 
   my ($stoptimes,$stoptimesname);
   my ($col,$colname,$line,$fldend,$endq,$c,$req);
-  my ($route_id,$routeid,$trip_id,$tripid,$arr_time,$dep_time,$stop_id,$stopid,$stop_seq,$dep);
+  my ($route_id,$routeid,$trip_id,$tripid,$arr_time,$dep_time,$stop_id,$stopid,$dep);
   my ($route,$trip,$seq,$hop,$dep_id,$arr_id);
   my ($service_id,$sid,$t0,$t1,$day,$dows);
   my ($concnt,$depcnt,$arrcnt,$parent,$parentid);
@@ -1650,8 +1651,8 @@ sub readstoptimes($)
 
   my ($id,$uniqid,$uniqid1,$hoptime,$rtype,$name);
 
-  my $hhmmpat = qr'^([0-9]+):([0-9]+)';
-  my ($thh,$tmm,$tahh,$tamm,$tdepmin,$tarrmin,$tdummy,$tsep,$tsep2);
+  my $hhmmpat = qr'^([0-9]+):([0-9]+):([0-9]+)';
+  my ($thh,$tmm,$tss,$tahh,$tamm,$tass,$tdepsec,$tarrsec,$tdummy,$tsep,$tsep2);
 
   my ($hdid,$haid,$did,$aid,$htdep,$htarr,$htdeparr);
 
@@ -1670,10 +1671,11 @@ sub readstoptimes($)
     @cols = split ',',$line;
 
     $prvstop_id = $stop_id;
+    $prvseq = $seq;
 
     $trip_id = $cols[$col_tripid];
     $stop_id = $cols[$col_stopid];
-    $stop_seq = $cols[$col_stopseq];
+    $seq = $cols[$col_stopseq];
     $dep_time = $cols[$col_deptime];
     $arr_time = $cols[$col_arrtime];
 
@@ -1686,8 +1688,6 @@ sub readstoptimes($)
       next;
     }
     $tripid = $tripids{$trip_id};
-
-    $prvseq = $stop_seq;
 
     $routeid = $triproutes{$trip_id};
     $route_id = $routebyids{$routeid};
@@ -1714,19 +1714,33 @@ sub readstoptimes($)
       $id = $parentid;
     } else { $id = $stopid; }
 
-    ($thh,$tmm) = ($dep_time =~ $hhmmpat);
-    ($tahh,$tamm) = ($arr_time =~ $hhmmpat);
-
-    if (defined $thh and defined $tmm) {
-      $tahh = $thh unless defined $tahh;
-      $tamm = $tmm unless defined $tamm;
-    } elsif (defined $tahh and defined $tamm) {
-      $thh = $tahh unless defined $thh;
-      $tmm = $tamm unless defined $tmm;
+    if (length($dep_time) and length($arr_time)) {
+      ($thh,$tmm,$tss) = ($dep_time =~ $hhmmpat);
+      ($tahh,$tamm,$tass) = ($arr_time =~ $hhmmpat);
+      $tdepsec = ($thh * 3600) + ($tmm * 60);
+      $tarrsec = ($tahh * 3600) + ($tamm * 60);
+      $tdepsec += $tss if defined $tss;
+      $tarrsec += $tass if defined $tass;
+    } elsif (length($dep_time)) {
+      ($thh,$tmm,$tss) = ($dep_time =~ $hhmmpat);
+      $tdepsec = ($thh * 3600) + ($tmm * 60);
+      $tdepsec += $tss if defined $tss;
+      $tarrsec = $tdepsec;
+    } elsif (length($arr_time)) {
+      ($tahh,$tamm,$tass) = ($arr_time =~ $hhmmpat);
+      $tarrsec = ($tahh * 3600) + ($tamm * 60);
+      $tarrsec += $tass if defined $tass;
+      $tdepsec = $tarrsec;
     } elsif ($prvtdep > 0 and $prvtarr > 0) {
-      $thh = $prvtdep / 60; $tmm = $prvtdep % 60;
-      $tahh = $prvtarr / 60; $tamm = $prvtarr % 60;
+      $tdepsec = $prvtdep;
+      $tarrsec = $prvtarr;
+      if ($seq > $prvseq) { $tdepsec += 2; $tarrsec += 2; }
+      else { $tdepsec -= 2; $tarrsec -= 2; }
+
+#      info("line $linno has no time");
     } else {
+      $prvtdep = $tdepsec;
+      $prvtarr = $tarrsec;
       $prvid = $id;
       $prvtrip = $tripid;
       $nottcnt++;
@@ -1734,25 +1748,37 @@ sub readstoptimes($)
       next;
     }
 
-    $tdepmin = $thh * 60 + $tmm;
-    $tarrmin = $tahh * 60 + $tamm;
+    if ( ($tdepsec / 3600) > 72 or ($tarrsec / 3600) > 72) {
+      printf("dep %u h arr %u h line %u\n",($tdepsec / 3600),($tarrsec / 3600),$linno);
+    }
 
     # actual hop derived from key lateron
     # note that seq can run back in time
     if ($prvtrip == $tripid) {
-      if ($prvtdep <= $tarrmin) {
+#     info("sequence $tdepsec $tarrsec $prvtdep $prvtarr");
+
+      if ($seq > $prvseq) { # forward
         $hdid = $prvid;
         $haid = $id;
         $did = $prvstopid;
         $aid = $stopid;
-        $htdeparr = ($prvtdep << 16) | $tarrmin;
-      } else {
+        $htdep = $prvtdep;
+        $htarr = $tarrsec;
+      } elsif ($seq < $prvseq)  { # back
         $haid = $prvid;
         $hdid = $id;
         $aid = $prvstopid;
         $did = $stopid;
-        $htdeparr = ($tdepmin << 16) | $prvtarr;
+        $htdep = $tdepsec;
+        $htarr = $prvtarr;
+      } else {
+        warning("cannot sequence $seq dep $tdepsec arr $tarrsec vs $prvseq $prvtdep $prvtarr at line $linno");
+        next;
       }
+      warning("tdep $htdep after tarr $htarr line $linno d $thh:$tmm a $tahh:$tamm") if $htdep > $htarr;
+      printf("d %u:%u a %u:%u\n",$htdep / 3600,($htdep % 3600) / 60,$htarr / 3600,($htarr % 3600) / 60) if $htdep > $htarr;
+      $htarr++ if $htdep == $htarr;
+      warning("tdep $htdep equals tarr $htarr") if $htdep == $htarr;
 
       # mark connectivity for individual stops, forward to parent later
       $uniqid1 = join('_',$routeid,$did,$aid);
@@ -1771,22 +1797,22 @@ sub readstoptimes($)
             info(" watch n $stop_id dep $stopnames{$hdid} arr $stopnames{$haid}");
             info(" watch n $stop_id dep $stopnames{$did} arr $stopnames{$aid}");
           }
-          push @{ $tripseq{$uniqid} },($sid,$tripid,$htdeparr);
+          push @{ $tripseq{$uniqid} },($sid,$tripid,$htdep,$htarr,$seq);
         } else {
           if (exists $stops2watch{$stop_id}) {
             info(" watch 0 $stop_id dep $stopnames{$hdid} arr $stopnames{$haid}");
             info(" watch 0 $stop_id dep $stopnames{$did} arr $stopnames{$aid}");
           }
           $tripref{$uniqid} = $linno;
-          $tripseq{$uniqid} = [ ($sid,$tripid,$htdeparr) ];
+          $tripseq{$uniqid} = [ ($sid,$tripid,$htdep,$htarr,$seq) ];
           push @uniqids,$uniqid;
 
           $hopcnt++;
         }
       }
     }
-    $prvtdep = $tdepmin;
-    $prvtarr = $tarrmin;
+    $prvtdep = $tdepsec;
+    $prvtarr = $tarrsec;
     $prvid = $id;
     $prvtrip = $tripid;
 
@@ -2028,7 +2054,7 @@ sub writext($$)
   my $hopno = 0;
   my @times;
   my @hoptimes;
-  my ($tid,$tdep,$tarr,$tdeparr,$ztid,$ztdep,$ztarr,$prvsid,$prvtid,$prvtdep,$prvtarr);
+  my ($tid,$tdep,$tarr,$seq,$tdeparr,$ztid,$ztdep,$ztarr,$prvsid,$prvtid,$prvtdep,$prvtarr);
   my ($timendx,$timecnt);
 
   foreach $uniqid (@uniqids) {
@@ -2043,8 +2069,8 @@ sub writext($$)
     $hopid = $hopno;
 
     $timecnt = scalar @times;
-    return error("$timecnt not a multiple of 3",__LINE__) if $timecnt % 3;
-    $timecnt /= 3;
+    return error("$timecnt not a multiple of 5",__LINE__) if $timecnt % 5;
+    $timecnt /= 5;
 
     $ref = $tripref{$uniqid};
 
@@ -2065,16 +2091,20 @@ sub writext($$)
     $route = '.' . $route if (substr($route,0,1) eq '.');
     $xinfo = "\t# $mark $ref '$depname' to '$arrname'" if ($verbose_hops > 0);
 
-    ($sid,$tid,$tdeparr) = @times[0 .. 2];
-    $tdep = $tdeparr >> 16;
-    $tarr = $tdeparr & 0xffff;
-    $timestr = sprintf("0\t%x\t%x\t%x\t%x",$sid,$tid,$tdep,$tarr);
+    ($sid,$tid,$tdep,$tarr,$seq) = @times[0 .. 4];
+    $fmt = 0;
+    $timestr = sprintf("%x\t%x\t%x\t%x\t%x\t%x",$fmt,$sid,$tid,$tdep,$tarr,$seq);
 
-    for ($timendx = 3; $timendx < $timecnt * 3; $timendx += 3) {
-      $prvsid = $sid; $prvtid = $tid; $prvtdep = $tdep; $prvtarr = $tarr;
-      ($sid,$tid,$tdeparr) = @times[$timendx .. $timendx + 2];
-      $tdep = $tdeparr >> 16;
-      $tarr = $tdeparr & 0xffff;
+    warning("tdep $tdep after tarr $tarr") if $tdep > $tarr;
+    warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
+
+    for ($timendx = 5; $timendx < $timecnt * 5; $timendx += 5) {
+      $prvsid = $sid; $prvtid = $tid; $prvtdep = $tdep; $prvtarr = $tarr; $prvseq = $seq;
+      ($sid,$tid,$tdep,$tarr,$seq) = @times[$timendx .. $timendx + 4];
+
+      warning("tdep $tdep after tarr $tarr") if $tdep > $tarr;
+      warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
+
       $fmt = 0;
       if ($tid >= $prvtid) {
         $fmt |= $fmt_diftid;
@@ -2090,9 +2120,9 @@ sub writext($$)
       } else { $ztarr = $tarr; }
       if ($sid == $prvsid) {
         $fmt |= $fmt_prvsid;
-        $timestr .= sprintf("\t%x\t%x\t%x\t%x",$fmt,$ztid,$ztdep,$ztarr);
+        $timestr .= sprintf("\t%x\t%x\t%x\t%x\t%x",$fmt,$ztid,$ztdep,$ztarr,$seq);
       } else {
-        $timestr .= sprintf("\t%x\t%x\t%x\t%x\t%x",$fmt,$sid,$ztid,$ztdep,$ztarr);
+        $timestr .= sprintf("\t%x\t%x\t%x\t%x\t%x\t%x",$fmt,$sid,$ztid,$ztdep,$ztarr,$seq);
       }
 
     }

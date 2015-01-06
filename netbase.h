@@ -246,7 +246,9 @@ struct networkbase {
   struct chainbase *chains;
   struct timetablebase *timetables;  // [routecnt]
 
-  ub8 *chainhops;    // tdep,hop
+  ub8 *chainhops;    // seq,hop
+  ub8 *chainmets;    // cum dist,midur
+
   ub4 *routechains;
   ub4 *timesbase;
   ub8 *events;

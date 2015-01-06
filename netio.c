@@ -524,6 +524,7 @@ static int rdextports(netbase *net,const char *dir)
   char *buf;
   ub4 len,linno,colno,namelen,idlo,idhi,subidhi,mapidlen,maxid;
   ub4 lat,lon,id,subid,opts;
+  ub4 dup2;
   ub4 lolon,lolat,hilon,hilat;
   char *name;
   ub4 valndx,*vals;
@@ -542,7 +543,7 @@ static int rdextports(netbase *net,const char *dir)
     ub4 subcnt,subofs,seq;
     ub4 lat,lon;
   };
-  struct extport *extports,*ep,*pep;
+  struct extport *extports,*ep,*pep,*ep2;
   ub4 namemax = sizeof(extports->name) - 1;
 
   oclear(eft);
@@ -618,6 +619,14 @@ static int rdextports(netbase *net,const char *dir)
       if (valndx > 3) opts = vals[4];
       else opts = 0;
       vrb(0,"port %u id %u sub %u opts %x",extportcnt,id,subid,opts);
+
+      for (dup2 = 0; dup2 < extportcnt; dup2++) {
+        ep2 = extports + dup2;
+        if (ep2->lat != lat || ep2->lon != lon || ep2->namelen != namelen) break;
+        if (memcmp(ep2->name,name,namelen)) break;
+        if (ep2->id == id && ep2->subid == subid) warning(0,"duplicate port id %u subid %u %s",id,subid,name);
+        else warning(0,"port name %s lat %u lon %u for both id %u subid %u and %u %u",name,lat,lon,id,subid,ep2->id,ep2->subid);
+      }
       if (id > idhi) idhi = id;
       if (id < idlo) idlo = id;
       if (subid > subidhi) subidhi = subid;
@@ -984,7 +993,7 @@ static int rdexttimes(netbase *net,const char *dir)
         addcnt = dtbox;
       }
       if (subcnt > dtbox) {
-        warning(0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,subcnt,dtbox);
+        warninfo(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,subcnt,dtbox);
         subcnt = dtbox;
       }
       if (valndx + addcnt + subcnt != valcnt) {
@@ -1059,7 +1068,7 @@ static int rdexttimes(netbase *net,const char *dir)
       tday = 0;
       while (tday < dtbox && map[tday] == 0) tday++;
       if (tday == dtbox) {
-        warning(0,"line %u: rsid \ax%u has no service days",linno,rsid);
+        warninfo(timespanlimit > 365,0,"line %u: rsid \ax%u has no service days",linno,rsid);
         t0_cd = t1_cd;
       } else {
         t0_cd = day2cd(tday + daybox0);
@@ -1139,7 +1148,7 @@ static int rdexttimes(netbase *net,const char *dir)
     gt0 = yymmdd2min(tbox0,utcofs);
     gt1 = yymmdd2min(tbox1,utcofs);
     if (gt0 != t0lo) { warning(0,"overall start %u != %u",gt0,t0lo); gt0 = t0lo; }
-     if (gt1 != t1hi) { warning(0,"overall end %u != %u",gt1,t1hi); gt1 = t1hi; }
+     if (gt1 != t1hi) { warninfo(timespanlimit > 365,0,"overall end %u != %u",gt1,t1hi); gt1 = t1hi; }
     if (gt1 <= gt0) { warning(0,"overall start %u beyond end %u",gt0,gt1); gt1 = gt0 + 1; }
   } else { gt0 = t0lo; gt1 = t1hi; }
   net->t0 = gt0; net->t1 = gt1;
@@ -1184,7 +1193,7 @@ static int rdexthops(netbase *net,const char *dir)
 
   ub4 *tbp,*timesbase = NULL;
   ub4 timespos = 0;
-  ub4 rtid,tid,tdep,tarr,prvsid,prvtid,prvtdep,prvtarr;
+  ub4 rtid,tid,tdep,tarr,tripseq,tdepsec,tarrsec,prvsid,prvtid,prvtdep,prvtarr;
   ub4 t0,t1,ht0,ht1;
   ub4 fmt,vndx,tndx;
 
@@ -1248,7 +1257,7 @@ static int rdexthops(netbase *net,const char *dir)
     case Newitem:
       if (inited == 0) {
         if (sumtimes) {
-          timesbase = net->timesbase = mkblock(&net->timesmem,sumtimes * 4,ub4,Init0,"time timebase %u",sumtimes);
+          timesbase = net->timesbase = mkblock(&net->timesmem,sumtimes * 5,ub4,Init0,"time timebase %u",sumtimes);
         }
         if (sid2add != hi32) {
           chaincnt = 1; // entry 0 is generic internal
@@ -1320,12 +1329,12 @@ static int rdexthops(netbase *net,const char *dir)
       if (timecnt * 4 > valndx - 6) return parserr(FLN,fname,linno,colno,"%u time entries, but only %u args",timecnt,valndx);
 
       error_zp(timesbase,timecnt);
-      tbp = timesbase + timespos * 4;
+      tbp = timesbase + timespos * 5;
 
       timecnt = min(timecnt,timecntlimit); // todo tmp
 
       tndx = 0; vndx = 6;
-      rsid = rtid = tdep = tarr = 0;
+      rsid = rtid = tdep = tarr = tdepsec = tarrsec = 0;
       ht0 = hi32; ht1 = 0;
 
       if (sid2add != hi32) {
@@ -1347,21 +1356,22 @@ static int rdexthops(netbase *net,const char *dir)
         tbp[1] = tid;
         tbp[2] = tdep;
         tbp[3] = tarr;
-        tbp += 4;
+        tbp += 5;
         tndx++;
       }
 
       hoplog(hop,1,"at %u %u-%u %s to %s",linno,dep,arr,pdep->name,parr->name);
 
       while (vndx + 4 <= valndx && tndx < timecnt) {
-        prvsid = rsid; prvtid = rtid; prvtdep = tdep; prvtarr = tarr;
+        prvsid = rsid; prvtid = rtid; prvtdep = tdepsec; prvtarr = tarrsec;
         fmt = vals[vndx++];
         if (fmt & Fmt_prvsid) rsid = prvsid;
         else rsid = vals[vndx++];
         rtid = vals[vndx];
-        tdep = vals[vndx+1];
-        tarr = vals[vndx+2];
-        vndx += 3;
+        tdepsec = vals[vndx+1];
+        tarrsec = vals[vndx+2];
+        tripseq = vals[vndx+3];
+        vndx += 4;
         if (fmt & Fmt_diftid) rtid += prvtid;
 
         error_gt(rtid,hitripid,hop);
@@ -1376,19 +1386,26 @@ static int rdexthops(netbase *net,const char *dir)
         } else tid = hi32;
         cumhoprefs++;
 
-        if (fmt & Fmt_diftdep) tdep += prvtdep;
-        if (fmt & Fmt_diftarr) tarr += prvtarr;
+        if (fmt & Fmt_diftdep) tdepsec += prvtdep;
+        if (fmt & Fmt_diftarr) tarrsec += prvtarr;
 
-        if (tarr < tdep) {
-          parsewarn(FLN,fname,linno,colno,"hop %u arr %u before dep %u",hop,tarr,tdep);
-          tarr = tdep;
+        if (tarrsec < tdepsec) {
+          parsewarn(FLN,fname,linno,colno,"hop %u arr %u before dep %u",hop,tarrsec,tdep);
+          tarrsec = tdepsec;
+        } else if (tarrsec == tdepsec) {
+          parsewarn(FLN,fname,linno,colno,"hop %u arr time %u equals dep",hop,tarrsec);
+          tarrsec = tdepsec;
         }
+
         if (rsid > maxsid) return inerr(FLN,fname,linno,colno,"service id %u above highest id %u",rsid,maxsid);
         sid = rsid2sids[rsid];
 
         error_ge(sid,sidcnt);
         sp = sids + sid;
         sp->refcnt++;
+
+        tdep = tdepsec / 60;
+        tarr = tarrsec / 60;
 
         t0 = sp->t0;
         t1 = sp->t1;
@@ -1399,9 +1416,10 @@ static int rdexthops(netbase *net,const char *dir)
 
         tbp[0] = sid;
         tbp[1] = tid;
-        tbp[2] = tdep;
-        tbp[3] = tarr;
-        tbp += 4;
+        tbp[2] = tdepsec;
+        tbp[3] = tarrsec;
+        tbp[4] = tripseq;
+        tbp += 5;
         tndx++;
       }
       if (tndx != timecnt) parsewarn(FLN,fname,linno,colno,"%u time entries, but only %u args",timecnt,valndx);
@@ -1491,7 +1509,7 @@ static int rdexthops(netbase *net,const char *dir)
   for (sid = 0; sid < sidcnt; sid++) {
     sp = sids + sid;
     if (sp->refcnt) sidrefs++;
-    else warning(0,"sid %x not referenced %s",sp->sid,sp->name);
+    else warninfo(timespanlimit > 365,0,"sid %x not referenced %s",sp->sid,sp->name);
   }
   if (sidrefs < sidcnt) info(0,"%u sid\as not referenced",sidcnt - sidrefs); // todo filter ?
 
@@ -1636,7 +1654,7 @@ int wrportrefs(netbase *net)
     scnt = pp->subcnt;
     sofs = pp->subofs;
     for (sport = 0; sport < scnt; sport++) {
-      spp = sports + sofs + scnt;
+      spp = sports + sofs + sport;
       y = lat2ext(spp->lat);
       x = lon2ext(spp->lon);
       pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\n",port,spp->subid,spp->name,y,x); // use parent port to make alias
@@ -1645,7 +1663,7 @@ int wrportrefs(netbase *net)
     }
   }
   fileclose(fd,portsname);
-  return info(0,"wrote %u ports to %s",wportcnt,portsname);
+  return info(0,"wrote %u ports+subports to %s",wportcnt,portsname);
 }
 
 int net2ext(netbase *net)

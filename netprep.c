@@ -65,6 +65,7 @@ static int marklocal(struct network *net)
     arr = hp->arr;
     error_ge(dep,portcnt);
     error_ge(arr,portcnt);
+    error_eq(dep,arr);
     pdep = ports + dep;
     parr = ports + arr;
 
@@ -165,9 +166,9 @@ int prepnet(netbase *basenet)
   char *dname,*aname;
 
   ub4 bportcnt,portcnt,tportcnt;
-  ub4 bhopcnt,hopcnt,pridcnt;
+  ub4 bhopcnt,hopcnt,nilhopcnt,pridcnt;
   ub4 dep,arr,depp,arrp;
-  ub4 bsidcnt,sidcnt,bchaincnt,chaincnt,chainhopcnt;
+  ub4 bsidcnt,sidcnt,bchaincnt,chaincnt,chainlen,chainhopcnt;
   ub4 bridcnt,ridcnt;
   ub4 nlen,cnt,acnt,dcnt,tcnt,sid,rid,rrid,part,tpart,xmaplen;
   ub4 pportcnt,zpportcnt,phopcnt,partcnt,part2,newpartcnt;
@@ -269,7 +270,11 @@ int prepnet(netbase *basenet)
       bpp = bports + dep;
       warning(0,"nil hop %u %s at %u",dep,bpp->name,bhp->cid);
       continue;
-    } else if (bhp->valid == 0) continue;
+    } else if (bhp->valid == 0) {
+      bpp = bports + dep;
+      warning(0,"invalid hop %u %s at %u",dep,bpp->name,bhp->cid);
+      continue;
+    }
 
 //    info(0,"hop %u %s at %u %u-%u",hop,bhp->name,bhp->cid,dep,arr);
 
@@ -313,7 +318,7 @@ int prepnet(netbase *basenet)
     tp->midur = btp->midur;
     tp->duracc = btp->duracc;
 
-    // mark local links, filtering duplicates e.g on loops
+    // mark local links
     pdep = ports + dep;
     parr = ports + arr;
     dcnt = pdep->ndep;
@@ -359,9 +364,8 @@ int prepnet(netbase *basenet)
   }
   if (hopcnt == 0) return error(0,"nil hops out of %u",bhopcnt);
   info(0,"%u from %u hops",hopcnt,bhopcnt);
+  nilhopcnt = bhopcnt - hopcnt;
   hopcnt = bhopcnt;
-
-//  return 1;
 
   info0(0,"global connectivity");
   showconn(ports,portcnt,0);
@@ -377,6 +381,7 @@ int prepnet(netbase *basenet)
     if (cnt < 3) { vrb(0,"skip dummy chain %u with %u hop\as",chain,cnt); continue; }
     cp->hopcnt = cnt;
     cp->rrid = bcp->rrid;
+    cp->rid = bcp->rid;
     cp->hopofs = bcp->hopofs;
     chaincnt++;
   }
@@ -399,6 +404,7 @@ int prepnet(netbase *basenet)
 
   gnet->routechains = basenet->routechains;
   gnet->chainhops = bchainhops;
+  gnet->chainmets = basenet->chainmets;
   gnet->chainhopcnt = chainhopcnt;
 
   gnet->maxvariants = variants = basenet->maxvariants;
@@ -441,11 +447,12 @@ int prepnet(netbase *basenet)
   such that each part has at least one port member of these H
   and each H has ports from each part
  */
-  ub4 aimcnt = max(3,portcnt / 1000);
+  ub4 aimpartsize = 1500; // todo configurable
+  ub4 aimcnt = max(3,portcnt / aimpartsize);
 
   info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
 
-  // todo: use initial part < rid, and inipartcnt * iipartcnt instead
+  // todo: use initial part < rid, and inipartcnt * inipartcnt instead
   ub4 ridrid = ridcnt * ridcnt;
 
   ub4 *portparts = alloc(Npart * portcnt,ub4,0xff,"part portparts",portcnt);
@@ -639,7 +646,6 @@ int prepnet(netbase *basenet)
     for (mi = 0; mi < cnt; mi++) {
       rid = mpp[mi];
       error_ge(rid,ridcnt);
-      if (port == 487) info(0,"port %u rid %u pos %u of %u",port,rid,mi,cnt);
       ridcnts[rid]++;
       ppm[rid] = 1;
     }
@@ -663,7 +669,6 @@ int prepnet(netbase *basenet)
       rid = lmpp[mi];
       error_nz(lppm[rid],rid);
       error_ge(rid,ridcnt);
-      if (port == 487) info(0,"port %u rid %u pos %u of %u",port,rid,mi,cnt);
       lppm[rid] = 1;
       portsperpart[rid]++;
     }
@@ -768,7 +773,7 @@ int prepnet(netbase *basenet)
         partmerges[rid2] = rid1;
         newpartcnt--;
         ridhis[rid1] = ridhis[rid2] = 1;
-        info(0,"hi %u 10-%u 1-%u ports %u merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
+        vrb0(0,"hi %u 10-%u 1-%u ports %u merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
       } else {
         vrb0(0,"hi %u 10-%u 1-%u ports %u no merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
 //        rid2his[rid1 * ridcnt + rid2] = 1;
@@ -1088,7 +1093,7 @@ int prepnet(netbase *basenet)
   aclear(hiconports);
   aclear(conhiports);
 
-  // make all parts represented in global
+  // make all parts represented in topnet
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     lcnt = lpartcnts[port];
@@ -1127,7 +1132,7 @@ int prepnet(netbase *basenet)
     }
   }
 
-  info(0,"%u ports in top part",portcnts[tpart]);
+  info(0,"%u ports in top part after part rep",portcnts[tpart]);
 
   partcnt++;  // add gpart
 
@@ -1137,34 +1142,152 @@ int prepnet(netbase *basenet)
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     cnt = lpartcnts[port];
-    if (cnt == 0) continue;
+    if (cnt == 0) {
+      info(0,"port %u not in any part %s",port,pp->name);
+      continue;
+    }
 
-    pp->partcnt = cnt;
     mpp = lportparts + port * Npart;
     for (mi = 0; mi < cnt; mi++) {
       part = mpp[mi];
       gportparts[port * partcnt + part] = 1;
     }
+    for (part = 0; part < partcnt; part++) if (gportparts[port * partcnt + part]) pp->partcnt++;
   }
 
+#if 0
+  ub4 hicnt,hipart,*ridparts = alloc(partcnt,ub4,0,"part ridparts",partcnt);
+
+  // make ports on each route share parts
+
+  for (rid = 0; rid < ridcnt; rid++) {
+    chainlen = 0;
+    for (hop = 0; hop < hopcnt; hop++) {
+      hp = hops + hop;
+      if (hp->rid != rid) continue;
+      chainlen++;
+      dep = hp->dep; arr = hp->arr;
+      for (part = 0; part < tpart; part++) {
+        if (gportparts[dep * partcnt + part]) ridparts[part]++;
+        if (gportparts[arr * partcnt + part]) ridparts[part]++;
+      }
+    }
+    if (chainlen < 3) continue;
+
+    hicnt = hipart = 0;
+    for (part = 0; part < tpart; part++) {
+      cnt = ridparts[part];
+      if (cnt > hicnt) { hicnt = cnt; hipart = part; }
+    }
+    for (hop = 0; hop < hopcnt; hop++) {
+      hp = hops + hop;
+      if (hp->rid != rid) continue;
+      dep = hp->dep; arr = hp->arr;
+      if (gportparts[dep * partcnt + hipart] == 0) { gportparts[dep * partcnt + hipart] = 1; portcnts[hipart]++; }
+      if (gportparts[arr * partcnt + hipart] == 0) { gportparts[arr * partcnt + hipart] = 1; portcnts[hipart]++; }
+    }
+  }
+#endif
+
+  // add hi-conn ports to top
+  ub4 hidcon = 0;
+  for (port = 0; port < portcnt; port++) {
+    if (gportparts[port * partcnt + tpart]) continue;
+    pp = ports + port;
+    cnt = pp->ndep + pp->narr;
+    hidcon = max(hidcon,cnt);
+  }
+  error_z(hidcon,0);
+  hidcon = max(hidcon,2);
+
+  ub4 portcon,*portconns = alloc(hidcon+1,ub4,0,"part portconns",hidcon);
+  ub4 hiaddcnt,hiportcnt,coniv;
+
+  for (port = 0; port < portcnt; port++) {
+    if (gportparts[port * partcnt + tpart]) continue;
+    pp = ports + port;
+    cnt = pp->ndep + pp->narr;
+    portconns[cnt]++;
+  }
+
+  if (portcnts[tpart] < aimpartsize * 2) hiaddcnt = 500;
+  else hiaddcnt = 100;
+  hiportcnt = 0; coniv = hidcon;
+
+  while (hiportcnt < hiaddcnt && coniv > 2) { hiportcnt += portconns[coniv--]; }
+
+  for (port = 0; port < portcnt; port++) {
+    if (gportparts[port * partcnt + tpart]) continue;
+    pp = ports + port;
+    cnt = pp->ndep + pp->narr;
+    if (cnt <= coniv) continue;
+    gportparts[port * partcnt + tpart] = 1;
+    portcnts[tpart]++;
+  }
+
+  ub4 hiacon,hicondep,hiconarr;
+
+  // share connecting ports if needed for part connectivity
+  for (part = 0; part < partcnt; part++) {
+    for (port = 0; port < portcnt; port++) {
+      if (gportparts[port * partcnt + part] == 0) continue;
+      pp = ports + port;
+
+      dcnt = acnt = hidcon = hiacon = 0; hicondep = hiconarr = hi32;
+      for (hop = 0; hop < hopcnt; hop++) {
+        dep = gportsbyhop[hop * 2];
+        arr = gportsbyhop[hop * 2 + 1];
+        if (port == dep || port == arr) {
+          if (gportparts[dep * partcnt + part] && gportparts[arr * partcnt + part]) {
+            if (port == dep) dcnt++; else acnt++;
+          } else {
+            if (gportparts[dep * partcnt + part] == 0) {
+              pdep = ports + dep;
+              cnt = pdep->ndep + pdep->narr;
+              if (cnt > hidcon) { hidcon = cnt; hicondep = dep; }
+            }
+            if (gportparts[arr * partcnt + part] == 0) {
+              parr = ports + arr;
+              cnt = parr->ndep + parr->narr;
+              if (cnt > hiacon) { hiacon = cnt; hiconarr = arr; }
+            }
+          }
+        }
+      }
+      if ( (pp->ndep && dcnt == 0) || (pp->narr && acnt == 0) ) {
+        if (hicondep != hi32) {
+          if (gportparts[hicondep * partcnt + part] == 0) {
+            info(0,"add port %u to part %u with conn %u",hicondep,part,hidcon);
+            gportparts[hicondep * partcnt + part] = 1;
+            portcnts[part]++;
+          }
+        }
+        if (hiconarr != hi32) {
+          if (gportparts[hiconarr * partcnt + part] == 0) {
+            info(0,"add port %u to part %u with conn %u",hiconarr,part,hiacon);
+            gportparts[hiconarr * partcnt + part] = 1;
+            portcnts[part]++;
+          }
+        }
+      }
+    }
+  }
+
+  // count part hops
   for (hop = 0; hop < hopcnt; hop++) {
-    hp = hops + hop;
-    dep = hp->dep;
-    arr = hp->arr;
+    dep = gportsbyhop[hop * 2];
+    arr = gportsbyhop[hop * 2 + 1];
     if (dep == arr) continue;
 
-    dcnt = lpartcnts[dep];
-    dmpp = lportparts + dep * Npart;
-    appm = lpartportcnts + arr * ridcnt;
-
-    // hop from a to b is ony in parts that a and b share
-    mi = 0;
-    while (mi < dcnt) {
-      part = dmpp[mi];
-      error_ge(part,partcnt);
-      if (appm[part]) hopcnts[part]++;
-      mi++;
+    // make sure no hop gets lost
+    cnt = 0;
+    for (part = 0; part < partcnt; part++) {
+      if (gportparts[dep * partcnt + part] && gportparts[arr * partcnt + part]) {
+        hopcnts[part]++;
+        cnt++;
+      }
     }
+    error_z(cnt,hop);
   }
 
   for (part = 0; part < partcnt; part++) {
@@ -1224,7 +1347,7 @@ int prepnet(netbase *basenet)
     pport = tcnt = 0;
     for (port = 0; port < portcnt; port++) {
       gp = ports + port;
-      if (gp->partcnt == 0) continue;
+      if (gp->partcnt == 0) { info(0,"port %u is not in any part %s",port,gp->name); continue; }
 
       if (gportparts[port * partcnt + part] == 0) {
         if (part == tpart) gp->tpart = 0;
@@ -1274,7 +1397,10 @@ int prepnet(netbase *basenet)
       ghp = hops + hop;
       dep = ghp->dep;
       arr = ghp->arr;
-      if (dep == arr) continue;
+      if (dep == arr) {
+        if (nilhopcnt == 0) error(Exit,"hop %u dep %u equals arr",hop,dep);
+        continue;
+      }
 
       error_ge(dep,portcnt);
       error_ge(arr,portcnt);
@@ -1302,9 +1428,11 @@ int prepnet(netbase *basenet)
 //      info(0,"hop %u tt range %u-%u",hop,t0,t1);
       depp = g2p[dep];
       error_ge(depp,pportcnt);
-      hp->dep = depp;
       arrp = g2p[arr];
       error_ge(arrp,pportcnt);
+      error_eq_cc(depp,arrp,"hop %u dep %u arr %u",hop,dep,arr);
+
+      hp->dep = depp;
       hp->arr = arrp;
       portsbyhop[phop * 2] = depp;
       portsbyhop[phop * 2 + 1] = arrp;
@@ -1344,6 +1472,7 @@ int prepnet(netbase *basenet)
     net->chaincnt = chaincnt;
     net->routechains = gnet->routechains;
     net->chainhops = bchainhops;
+    net->chainmets = gnet->chainmets;
     net->chainhopcnt = chainhopcnt;
 
     net->eventmem = gnet->eventmem;

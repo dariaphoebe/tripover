@@ -76,7 +76,7 @@ static char ccbuf2[MSGLEN];
 
 static char lastwarn[MSGLEN];
 static char lasterr[MSGLEN];
-static ub4 cclen,ccfln;
+static ub4 cclen,ccfln,lastwarniter;
 
 static char prefix[128];
 static ub4 prefixlen;
@@ -599,7 +599,10 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
 
   iter = itercnts[file * Maxmsgline | iterndx];
   itercnt = iter & hi24;
-  if (itercnt < hi24) itercnts[file * Maxmsgline | iterndx] = (itercnt + 1) | (lvl << 24);
+  if (itercnt < hi24) {
+    itercnt++;
+    itercnts[file * Maxmsgline | iterndx] = itercnt | (lvl << 24);
+  }
   if (code & Iter) {
     if (itercnt > 100) return;
     else if (itercnt == 100) pos += mysnprintf(msgbuf,pos,maxlen, "  message at line %u repeated %u times\n",iterndx,itercnt);
@@ -659,8 +662,10 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   ub4 cnt;
   iter = himsgcnt[file * Maxmsgline | iterndx];
   cnt = iter & hi24;
-  if (cnt < hi24) himsgcnt[file * Maxmsgline | iterndx] = (cnt + 1) | (lvl << 24);
-
+  if (cnt < hi24) {
+    cnt++;
+    himsgcnt[file * Maxmsgline | iterndx] = cnt | (lvl << 24);
+  }
   if (cnt > hicnts[lvl]) {
     hicnts[lvl] = cnt;
     hiflns[lvl] = fline;
@@ -671,7 +676,11 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
     memcpy(himsgbufs2[lvl],msgbuf,pos+1);
   }
 
-  if (lvl == Warn) { memcpy(lastwarn,msgbuf,pos); lastwarn[pos] = 0; }
+  if (lvl == Warn) {
+    memcpy(lastwarn,msgbuf,pos);
+    lastwarn[pos] = 0;
+    lastwarniter = cnt;
+  }
   else if (lvl < Warn && !(code & Exit)) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
   msgbuf[pos++] = '\n';
   msgwrite(msgbuf,pos);
@@ -1036,7 +1045,7 @@ void eximsg(void)
 
   if (errcnt == 0 && assertcnt == 0) {
 
-    showhi(Warn,10);
+    showhi(Warn,5);
     showhi(Info,100);
     showhi(Vrb,500);
 
