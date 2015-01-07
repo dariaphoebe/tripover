@@ -325,7 +325,7 @@ int prepbasenet(void)
     chainofs += cp->hoprefs;
   }
   error_ne(chainofs,cumhoprefs);
-  
+
   // pass 1: expand time entries, determine memuse and derive routes
   for (hop = 0; hop < hopcnt; hop++) {
 
@@ -360,10 +360,12 @@ int prepbasenet(void)
 
     // routes
     rrid = hp->rrid;
-    error_gt(rrid,hirrid,hop);
-    error_ovf(ridcnt,ub2);
-    if (rrid2rid[rrid] == hi32) rid = rrid2rid[rrid] = ridcnt++;
-    else rid = rrid2rid[rrid];
+    if (rrid && rrid != hi32) {
+      error_gt(rrid,hirrid,hop);
+      error_ovf(ridcnt,ub2);
+      if (rrid2rid[rrid] == hi32) rid = rrid2rid[rrid] = ridcnt++;
+      else rid = rrid2rid[rrid];
+    } else rid = hi32;
     hp->rid = rid;
 
     if (rrid == rrid2watch) info(0,"hop %u rrid %u %s to %s",hop,rrid,pdep->name,parr->name);

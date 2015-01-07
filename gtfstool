@@ -17,8 +17,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 18;
-my $lastchanged = "5 jan 2015";
+my $version_min = 19;
+my $lastchanged = "7 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -76,6 +76,9 @@ sub basemsg($) {
   return 1;
 }
 
+my $clron = sprintf('%c[0;32m',27);
+my $clrof = sprintf('%c[0m',27);
+
 sub msg($) {
   my ($m) = @_;
 
@@ -84,8 +87,6 @@ sub msg($) {
 
   my ($package,$filename,$line,$sub,$hasargs) = caller(1);
   my $fln = sprintf("%4u",$line);
-  my $clron = sprintf('%c[0;32m',27);
-  my $clrof = sprintf('%c[0m',27);
   print("$clron$tt $fln $clrof$m\n");
   print($logfd "$t $fln $m\n") if defined $logfd;
   return 1;
@@ -96,8 +97,14 @@ sub info($) { return msg($_[0]); }
 sub progress($$$) {
   my ($fmt,$a,$b) = @_;
 
+  my $t = time2yyyymmdd(time(),1,'sec');
+  my $tt = substr($t,11);
+
+  my ($package,$filename,$line) = caller(1);
+  my $fln = sprintf("%4u",$line);
+
   my $perc = ($a * 100) / $b;
-  printf($fmt . " %.0f %%\r",$a,$b,$perc);
+  printf("\r%s%s %4u %s $fmt %.0f %%\r",$clron,$tt,$line,$clrof,$a,$b,$perc);
 }
 
 sub dinfo($) {
@@ -476,9 +483,10 @@ sub readagency($)
   my $colid = 0;
 
   foreach $colname (@colnames) {
-    $col_id = $colid++ if ($colname eq 'agency_id');
-    $col_name = $colid++ if ($colname eq 'agency_name');
-    $col_tz = $colid++ if ($colname eq 'agency_timezone');
+    $col_id = $colid if ($colname eq 'agency_id');
+    $col_name = $colid if ($colname eq 'agency_name');
+    $col_tz = $colid if ($colname eq 'agency_timezone');
+    $colid++;
   }
 
   my @lines = readline($agency);
@@ -543,8 +551,9 @@ sub readfeedinfo($)
   my $colid = 0;
 
   foreach $colname (@colnames) {
-    $col_name = $colid++ if ($colname eq 'feed_publisher_name');
-    $col_id = $colid++ if ($colname eq 'feed_id');
+    $col_name = $colid if ($colname eq 'feed_publisher_name');
+    $col_id = $colid if ($colname eq 'feed_id');
+    $colid++;
   }
 
   my @lines = readline($file);
@@ -1004,6 +1013,10 @@ my $include_metro = 1;
 my $include_rail = 1;
 my $include_bus = 1;
 my $include_ferry = 1;
+my $include_cabcar = 1;
+my $include_gondola = 1;
+
+my @modenames = ( "tram","metro","rail","bus","ferry","cable car","gondola" );
 
 sub filtermode($)
 {
@@ -1014,6 +1027,8 @@ sub filtermode($)
   return 1 if ($type == 2 and $include_rail == 1);
   return 1 if ($type == 3 and $include_bus == 1);
   return 1 if ($type == 4 and $include_ferry == 1);
+  return 1 if ($type == 5 and $include_cabcar == 1);
+  return 1 if ($type == 6 and $include_gondola == 1);
   return 0;
 }
 
@@ -1023,7 +1038,7 @@ sub readroutes($)
 
   my ($routefile,$routefname);
   my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$routeid,$routeid1,$name,$slname,$rtype);
+  my ($route_id,$routeid,$routeid1,$name,$slname,$rtype,$modename);
 
   $routefname = $dir . '/' . 'routes.txt';
 
@@ -1133,7 +1148,9 @@ sub readroutes($)
       push(@routes,join("\t",$route_id,$slname,$rtype));
     } else {
       $noroutecnt++;
-      info("filter route $route_id mode $rtype at line $linno");
+      if ($rtype < @modenames) { $modename = $modenames[$rtype]; }
+      else { $modename = "unknown"; }
+      info("filter route $route_id mode $modename = $rtype at line $linno");
       $norouteids{$route_id} = $routeid;
     }
 
@@ -1624,16 +1641,16 @@ sub readstoptimes($)
   my $colid = 0;
 
   foreach $colname (@colnames) {
-    $col_tripid = $colid++ if ($colname eq 'trip_id');
-    $col_arrtime = $colid++ if ($colname eq 'arrival_time');
-    $col_deptime = $colid++ if ($colname eq 'departure_time');
-    $col_stopid = $colid++ if ($colname eq 'stop_id');
-    $col_stopseq = $colid++ if ($colname eq 'stop_sequence');
-    $col_picktype = $colid++ if ($colname eq 'pickup_type');
-    $col_droptype = $colid++ if ($colname eq 'drop_off_type');
+    $col_tripid = $colid if ($colname eq 'trip_id');
+    $col_arrtime = $colid if ($colname eq 'arrival_time');
+    $col_deptime = $colid if ($colname eq 'departure_time');
+    $col_stopid = $colid if ($colname eq 'stop_id');
+    $col_stopseq = $colid if ($colname eq 'stop_sequence');
+    $col_picktype = $colid if ($colname eq 'pickup_type');
+    $col_droptype = $colid if ($colname eq 'drop_off_type');
+    $colid++;
   }
 #  printf("%u of %u recognised fields\n",$colid,scalar @colnames);
-#  error_exit("unknown fields",__LINE__) if ($colid < @colnames);
 
   my @lines = readline($stoptimes);
   close($stoptimes);
@@ -1692,7 +1709,7 @@ sub readstoptimes($)
     $routeid = $triproutes{$trip_id};
     $route_id = $routebyids{$routeid};
     if (exists $norouteids{$route_id}) { # filtered
-      info("filter $stop_id on route $route_id");
+      vrb("filter $stop_id on route $route_id");
       next;
     }
 
@@ -1717,19 +1734,20 @@ sub readstoptimes($)
     if (length($dep_time) and length($arr_time)) {
       ($thh,$tmm,$tss) = ($dep_time =~ $hhmmpat);
       ($tahh,$tamm,$tass) = ($arr_time =~ $hhmmpat);
-      $tdepsec = ($thh * 3600) + ($tmm * 60);
-      $tarrsec = ($tahh * 3600) + ($tamm * 60);
-      $tdepsec += $tss if defined $tss;
-      $tarrsec += $tass if defined $tass;
+      info("arrtime '$arr_time' line $linno $line") unless defined $tahh;
+      $tss = 0 unless defined $tss;
+      $tass = 0 unless defined $tass;
+      $tdepsec = ($thh * 3600) + ($tmm * 60) + $tss;
+      $tarrsec = ($tahh * 3600) + ($tamm * 60) + $tass;
     } elsif (length($dep_time)) {
+      $tss = 0 unless defined $tss;
       ($thh,$tmm,$tss) = ($dep_time =~ $hhmmpat);
-      $tdepsec = ($thh * 3600) + ($tmm * 60);
-      $tdepsec += $tss if defined $tss;
+      $tdepsec = ($thh * 3600) + ($tmm * 60) + $tss;
       $tarrsec = $tdepsec;
     } elsif (length($arr_time)) {
       ($tahh,$tamm,$tass) = ($arr_time =~ $hhmmpat);
-      $tarrsec = ($tahh * 3600) + ($tamm * 60);
-      $tarrsec += $tass if defined $tass;
+      $tass = 0 unless defined $tass;
+      $tarrsec = ($tahh * 3600) + ($tamm * 60) + $tass;
       $tdepsec = $tarrsec;
     } elsif ($prvtdep > 0 and $prvtarr > 0) {
       $tdepsec = $prvtdep;
@@ -1762,15 +1780,15 @@ sub readstoptimes($)
         $haid = $id;
         $did = $prvstopid;
         $aid = $stopid;
-        $htdep = $prvtdep;
-        $htarr = $tarrsec;
+        $htdep = int $prvtdep;
+        $htarr = int $tarrsec;
       } elsif ($seq < $prvseq)  { # back
         $haid = $prvid;
         $hdid = $id;
         $aid = $prvstopid;
         $did = $stopid;
-        $htdep = $tdepsec;
-        $htarr = $prvtarr;
+        $htdep = int $tdepsec;
+        $htarr = int $prvtarr;
       } else {
         warning("cannot sequence $seq dep $tdepsec arr $tarrsec vs $prvseq $prvtdep $prvtarr at line $linno");
         next;
@@ -1818,11 +1836,11 @@ sub readstoptimes($)
 
     $ttcnt++;
 
-    progress("line %u of %u",$linno,$linecnt) if ($linno % 100000) == 0;
+    progress("line %u of %u",$linno,$linecnt) if $linno == 1 or ($linno % 100000) == 0;
 
   } # each line
-
-  info("\n$ttcnt time entries, $nottcnt skipped, $hopcnt hops");
+  print "\n";
+  info("$ttcnt time entries, $nottcnt skipped, $hopcnt hops");
 
   # merge connectivity to parents
   my ($pid,$stoplst,@sibstop,$ndep,$narr);
@@ -2099,7 +2117,7 @@ sub writext($$)
     warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
 
     for ($timendx = 5; $timendx < $timecnt * 5; $timendx += 5) {
-      $prvsid = $sid; $prvtid = $tid; $prvtdep = $tdep; $prvtarr = $tarr; $prvseq = $seq;
+      $prvsid = $sid; $prvtid = $tid; $prvtdep = $tdep; $prvtarr = $tarr;
       ($sid,$tid,$tdep,$tarr,$seq) = @times[$timendx .. $timendx + 4];
 
       warning("tdep $tdep after tarr $tarr") if $tdep > $tarr;
@@ -2128,11 +2146,17 @@ sub writext($$)
     }
     printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x\tD%u\t%s%s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$timecnt,$timestr,$xinfo);
     $hopno++;
+    progress("hop %u of %u",$hopno,$hopcnt) if $hopno == 1 or ($hopno % 10000) == 0;
   }
   return error("wrote 0 hops",__LINE__) if $hopno == 0;
+  print "\n";
   info("wrote $hopno hops");
   return 1;
 }
+
+# main program starts here
+
+my $starttime = time();
 
 my ($arg,$opt,$cmd,$indir,$outdir);
 my @args;
@@ -2182,7 +2206,7 @@ if (@args > 0) {
   else { info("unknown command"); }
 }
 
-my $usertime = times();
+my $usertime = time() - $starttime;
 if ($usertime > 60) { info("elapsed time " . int($usertime / 60) . " min " . $usertime % 60 . " sec"); }
 else { info("elapsed time $usertime seconds"); }
 

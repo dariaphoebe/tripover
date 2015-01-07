@@ -33,7 +33,7 @@
 #endif
 
 // max number of partitions
-#define Npart 1024
+#define Npart 8192
 
 #define Nlocal 4
 // #define Nxpart 4
@@ -190,7 +190,7 @@ struct sidtable {
 struct network {
   ub4 part;
   ub4 portcnt,zportcnt;
-  ub4 hopcnt,zhopcnt,chopcnt;
+  ub4 hopcnt,zhopcnt,whopcnt,chopcnt;
 
   ub4 routecnt;
   ub4 carriercnt;
@@ -238,6 +238,7 @@ struct network {
 // connection matrices. cached separately ?
   ub2 *con0cnt;    // [port2]  0-stop connections
   ub4 *con0ofs;    // [port2]  offsets in lst
+  ub4 *walknet;    // [port2]
 
   ub4 histop;      // highest n-stop connections inited
   ub4 maxstop;     // highest n-stop connections to be inited

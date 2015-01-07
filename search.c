@@ -216,7 +216,7 @@ static ub4 nxtevs(search *src,ub8 *events,ub2 *evmaps,ub4 leg,struct timepat *tp
       }
       x = ev[gndx * 2 + 1];
       gndx++;
-      if (midur != hi32) dur = midur;
+      if (midur != hi32) dur = midur; // todo compound
       else dur = (x >> 32);
       dt = dur + t + adt - at; // accumulate total trip time
       if (dt >= dthi) { gndx++; continue; }
@@ -294,7 +294,7 @@ static ub4 prvevs(search *src,ub4 leg)
     if (dt < lodt) { lodt = dt; loadev = adndx; }
     adndx++;
   }
-  if (loadev == hi32) return warn(0,"no preceding dep at leg %u between \ad%u and \ad%u",aleg,at,t);
+  if (loadev == hi32) return warn(0,"no preceding dep at leg %u between \ad%u and \ad%u",aleg,at,t); // todo
   src->devcurs[aleg] = loadev;
   return dt;
 }

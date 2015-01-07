@@ -447,14 +447,20 @@ int prepnet(netbase *basenet)
   such that each part has at least one port member of these H
   and each H has ports from each part
  */
-  ub4 aimpartsize = 1500; // todo configurable
+
+  // todo configurable
+  ub4 aimpartsize = 1500;
   ub4 aimcnt = max(3,portcnt / aimpartsize);
+
+  // todo do not use Npart below for intermediate calcs
+  error_ge(ridcnt,Npart);
 
   info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
 
   // todo: use initial part < rid, and inipartcnt * inipartcnt instead
   ub4 ridrid = ridcnt * ridcnt;
 
+  // todo ub2 and inipartcnt aka 'rid'cnt instead of Npart
   ub4 *portparts = alloc(Npart * portcnt,ub4,0xff,"part portparts",portcnt);
   ub4 *lportparts = alloc(Npart * portcnt,ub4,0xff,"part portparts",portcnt);
   ub4 *mpp,*dmpp,*ampp,*lmpp;
@@ -484,7 +490,7 @@ int prepnet(netbase *basenet)
   ub4 ppartcnt,fullcnt;
 
   /* start with each port as member of rid any hop is on
-   * todo: group into small number of nearby rids
+   * todo: group into small number of nearby rids ?
    */
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
@@ -808,7 +814,7 @@ int prepnet(netbase *basenet)
         if (ppm[rid2]) {
           error_eq(cnt,1);
           if (mi + 1 < cnt) mpp[mi] = mpp[--cnt]; // replace with last if have both
-          else { cnt--; break; }
+          else cnt--;
         } else { mpp[mi] = rid2; ppm[rid2] = 1; }
         ppm[rid] = 0;
       }
@@ -832,7 +838,7 @@ int prepnet(netbase *basenet)
           error_eq(lcnt,1);
           if (rid == 2072 || port == 209) info(0,"port %u merge rid %u to %u at %u of %u",port,rid,rid2,mi,lcnt);
           if (mi + 1 < lcnt) lmpp[mi] = lmpp[--lcnt];
-          else { lcnt--; break; }
+          else lcnt--;
         } else {
           if (rid == 2072 || port == 209) info(0,"port %u merge rid %u to %u at %u of %u",port,rid,rid2,mi,lcnt);
           lmpp[mi] = rid2; lppm[rid2] = 1;
