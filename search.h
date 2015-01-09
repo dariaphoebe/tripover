@@ -27,6 +27,7 @@ struct srcctx {
   ub4 vias[Nvia];
   ub4 viacnt;
   ub4 deptmin,deptmax;
+  ub4 deptmin_cd,tspan;
   ub4 lostop,histop;
   ub4 stop;
   ub4 costlim;

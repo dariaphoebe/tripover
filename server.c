@@ -50,39 +50,77 @@ static ub4 msgfile;
 
 extern struct globs globs;
 
+static int memeq(const char *s,const char *q,ub4 n) { return !memcmp(s,q,n); }
+
 enum Cmds { Cmd_nil,Cmd_plan,Cmd_stop,Cmd_cnt };
 
 // to be elaborated: temporary simple interface
 static int cmd_plan(struct myfile *req,struct myfile *rep)
 {
-  char *lp = req->buf;
+  char *vp,*lp = req->buf;
   ub4 n,pos = 0,len = (ub4)req->len;
-  ub4 dep,arr,lostop = 0,histop = 1;
+  ub4 ival;
+  ub4 varstart,varend,varlen,valstart,valend,type;
+  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 20150110,tspan = 3;
   int rv;
+  enum Vars { Cnone,Cdep,Carr,Ctdep,Ctspan,Clostop,Chistop } var;
   search src;
 
   if (len == 0) return 1;
 
-  n = str2ub4(lp,&dep);
-  if (n == 0) return error(0,"expected integer departure port for %s",lp);
-  pos += n;
-  while (pos < len && lp[pos] == ' ') pos++;
-  if (pos == len) return error(0,"missing arrival port for %s",lp);
-  n = str2ub4(lp+pos,&arr);
-  if (n == 0) return error(0,"expected integer arrival port for %s",lp);
-  pos += n;
-  while (pos < len && lp[pos] == ' ') pos++;
-  if (pos < len && lp[pos] != '\n') {
-    if (str2ub4(lp+pos,&histop) == 0) {
-      warning(0,"expected integer number of stops in '%s'",lp);
-      histop = 1;
+  while (pos < len && lp[pos] >= 'a' && lp[pos] <= 'z') {
+    ival = 0;
+    varstart = varend = pos;
+    while (varend < len && lp[varend] >= 'a' && lp[varend] <= 'z') varend++;
+    varlen = varend - varstart; pos = varend;
+    if (varlen == 0) break;
+
+    while (pos < len && lp[pos] == ' ') pos++;
+    if (pos == len) break;
+    type = lp[pos++];
+    if (type == '\n' || pos == len) break;
+    while (pos < len && lp[pos] == ' ') pos++;
+
+    valstart = valend = pos;
+    while (valend < len && lp[valend] != '\n') valend++;
+    if (valend == len) break;
+    pos = valend;
+    while (pos < len && lp[pos] != '\n') pos++;
+    if (lp[pos] == '\n') pos++;
+    if (pos == len) break;
+    lp[valend] = 0;
+
+    if (type == 'i') {
+      n = str2ub4(lp + valstart,&ival);
+      if (n == 0) return error(0,"expected integer for %s",lp + valstart);
+    }
+    vp = lp + varstart;
+    if (varlen == 3 && memeq(vp,"dep",3)) var = Cdep;
+    else if (varlen == 3 && memeq(vp,"arr",3)) var = Carr;
+    else if (varlen == 7 && memeq(vp,"deptmin",7)) var = Ctdep;
+    else if (varlen == 5 && memeq(vp,"tspan",5)) var = Ctspan;
+    else if (varlen == 6 && memeq(vp,"lostop",6)) var = Clostop;
+    else if (varlen == 6 && memeq(vp,"histop",6)) var = Chistop;
+    else var = Cnone;
+    switch (var) {
+    case Cnone: break;
+    case Cdep: dep = ival; break;
+    case Carr: arr = ival; break;
+    case Ctdep: tdep = ival; break;
+    case Ctspan: tspan = ival; break;
+    case Clostop:  lostop = ival; break;
+    case Chistop: histop = ival; break;
     }
   }
+
   if (dep == arr) warning(0,"dep %u equal to arr",dep);
+  oclear(src);
+
+  src.deptmin_cd = tdep;
+  src.tspan = tspan;
 
   // invoke actual plan here
-  info(0,"plan %u to %u in %u stop\as",dep,arr,histop);
-  oclear(src);
+  info(0,"plan %u to %u in %u to %u stop\as from %u for %u days",dep,arr,lostop,histop,tdep,tspan);
 
   rv = plantrip(&src,req->name,dep,arr,lostop,histop);
 

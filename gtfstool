@@ -17,8 +17,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 19;
-my $lastchanged = "7 jan 2015";
+my $version_min = 20;
+my $lastchanged = "8 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -28,6 +28,7 @@ my $license = "This work is licensed under the Creative Commons\n" .
 
 my $verbose = 0;
 my $dryrun = 0;
+my $testonly = 0;
 
 my $anaout = 0;
 my $anadir = '.';
@@ -58,15 +59,17 @@ my $ccmsg = '';
 local $SIG{__WARN__} = sub { print "$ccmsg $_[0]\n"; exit 1; };
 
 if (-t STDOUT) {
-  for my $bck (8 .. 0) {
-    rename($logname . '.' . $bck+1,$logname . '.' . $bck) if -f $logname . '.' . $bck;
+  for (my $bck = 8; $bck >= 0; $bck--) {
+    rename($logname . '.' . $bck,$logname . '.' . ($bck+1)) if (-f $logname . '.' . $bck);
   }
   rename($logname,$logname . '.0') if -f $logname;
-  open($logfd,'>',$logname) or print("cannot create $logname:$!");
+  open($logfd,'>:encoding(UTF-8)',$logname) or print("cannot create $logname:$!");
 }
 
 # unbuffered i/o
 my $orgfh = select STDOUT; $| = 1; select STDERR; $| = 1; select $orgfh;
+
+binmode(STDOUT,':utf8');
 
 sub basemsg($) {
   my ($m) = @_;
@@ -171,6 +174,7 @@ sub usage()
   $m .= "-h -help           show help and quit\n";
   $m .= "-a -analysis       enable analysis output\n";
   $m .= "-c -canonical      enable canonical output\n";
+  $m .= "-t -test           test only, no output\n";
   $m .= "-V -version        show version and quit\n";
   $m .= "-L -license        show license and quit\n\n";
   $m .= "commands:\n\n";
@@ -219,20 +223,14 @@ my $col_enddate   = $col_enum++;
 my $col_date      = $col_enum++;
 my $col_extype    = $col_enum++;
 
-my $col_tripid    = $col_enum++;
-my $col_headsign  = $col_enum++;
-my $col_direction = $col_enum++;
-my $col_arrtime   = $col_enum++;
-my $col_deptime   = $col_enum++;
-my $col_stopseq   = $col_enum++;
-my $col_picktype  = $col_enum++;
-my $col_droptype  = $col_enum++;
-
 my $col_routeid   = $col_enum++;
 my $col_routesname = $col_enum++;
 my $col_routelname = $col_enum++;
 my $col_routedesc = $col_enum++;
 my $col_routetype = $col_enum++;
+my $col_tripid    = $col_enum++;
+my $col_headsign  = $col_enum++;
+my $col_direction = $col_enum++;
 
 my $col_serviceid = $col_enum++;
 
@@ -866,10 +864,10 @@ sub readstops($)
         $sname = $stopnames{$candidate};
         $dist = geodist($slat,$slon,$lat,$lon);
         if ($name eq $sname and $dist < $infer_limit * 8) {
-#          info("infer common parent for '$name' within $dist of samenamed");
+          vrb("infer common parent for '$name' within $dist of samenamed");
           $sims{$candidate} .= $stopid . '_';
         } elsif ($dist < $infer_limit) {
-#          info("infer common parent for '$name' within $dist of '$sname'");
+           vrb("infer common parent for '$name' within $dist of '$sname'");
           $sims{$candidate} .= $stopid . '_';
         } elsif ($name eq $sname) {
 #          info("not infer common parent for '$name' within $dist of samenamed");
@@ -884,11 +882,11 @@ sub readstops($)
     if ($merge_dup_parent) {
       if ($isparent) {
         error_exit("duplicate parent id $stopid, first defined at line $parentids{$id}",__LINE__) if exists $parentids{$id};
-        $uniparent = $name . $lat . $lon;
+        $uniparent = $name . $ilat . $ilon;
         if (exists $uniparents{$uniparent}) {
           $parent = $uniparents{$uniparent};
           $parentdups{$id} = $parent;
-          info("dup parent $parent for $id");
+          info("merge duplicate id $parent for $id $name");
           $parentdupcnt++;
           next;
         } else { $uniparents{$uniparent} = $id; }
@@ -919,6 +917,18 @@ sub readstops($)
     error_exit("no parent at line $linno",__LINE__) unless defined $parent;
 
     $stops{$stopid} = join("\t",$name,$id,$parent,$ilat,$ilon,$code,$desc,$opt);
+  }
+
+  my (@sibstops,$stoplst);
+
+  while (($parent,$parent1) = each %parentdups) {
+    $stoplst = $parents{$parent};
+    $parents{$parent} = '';
+    $parents{$parent1} .= $stoplst;
+    @sibstops = split(' ',trimws($stoplst));
+    for $stopid (@sibstops) {
+      $parentbyid{$stopid} = $parent1;
+    }
   }
 
   my ($simname,$simdiff,$candidate2);
@@ -1612,8 +1622,11 @@ sub readstoptimes($)
   my ($dir) = @_;
 
   my ($stoptimes,$stoptimesname);
-  my ($col,$colname,$line,$fldend,$endq,$c,$req);
-  my ($route_id,$routeid,$trip_id,$tripid,$arr_time,$dep_time,$stop_id,$stopid,$dep);
+  my ($col,$colname,$line,$fldend,$endq,$c,$req,$tmpcol);
+
+  my ($route_id,$trip_id,$arr_time,$dep_time,$stop_id,$headsign);
+
+  my ($routeid,$tripid,$stopid,$dep);
   my ($route,$trip,$seq,$hop,$dep_id,$arr_id);
   my ($service_id,$sid,$t0,$t1,$day,$dows);
   my ($concnt,$depcnt,$arrcnt,$parent,$parentid);
@@ -1638,7 +1651,10 @@ sub readstoptimes($)
   my @colnames = split(',',$headline);
   my @knowncols;
   my @cols;
-  my $colid = 0;
+  my $colid = 1;  # use 0 for nonexistent
+
+  my ($col_tripid,$col_headsign,$col_direction,$col_arrtime,$col_deptime,$col_stopseq,$col_picktype,$col_droptype);
+  $col_tripid=0;$col_headsign=0;$col_direction=0;$col_arrtime=0;$col_deptime=0;$col_stopseq=0;$col_picktype=0;$col_droptype=0;
 
   foreach $colname (@colnames) {
     $col_tripid = $colid if ($colname eq 'trip_id');
@@ -1646,6 +1662,7 @@ sub readstoptimes($)
     $col_deptime = $colid if ($colname eq 'departure_time');
     $col_stopid = $colid if ($colname eq 'stop_id');
     $col_stopseq = $colid if ($colname eq 'stop_sequence');
+    $col_headsign = $colid if ($colname eq 'stop_headsign');
     $col_picktype = $colid if ($colname eq 'pickup_type');
     $col_droptype = $colid if ($colname eq 'drop_off_type');
     $colid++;
@@ -1681,11 +1698,8 @@ sub readstoptimes($)
   foreach $line (@lines) {
 
     $linno++;
-#    last if ($linno > 10000);
-    $c = chop $line;
-    $line .= $c if $c ne "\n";
 
-    @cols = split ',',$line;
+    @cols = ('',split ',',$line);
 
     $prvstop_id = $stop_id;
     $prvseq = $seq;
@@ -1696,8 +1710,24 @@ sub readstoptimes($)
     $dep_time = $cols[$col_deptime];
     $arr_time = $cols[$col_arrtime];
 
-    if (exists $stops2watch{$stop_id}) {
-      info("$stop_id $line");
+    if ($col_headsign != 0) {
+      $headsign = $cols[$col_headsign];
+      if (substr($headsign,0,1) eq '"') {
+        $headsign = substr $headsign,1;
+        if (substr($headsign,-1) ne '"') {  # need to rescan the line if comma in name
+          $tmpcol = $col_headsign + 1;
+          while (substr($cols[$tmpcol],-1) eq '"') { $headsign .= ',' . $cols[$tmpcol++]; }
+          chop $headsign;
+          $line =~ s/$headsign//;
+          @cols = ('',split ',',$line);
+          $trip_id = $cols[$col_tripid];
+          $stop_id = $cols[$col_stopid];
+          $seq = $cols[$col_stopseq];
+          $dep_time = $cols[$col_deptime];
+          $arr_time = $cols[$col_arrtime];
+        } else { $headsign = substr($headsign,0,-1); }
+        $headsign =~ $unquoter;
+      }
     }
 
     unless (exists($tripids{$trip_id})) {
@@ -1726,7 +1756,6 @@ sub readstoptimes($)
 
     if (exists($parentbyid{$stopid})) {
       $parent = $parentbyid{$stopid};
-      $parent = $parentdups{$parent} if exists $parentdups{$parent};
       $parentid = $parentids{$parent};
       $id = $parentid;
     } else { $id = $stopid; }
@@ -1790,7 +1819,8 @@ sub readstoptimes($)
         $htdep = int $tdepsec;
         $htarr = int $prvtarr;
       } else {
-        warning("cannot sequence $seq dep $tdepsec arr $tarrsec vs $prvseq $prvtdep $prvtarr at line $linno");
+        warning("sequence $seq equal to previous dep $tdepsec arr $tarrsec vs $prvseq $prvtdep $prvtarr at line $linno");
+        return 0;
         next;
       }
       warning("tdep $htdep after tarr $htarr line $linno d $thh:$tmm a $tahh:$tamm") if $htdep > $htarr;
@@ -1846,9 +1876,8 @@ sub readstoptimes($)
   my ($pid,$stoplst,@sibstop,$ndep,$narr);
 
   foreach $parent (keys %parents) {
-    $parent = $parentdups{$parent} if exists $parentdups{$parent};
-    $pid = $parentids{$parent};
     $stoplst = $parents{$parent};
+    $pid = $parentids{$parent};
     @sibstop = split(' ',trimws($stoplst));
     for $dep (@sibstop) {
 
@@ -1870,7 +1899,15 @@ sub readstoptimes($)
 
       $name = $stopnames{$stopid};
       if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
-        warning("stop $id $name is unconnected");
+        if (exists $parentbyid{$stopid}) {
+          $parent = $parentbyid{$stopid};
+          $parentid = $parentids{$parent};
+          if ($stopdeps[$parentid] == 0 and $stoparrs[$parentid] == 0) {
+            warning("stop $id $name and its parent station $parent is unconnected");
+          } else { vrb("stop $id $name is unconnectied, but its parent station $parent is"); }
+        } else {
+          warning("stop $id $name is unconnected")
+        }
       } elsif ($stopdeps[$stopid] == 0) {
         vrb("stop $id $name has no departures");
       } elsif ($stoparrs[$stopid] == 0) {
@@ -1949,6 +1986,8 @@ sub writext($$)
   my ($routeid,$rid,$rtype);
   my ($cnt);
 
+  return 1 if $testonly;
+
   info("writing tripover external format");
   return info("dryrun") if $dryrun;
 
@@ -1988,7 +2027,6 @@ sub writext($$)
     unless (defined $stopid) { warning("no id for stop $stop_id"); }
     next if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
 
-    $parent = $stopln[2];
     $lat = $stopln[3];
     $lon = $stopln[4];
     $stop_code = $stopln[5];
@@ -1998,6 +2036,9 @@ sub writext($$)
     $opts = 0 unless defined $opts;
 
 #    info("port '$stop_name' code '$stop_code' desc '$desc' opt '$opts'");
+
+    $parent = '';
+    $parent = $parentbyid{$stopid} if exists $parentbyid{$stopid};
 
     if (length($parent) > 0 and exists $parentids{$parent}) {
       warning("$parent equal to $stop_id") if $parent eq $stop_id;
@@ -2183,6 +2224,7 @@ foreach $arg (@ARGV) {
     elsif ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
     elsif ($opt eq 'a' or $opt eq 'analysis') { info('analysis output enabled'); $anaout = 1; }
     elsif ($opt eq 'c' or $opt eq 'canonical') { info('canonical output enabled'); $canonout = 1; }
+    elsif ($opt eq 't' or $opt eq 'testl') { info('test only, no output'); $testonly = 1; }
     elsif ($opt eq 'nobus') { $include_bus = 0; }
     elsif ($opt eq 'nometro') { $include_metro = 0; }
     elsif ($opt eq 'noferry') { $include_ferry = 0; }

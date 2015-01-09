@@ -195,10 +195,16 @@ int prepnet(netbase *basenet)
   bports = basenet->ports;
   for (port = 0; port < bportcnt; port++) {
     bpp = bports + port;
-    if (bpp->ndep == 0 && bpp->narr == 0) { info(0,"skip unconnected port %u %s",port,bpp->name); continue; }
-    // new ndep,narr filled lateron
-
     pp = ports + port;
+    nlen = bpp->namelen;
+    if (bpp->ndep == 0 && bpp->narr == 0) {
+      info(0,"skip unconnected port %u %s",port,bpp->name);
+      if (nlen) memcpy(pp->name,bpp->name,nlen);
+      pp->namelen = nlen;
+      continue;
+    }
+
+    // new ndep,narr filled lateron
     pp->valid = 1;
     pp->id = pp->allid = pp->gid = portcnt;
     pp->cid = bpp->cid;
@@ -1307,6 +1313,9 @@ int prepnet(netbase *basenet)
   gnet->partcnt = partcnt;
   gnet->portparts = gportparts;
 
+  afree(portparts,"part portparts");
+  afree(lportparts,"part portparts");
+
   // separate into partitions
   for (part = 0; part < partcnt; part++) {
     net = getnet(part);
@@ -1353,7 +1362,7 @@ int prepnet(netbase *basenet)
     pport = tcnt = 0;
     for (port = 0; port < portcnt; port++) {
       gp = ports + port;
-      if (gp->partcnt == 0) { info(0,"port %u is not in any part %s",port,gp->name); continue; }
+      if (gp->partcnt == 0) { warninfo(gp->ndep || gp->narr,0,"port %u is not in any part %s",port,gp->name); continue; }
 
       if (gportparts[port * partcnt + part] == 0) {
         if (part == tpart) gp->tpart = 0;

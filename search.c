@@ -489,7 +489,7 @@ static ub4 srclocal(ub4 callee,struct network *net,ub4 part,ub4 dep,ub4 arr,ub4 
     src->locvarcnt++;
   } while (v0 < cnt && cost > costlim && globs.sigint == 0);
 
-  if (src->trip.cnt == 0) return info(0,"no time for trip %u-%u",dep,arr);
+  if (src->trip.cnt == 0) return info(0,"no time for trip %u-%u on \ad%u-\ad%u",dep,arr,deptmin,deptmax);
 
   src->locsrccnt++;
 
@@ -1077,9 +1077,8 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 
   src->geodist = fgeodist(pdep,parr);
 
-  // todo mockup
-  deptmin = yymmdd2min(20140910,0);
-  deptmax = yymmdd2min(20140914,0);
+  deptmin = yymmdd2min(src->deptmin_cd,0);
+  deptmax = deptmin + src->tspan * 60 * 24;
 
   src->deptmin = deptmin;
   src->deptmax = deptmax;
@@ -1087,7 +1086,7 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 
   t0 = gettime_usec();
 
-  info(CC,"search dep %u arr %u %s to %s geodist %u",dep,arr,pdep->name,parr->name,src->geodist);
+  info(CC,"search dep %u arr %u on \ad%u-\ad%u %s to %s geodist %u",dep,arr,deptmin,deptmax,pdep->name,parr->name,src->geodist);
   conn = dosrc(net,nstoplo,nstophi,src,ref);
   info(0,"searched %u local variants in %u local searches %u noloc",src->avarxcnt,src->locsrccnt,src->locnocnt);
   info(0,"%u of %u depvars %u of %u midvars %u of %u arrvars %u stored",src->dvarxcnt,src->dvarcnt,src->tvarxcnt,src->tvarcnt,src->avarxcnt,src->avarcnt,src->varcnt);

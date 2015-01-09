@@ -69,7 +69,7 @@ int minmax2(ub2 *x, ub4 n, struct range *rp)
   return (n == 0);
 }
 
-int mkhist(ub4 *data, ub4 n,struct range *rp, ub4 ivcnt,ub4 *bins, const char *desc,enum Msglvl lvl)
+int mkhist(ub4 callee,ub4 *data, ub4 n,struct range *rp, ub4 ivcnt,ub4 *bins, const char *desc,enum Msglvl lvl)
 {
   ub4 lo,hi,i,v,iv;
 
@@ -88,6 +88,7 @@ int mkhist(ub4 *data, ub4 n,struct range *rp, ub4 ivcnt,ub4 *bins, const char *d
     if (v < lo) bins[ivcnt - 2]++;
     else if (v > hi) bins[ivcnt-1]++;
     else {
+      if (v - lo >= hi32 / ivcnt) errorfln(callee,Exit,FLN,"val %u out of range lo %u bins %u",v,lo,ivcnt);
       iv = (v - lo) * (ivcnt - 2) / (hi - lo);
       error_ge(iv,ivcnt);
       bins[iv]++;

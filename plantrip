@@ -21,8 +21,8 @@ use integer;
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 11;
-my $lastchanged = "4 jan 2015";
+my $version_min = 12;
+my $lastchanged = "8 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -50,15 +50,17 @@ my $logname = 'plantrip.log';
 my $logfd;
 
 if (-t STDOUT) {
-  for my $bck (8 .. 0) {
-    rename($logname . '.' . $bck+1,$logname . '.' . $bck) if -f $logname . '.' . $bck;
+  for (my $bck = 8; $bck >= 0; $bck--) {
+    rename($logname . '.' . $bck,$logname . '.' . ($bck+1)) if (-f $logname . '.' . $bck);
   }
   rename($logname,$logname . '.0') if -f $logname;
-  open($logfd,'>',$logname) or print("cannot create $logname:$!");
+  open($logfd,'>:encoding(UTF-8)',$logname) or print("cannot create $logname:$!");
 }
 
 # unbuffered i/o
 my $orgfh = select STDOUT; $| = 1; select STDERR; $| = 1; select $orgfh;
+
+binmode(STDOUT,':utf8');
 
 my %portnames;
 my %portpnames;
@@ -196,7 +198,7 @@ sub portbyname($)
   $plen = scalar(@plist);
   return $plist[0] if $plen == 1;
   info("$plen matches for $name");
-  if ($plen < 20) {
+  if ($plen < 40) {
     $seq = 1;
     foreach $id (@plist) {
       printf("%2u %s\n",$seq++,$portids{$id});
@@ -230,7 +232,7 @@ sub iplan($$$$$)
 {
   my ($dep,$arr,$stops,$dayrange,$startday) = @_;
 
-  my ($depname,$arrname);
+  my ($depname,$arrname,$qstr);
 
   if ($haveportrefs) {
     if (exists($portids{$dep})) { $depname = $portids{$dep}; }
@@ -247,8 +249,9 @@ sub iplan($$$$$)
 
   my $region = 'glob';
 
-  if (length($stops)) { query('p',$region,"$dep $arr $stops"); }
-  else { query('p',$region,"$dep $arr $dayrange $startday"); }
+  $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\ndeptmin i $startday\n";
+  if (length($stops)) { $qstr .= "histop i $stops\n"; }
+  query('p',$region,$qstr);
 }
 
 sub plan($$$$$)
@@ -297,6 +300,11 @@ sub query($$$)
 #  [0-9a-f]_  hex timestamp in sec plus _
 #  [0-9a-f]   hex client id
 #  .sub
+
+# file content:
+# list of (var type value) each on 1 line
+# var:  [a-z] dep arr
+# type [is] i = int s = string
 
   $stamp = time();
   $qname = sprintf("%s/%s_%s_%010x_%04x",$querydir,$cmd,$region,$stamp,$clientid);
@@ -442,7 +450,7 @@ if (@ARGV > 0) {
       elsif ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
       elsif ($opt eq 'h' or $opt eq 'help') { usage(); exit 1; }
       elsif ($opt eq 'V' or $opt eq 'version') { showvers(1); exit 1; }
-      else { info("ignring unknown option -$opt"); }
+      else { info("ignoring unknown option -$opt"); }
     } else {
       push(@args,$arg);
     }
@@ -460,7 +468,7 @@ if (@ARGV > 0) {
       if (@args > 4) { $dayrange = $args[4]; }
       else { $dayrange = 3; }
       if (@args > 5) { $startday = $args[5]; }
-      else { $startday = 20140916; } # eng provision: typ 
+      else { $startday = 20150110; } # eng provision: typ 
       plan($dep,$arr,$stops,$dayrange,$startday);
       agedir($querydir,time() - $agelimit);
     } elsif ($cmd eq 'iplan') {
@@ -471,7 +479,7 @@ if (@ARGV > 0) {
       if (@args > 4) { $dayrange = $args[4]; }
       else { $dayrange = 3; }
       if (@args > 5) { $startday = $args[5]; }
-      else { $startday = 20140916; } # eng provision: typ 
+      else { $startday = 20150110; } # eng provision: typ 
       iplan($dep,$arr,$stops,$dayrange,$startday);
       agedir($querydir,time() - $agelimit);
     } else { info("unknown command"); }

@@ -119,7 +119,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
 
   // fractal land to create net on
   mkheightmap(heightmap,Zmap);
-  mkhist(heightmap,Zmap,&zrange,Zhist,hist,"randnet",Vrb);
+  mkhist(caller,heightmap,Zmap,&zrange,Zhist,hist,"randnet",Vrb);
 
   lolat = lolon = hi32;
   hilat = hilon = 0;

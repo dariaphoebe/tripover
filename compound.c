@@ -137,7 +137,8 @@ int compound(struct network *net)
     }
     if (chainlen < 3) continue;
     infocc(rid == 1795,0,"rid %u rrid %u len %u",rid,rrid,chainlen);
-    warncc(chainlen > net->hichainlen,0,"rid %u rrid %u len %u max %u",rid,rrid,chainlen,net->hichainlen);
+    // 2 directions for a single route, plus variants
+    warncc(chainlen > net->hichainlen * 2 + 5,0,"rid %u rrid %u len %u max %u",rid,rrid,chainlen,net->hichainlen);
 
     if (chainlen > hichainlen) { hichainlen = chainlen; hirid = rid; }
     rawcmphopcnt += chainlen * chainlen;
