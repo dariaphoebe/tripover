@@ -189,8 +189,8 @@ struct sidtable {
 // holds all for a partition
 struct network {
   ub4 part;
-  ub4 portcnt,zportcnt;
-  ub4 hopcnt,zhopcnt,whopcnt,chopcnt;
+  ub4 portcnt;
+  ub4 hopcnt,whopcnt,chopcnt;
 
   ub4 routecnt;
   ub4 carriercnt;
@@ -200,8 +200,8 @@ struct network {
 
   ub4 chainhopcnt;
 
-  struct port *ports, *zports;
-  struct hop *hops,*zhops;
+  struct port *ports;
+  struct hop *hops;
   struct chain *chains;
 
   struct route *routes;   // not partitioned
@@ -224,14 +224,12 @@ struct network {
   ub4 *p2gport;      // [portcnt]
   ub4 *g2phop;       // [ghopcnt]
 
-  ub4 *port2zport; //  [portcnt]
-  ub4 *zport2port; //  [zportcnt]
+  ub4 *portsbyhop; // [chopcnt * 2] <dep,arr>
 
   ub4 *dist0;      // [portcnt2] distance
   ub4 *hopdist;    // [chopcnt] idem
-  ub4 *portsbyhop; // [chopcnt * 2] <dep,arr>
-  ub4 *choporg;    // [chopcnt * 2] <first,last>
   ub4 *hopdur;     // [chopcnt]
+  ub4 *choporg;    // [chopcnt * 2] <first,last>
 
   ub4 *mac2port;   // [nmac < portcnt]
 
@@ -276,6 +274,7 @@ struct network {
   ub4 *minis;
 
 };
+typedef struct network net;
 
 struct partition {
   ub4 bbox[9];
@@ -328,8 +327,9 @@ struct gnetwork {
   ub4 histop;     // highest n-stop connections inited
 
   ub4 hirrid;
-  ub4 maxvariants,routevarmask,hichainlen;
+  ub4 hichainlen;
 };
+typedef struct gnetwork gnet;
 
 struct trip {
   ub4 trip[Nxleg * 2]; // part,leg

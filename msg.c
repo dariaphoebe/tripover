@@ -935,7 +935,7 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
   if (cur == 0) {
     eta->cur = eta->end = 0;
     eta->stamp = eta->start = now;
-  } else if (cur >= end || now - eta->stamp < 2 * sec) return 0;
+  } else if (cur + 1 < end && now - eta->stamp < 2 * sec) return 0;
   eta->stamp = now;
 
   va_start(ap,fmt);

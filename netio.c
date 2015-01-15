@@ -400,14 +400,12 @@ struct cmdvars {
   ub4 linno;
 };
 
-static ub4 variants;
 static ub4 sumtimes;
 static ub4 rtype_walk;
 static ub4 rawtripcnt;
 static ub4 hitripid;
 
 static struct cmdvars hopvars[] = {
-  {"variants",8,1,&variants,0},
   {"walk_id",7,1,&rtype_walk,0},
   {"sumtimes",8,1,&sumtimes,0},
   {"trips",5,1,&rawtripcnt,0},
@@ -439,12 +437,13 @@ static int docmd(struct cmdvars *cvs,ub4 namelen,const char *name,ub4 linno,cons
       if (valcnt < nval) return parsewarn(FLN,fname,linno,0,"%s needs %u args, has %u",name,nval,valcnt);
       cv->linno = linno;
       for (n = 0; n < nval; n++) cv->pval[n] = vals[n];
-      if (nval) info(0,"var %s : %u",name,vals[0]);
+      if (nval == 1) info(0,"var %s : %u",name,vals[0]);
+      else if (nval > 1) info(0,"var %s : %u %u",name,vals[0],vals[1]);
       return 1;
     }
     cv++;
   }
-  return info(0,"ignore unknown cmd %s",name);
+  return parsewarn(FLN,fname,linno,0,"unknown cmd %s ignored",name);
 }
 
 static int showconstats(struct portbase *ports,ub4 portcnt)
@@ -453,6 +452,7 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
   ub4 nodep,noarr,nodeparr,udeparr1;
   ub4 hidep,hiarr,hidport,hiaport;
   ub4 port,ndep,narr,n;
+  char *name;
 
   ub4 constats[256];
   ub4 depstats[256];
@@ -469,19 +469,21 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
 
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
+    name = pp->name;
     ndep = pp->ndep; narr = pp->narr;
-    if (ndep == 0 && narr == 0) { warning(0,"port %u %u has no connections - %s",port,pp->id,pp->name); nodeparr++; }
-    else if (ndep == 0) { vrb(0,"port %u has no deps - %s",port,pp->name); nodep++; }
-    else if (narr == 0) { vrb(0,"port %u has no arrs - %s",port,pp->name); noarr++; }
+    if (ndep == 0 && narr == 0) { warning(0,"port %u %u has no connections - %s",port,pp->id,name); nodeparr++; }
+    else if (ndep == 0) { info(0,"port %u has no deps, %u arrs %s",port,narr,name); nodep++; }
+    else if (narr == 0) { info(0,"port %u has no arrs, %u deps %s",port,ndep,name); noarr++; }
     if (ndep < 16 && narr < 16) constats[(ndep << 4) | narr]++;
     depstats[min(ndep,depivs)]++;
     arrstats[min(narr,arrivs)]++;
     if (ndep > hidep) { hidep = ndep; hidport = port; }
     if (narr > hiarr) { hiarr = narr; hiaport = port; }
   }
-  genmsg(nodeparr ? Info : Vrb,0,"%u of %u ports without connection",nodeparr,portcnt);
+  if (nodeparr) warn(0,"%u of %u ports without connection",nodeparr,portcnt);
   if (nodep) info(0,"%u of %u ports without departures",nodep,portcnt);
   if (noarr) info(0,"%u of %u ports without arrivals",noarr,portcnt);
+
   for (ndep = 0; ndep < 3; ndep++) {
     for (narr = 0; narr < 3; narr++) {
       n = constats[(ndep << 4) | narr];
@@ -961,6 +963,7 @@ static int rdexttimes(netbase *net,const char *dir)
           tbox1 = timebox[1] = day2cd(daybox1);
           dtbox = daybox1 - daybox0 + 1;
         }
+        info(0,"timebox %u-%u = %u days",tbox0,tbox1,daybox1 - daybox0);
         if (utcofs12 < 1200) { warning(0,"UTCoffset %d below lowest -1100", utcofs12 - 1200); utcofs12 = 1200; }
         else if (utcofs12 > 1400 + 1200) { warning(0,"UTCoffset %u above highest +1400", utcofs12 - 1200); utcofs12 = 1200; }
         hh = utcofs12 / 100;
@@ -985,7 +988,7 @@ static int rdexttimes(netbase *net,const char *dir)
       valndx = 6;
 
       // overall date range in localtime days is daybox0 .. daybox1
-      // sids are based no this
+      // sids are based on this
       vrb(0,"rsid %x dow %x %u..%u +%u -%u",rsid,dow,t0_cd,t1_cd,addcnt,subcnt);
 
       if (addcnt > dtbox) {
@@ -996,8 +999,8 @@ static int rdexttimes(netbase *net,const char *dir)
         warninfo(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,subcnt,dtbox);
         subcnt = dtbox;
       }
-      if (valndx + addcnt + subcnt != valcnt) {
-//        parsewarn(FLN,fname,linno,colno,"expected 6 + %u + %u args, found %u",addcnt,subcnt,valcnt); todo
+      if (timespanlimit == hi32 && valndx + addcnt + subcnt != valcnt) {
+        parsewarn(FLN,fname,linno,colno,"expected 6 + %u + %u args, found %u",addcnt,subcnt,valcnt);
       }
 
       if (dow > 0x7f) return inerr(FLN,fname,linno,colno,"invalid dayofweek mask %x",dow);
@@ -1136,7 +1139,7 @@ static int rdexttimes(netbase *net,const char *dir)
   }
   net->rsid2sids = rsid2sids;
 
-  info(0,"read %u sids from %s, overall period %u to %u", sidcnt, fname,t0lo,t1hi);
+  info(0,"read %u sids from %s, overall period \ad%u to \ad%u", sidcnt, fname,t0lo,t1hi);
   net->sidcnt = sidcnt;
   net->sids = sids;
   net->sidmaps = sidmaps;
@@ -1148,7 +1151,7 @@ static int rdexttimes(netbase *net,const char *dir)
     gt0 = yymmdd2min(tbox0,utcofs);
     gt1 = yymmdd2min(tbox1,utcofs);
     if (gt0 != t0lo) { warning(0,"overall start %u != %u",gt0,t0lo); gt0 = t0lo; }
-     if (gt1 != t1hi) { warninfo(timespanlimit > 365,0,"overall end %u != %u",gt1,t1hi); gt1 = t1hi; }
+     if (gt1 != t1hi) { warninfo(timespanlimit > 365,0,"overall end \ad%u != \ad%u",gt1,t1hi); gt1 = t1hi; }
     if (gt1 <= gt0) { warning(0,"overall start %u beyond end %u",gt0,gt1); gt1 = gt0 + 1; }
   } else { gt0 = t0lo; gt1 = t1hi; }
   net->t0 = gt0; net->t1 = gt1;
@@ -1169,11 +1172,11 @@ static int rdexthops(netbase *net,const char *dir)
   struct extfmt eft;
   const char *fname;
 
-  ub4 hop,rawhopcnt,hopcnt;
+  ub4 hop,hop2,rawhopcnt,hopcnt;
   ub4 portcnt,subportcnt;
   ub4 chain,chaincnt;
   ub4 maxportid;
-  struct hopbase *hops,*hp;
+  struct hopbase *hops,*hp,*hp2;
   struct portbase *ports,*pdep,*parr;
   struct subportbase *subports,*sbp;
   struct sidbase *sids,*sp;
@@ -1185,7 +1188,7 @@ static int rdexthops(netbase *net,const char *dir)
   char *buf;
   ub4 len,linno,colno,val,namelen,valndx,id,idhi,maxid,maxrid,maxsid;
   ub4 depid,arrid,dep,arr,pid,rtype,routeid,timecnt;
-  char *name;
+  char *name,*dname,*aname;
   ub4 *vals;
   ub4 namemax = sizeof(hops->name) - 1;
   ub4 kinds[Kindcnt];
@@ -1316,9 +1319,15 @@ static int rdexthops(netbase *net,const char *dir)
       if (arr >= portcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest port %u",arr,portcnt);
       pdep = ports + dep;
       parr = ports + arr;
+      dname = pdep->name; aname = parr->name;
+
+      if (dep == arr) {
+        info(0,"line %u hop id %u dep %u id %u equal to arr id %u %s",linno,id,dep,depid,arrid,dname);
+        break;
+      }
 
       if (routeid != hi32) maxrid = max(maxrid,routeid);
-      else info(0,"hop %u has no route id %s to %s",hop,pdep->name,parr->name);
+      else info(0,"hop %u has no route id %s to %s",hop,dname,aname);
 
       if (timecnt && !sumtimes) return inerr(FLN,fname,linno,colno,"hop %u-%u has %u times, sumtimes var zero",depid,arrid,timecnt);
       if (timespos + timecnt > sumtimes) {
@@ -1360,7 +1369,7 @@ static int rdexthops(netbase *net,const char *dir)
         tndx++;
       }
 
-      hoplog(hop,1,"at %u %u-%u %s to %s",linno,dep,arr,pdep->name,parr->name);
+      hoplog(hop,1,"at %u %u-%u %s to %s",linno,dep,arr,dname,aname);
 
       while (vndx + 4 <= valndx && tndx < timecnt) {
         prvsid = rsid; prvtid = rtid; prvtdep = tdepsec; prvtarr = tarrsec;
@@ -1430,61 +1439,33 @@ static int rdexthops(netbase *net,const char *dir)
       }
       hoplog(hop,0,"t range %u-%u \ad%u \ad%u",ht0,ht1,ht0,ht1);
 
-      if (depid == arrid) return inerr(FLN,fname,linno,colno,"dep id %u,%x equal to arr id",depid,depid);
-      if (depid > maxportid) return inerr(FLN,fname,linno,colno,"dep id %u above highest port id %u",depid,maxportid);
-      else if (arrid > maxportid) return inerr(FLN,fname,linno,colno,"arr id %u above highest port id %u",arrid,maxportid);
+      parr = ports + arr;
+      pdep->ndep++;
+      parr->narr++;
+      if (pdep->parentsta) vrb(0,"hop %u dport %u %u %s",id,dep,pdep->id,dname);
+      if (parr->parentsta) vrb(0,"hop %u aport %u %u %s",id,arr,parr->id,aname);
 
-      dep = id2ports[depid];
-      if (dep == hi32) {
-        dep = subid2ports[depid];
-        if (dep >= subportcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest subport %u",dep,depid,subportcnt);
-        sbp = subports + dep;
-        pid = sbp->id;
-        dep = id2ports[pid];
-      }
-      if (dep >= portcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest port %u",dep,depid,portcnt);
-
-      arr = id2ports[arrid];
-      if (arr == hi32) {
-        arr = subid2ports[arrid];
-        if (arr >= subportcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest subport %u",arr,subportcnt);
-        sbp = subports + arr;
-        pid = sbp->id;
-        arr = id2ports[pid];
-      }
-      if (arr >= portcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest port %u",arr,portcnt);
-      pdep = ports + dep;
-
-      if (dep == arr) {
-        info(0,"line %u hop id %u dep %u id %u equal to arr id %u %s",linno,id,dep,depid,arrid,pdep->name);
-      } else {
-        parr = ports + arr;
-        pdep->ndep++;
-        parr->narr++;
-        if (pdep->parentsta) vrb(0,"hop %u dport %u %u %s",id,dep,pdep->id,pdep->name);
-        if (parr->parentsta) vrb(0,"hop %u aport %u %u %s",id,arr,parr->id,parr->name);
-
-        hp->id  = id;
-        hp->dep = dep;
-        hp->arr = arr;
+      hp->id  = id;
+      hp->dep = dep;
+      hp->arr = arr;
 
 // todo generalise
-        if (rtype_walk && rtype == rtype_walk) { hp->kind = Walk; kinds[Walk]++; routeid = hi32; }
-        else if (rtype == 0 || rtype == 1 || rtype == 2) { hp->kind = Rail; kinds[Rail]++; }
-        else if (rtype == 3) { hp->kind = Bus; kinds[Bus]++; }
-        else if (rtype == 4) { hp->kind = Ferry; kinds[Ferry]++; }
-        else { hp->kind = Unknown; kinds[Unknown]++; }
+      if (rtype_walk && rtype == rtype_walk) { hp->kind = Walk; kinds[Walk]++; routeid = hi32; }
+      else if (rtype == 0 || rtype == 1 || rtype == 2) { hp->kind = Rail; kinds[Rail]++; }
+      else if (rtype == 3) { hp->kind = Bus; kinds[Bus]++; }
+      else if (rtype == 4) { hp->kind = Ferry; kinds[Ferry]++; }
+      else { hp->kind = Unknown; kinds[Unknown]++; }
 
-        hp->rrid = routeid;
-        hp->namelen = namelen;
-        memcopy(hp->name,name,namelen);
-        maxid = max(maxid,id);
-        hp->timespos = timespos;
-        hp->timecnt = timecnt;
-        timespos += timecnt;
-        hp++;
-        hop++;
-      }
+      hp->rrid = routeid;
+      hp->namelen = namelen;
+      memcopy(hp->name,name,namelen);
+      maxid = max(maxid,id);
+      hp->timespos = timespos;
+      hp->timecnt = timecnt;
+      hp->valid = 1;
+      timespos += timecnt;
+      hp++;
+      hop++;
      break;  // newitem
 
     case Next: break;
@@ -1494,13 +1475,32 @@ static int rdexthops(netbase *net,const char *dir)
 
   } while (res < Eof);
 
+  hopcnt = hop;
+  progress(&eta,"reading hop %u of %u, \ah%u time entries",hop,hopcnt,timespos);
+
+#if 0
+  ub4 dupcnt = 0;
+
+  // check for duplicates
+  for (hop = 0; hop < hopcnt; hop++) {
+    if (progress(&eta,"checking hop %u of %u, %u dups",hop,hopcnt,dupcnt)) return 1;
+    hp = hops + hop;
+    for (hop2 = 0; hop2 < hop; hop2++) {
+      hp2 = hops + hop2;
+      if (hp2->dep != hp->dep || hp2->arr != hp->arr || hp2->rrid != hp->rrid) continue;
+      hp2->valid = 0;
+      dupcnt++;
+      warn(0,"hop %u and %u are duplicate %u-%u routeid %u",hop,hop2,hp->dep,hp->arr,hp->rrid);
+    }
+  }
+#endif
+
   net->timescnt = timespos;
 
   for (kind = 0; kind < Kindcnt; kind++) {
     val = kinds[kind];
     if (val) info(0,"%u %s hop\as",val,kindnames[kind]);
   }
-  hopcnt = hop;
 
   info(0,"%u hops, %u time entries",hopcnt,sumtimes);
 
@@ -1532,14 +1532,6 @@ static int rdexthops(netbase *net,const char *dir)
   net->hopcnt = hopcnt;
   net->hops = hops;
   net->hirrid = maxrid;
-
-  // lower routeid bits are variants
-  if (variants) varmask = ~(1 << variants);  // add lsb for direction
-  else varmask = hi32;
-  info(0,"%u possible variants, mask %x", variants,varmask);
-
-  net->maxvariants = variants;
-  net->routevarmask = varmask;
 
   net->hitripid = hitripid;
 

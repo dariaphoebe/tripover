@@ -42,7 +42,7 @@ void inicompound(void)
   iniassert();
 }
 
-static const ub4 maxperm = 80 * 80;
+static const ub4 maxperm = 130, maxperm2 = maxperm * maxperm;
 
 // add compound hops
 int compound(struct network *net)
@@ -55,10 +55,10 @@ int compound(struct network *net)
   ub4 rid,rrid,ridcnt = net->ridcnt;
   ub4 chain,chaincnt = net->chaincnt;
   ub4 chainhopcnt = net->chainhopcnt;
-  ub4 hichainlen = 0,hirid = 0;
+  ub4 hichainlen = 0,hirid = 0,hirrid = 0;
   struct hop *hp,*hops = net->hops;
   struct port *pdep,*parr,*ports = net->ports;
-  struct route *routes;
+  struct route *routes,*rp;
   struct chain *cp,*chains = net->chains;
   ub8 *chp,*chainhops = net->chainhops;
   ub8 *chmp,*chainmets = net->chainmets;
@@ -69,11 +69,11 @@ int compound(struct network *net)
   int docompound,dbg;
   ub4 chainlen,hopofs;
 
+  net->chopcnt = whopcnt;
+
   if (portcnt < 3) return info(0,"skip compound on %u port\as",portcnt);
   if (hopcnt < 2) return info(0,"skip compound on %u hop\as",hopcnt);
   if (ridcnt == 0) return info(0,"skip compound on no rids for %u hop\as",hopcnt);
-
-  net->chopcnt = whopcnt;
 
   error_zp(chainmets,0);
 
@@ -110,7 +110,7 @@ int compound(struct network *net)
     duprids[deparr] = rid;
   }
 
-  ub4 rawcmphopcnt = 0;
+  ub4 cnt,rawcmphopcnt = 0;
 
   routes = net->routes;
   chains = net->chains;
@@ -121,29 +121,25 @@ int compound(struct network *net)
   error_zp(routes,part);
   error_zp(chains,part);
 
+  // todo use chain-based loop as below to estimate
+  rrid = hi32;
   for (rid = 0; rid < ridcnt; rid++) {
-    chainlen = 0; rrid = hi32;
-    for (hop = 0; hop < hopcnt; hop++) {
-      hp = hops + hop;
-      if (hp->rid != rid) continue;
-      if (chainlen == 0) rrid = hp->rrid;
-      else if (rrid != hp->rrid) error(Exit,"hop %u rid %u rrid %u vs %u",hop,rid,hp->rrid,rrid);
-      dep = orgportsbyhop[hop * 2];
-      arr = orgportsbyhop[hop * 2 + 1];
-      pdep = ports + dep;
-      parr = ports + arr;
-      infocc(rid == 1795,0,"hop %u=%u %u-%u %s to %s",hop,hp->gid,dep,arr,pdep->name,parr->name);
-      chainlen++;
-    }
-    if (chainlen < 3) continue;
-    infocc(rid == 1795,0,"rid %u rrid %u len %u",rid,rrid,chainlen);
-    // 2 directions for a single route, plus variants
-    warncc(chainlen > net->hichainlen * 2 + 5,0,"rid %u rrid %u len %u max %u",rid,rrid,chainlen,net->hichainlen);
 
-    if (chainlen > hichainlen) { hichainlen = chainlen; hirid = rid; }
-    rawcmphopcnt += chainlen * chainlen;
+    rp = routes + rid;
+    hichainlen = rp->hichainlen;
+
+    if (hichainlen < 3) continue;
+    else if (hichainlen > maxperm) {
+      info(0,"limiting rid %u rrid %u len %u permutations to len %u",rid,rrid,hichainlen,maxperm);
+      hichainlen = maxperm;
+    }
+    cnt = hichainlen + 5;  // account for variants
+
+    rawcmphopcnt += cnt * cnt * 2;  // both directions
   }
-  info(0,"estimated %u compound hops, longest chain %u for rid %u",rawcmphopcnt,hichainlen,rid);
+  info(0,"estimated %u compound hops",rawcmphopcnt);
+
+  if (rawcmphopcnt == 0) return 0;
 
   newhopcnt = whopcnt + rawcmphopcnt;
 
@@ -163,7 +159,7 @@ int compound(struct network *net)
 
   ub4 ghop,hop1,hop2,dep1,arr2;
   ub4 dist1,dist2,midur1,midur2,dist = 0;
-  ub4 ci,ci1,ci2,pchlen,cnt,cmpcnt;
+  ub4 ci,ci1,ci2,pchlen,cmpcnt;
 
   ub4 pchain[Chainlen];
   ub4 pdeps[Chainlen];
@@ -203,7 +199,7 @@ int compound(struct network *net)
         parrs[pchlen] = arr;
         pmets[pchlen] = chmp[ci];
         pchlen++;
-        if (pchlen == Chainlen) { warning(0,"limiting rid %u chain to %u",rid,pchlen); break; }
+        if (pchlen == maxperm) { warning(0,"limiting rid %u chain to %u",rid,maxperm); break; }
       }
       cumpchainlen += pchlen;
       cumgchainlen += cnt;
@@ -249,9 +245,9 @@ int compound(struct network *net)
 
           chop++;
           cmpcnt++;
-          if (cmpcnt == maxperm) break;
+          if (cmpcnt >= maxperm2) break;
         }
-        if (cmpcnt == maxperm) {
+        if (cmpcnt >= maxperm2) {
           warning(0,"limiting compound on rid %u to %u combis",rid,cmpcnt);
           break;
         }

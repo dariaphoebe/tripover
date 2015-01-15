@@ -48,7 +48,8 @@ struct srcctx {
   ub4 varcnt;
   ub4 dvarcnt,tvarcnt,avarcnt,dvarxcnt,tvarxcnt,avarxcnt;
 
-  struct timepat *tps[Nxleg];
+  ub4 duraccs[Nxleg];
+
   ub4 dcnts[Nxleg];
   ub4 dtlos[Nxleg];
   ub4 dtcurs[Nxleg];

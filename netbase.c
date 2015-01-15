@@ -38,7 +38,7 @@ static netbase basenet;
 
 static const ub4 hop2watch = hi32; // tmp debug provision
 static const ub4 tid2watch = hi32;
-static const ub4 rrid2watch = 54273;
+static const ub4 rrid2watch = hi32;
 
 netbase *getnetbase(void) { return &basenet; }
 
@@ -331,15 +331,16 @@ int prepbasenet(void)
 
     if (progress(&eta,"hop %u of %u in pass 1, \ah%lu events",hop,hopcnt,cumevcnt)) return 1;
 
+    hp = hops + hop;
+    if (hp->valid == 0) continue;
+
     msgprefix(0,"hop %u",hop);
 
-    hp = hops + hop;
     dep = hp->dep;
     arr = hp->arr;
     error_ge(dep,portcnt);
     error_ge(arr,portcnt);
     error_eq(dep,arr);
-    hp->valid = 1;
     pdep = ports + dep;
     parr = ports + arr;
 
@@ -368,7 +369,7 @@ int prepbasenet(void)
     } else rid = hi32;
     hp->rid = rid;
 
-    if (rrid == rrid2watch) info(0,"hop %u rrid %u %s to %s",hop,rrid,pdep->name,parr->name);
+    if (rrid == rrid2watch || rid == 2477) info(0,"hop %u rrid %u rid %u %s to %s",hop,rrid,rid,pdep->name,parr->name);
 
     hoplog(hop,0,"rrid %x %u-%u %s to %s",rrid,dep,arr,pdep->name,parr->name);
 
@@ -463,10 +464,10 @@ int prepbasenet(void)
             error_ge(chcnt,cp->hoprefs);
             cp->hopcnt = chcnt + 1;
             cumhoprefs2++;
-            if (tid == tid2watch) info(0,"rrid %x tid %u hop %u at %u %s to %s",rrid,tid,hop,i,pdep->name,parr->name);
+            if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u at %u %s to %s",rrid,rid,tid,hop,i,pdep->name,parr->name);
           } else {
             pp = ports + cp->dep;
-            info(Iter,"rrid %x tid %u skip equal hop %u at %u %s to %s start %s",rrid,tid,hop,i,pdep->name,parr->name,pp->name);
+            warn(Iter,"rrid %x tid %u skip equal hop %u at %u %s to %s start %s",rrid,tid,hop,i,pdep->name,parr->name,pp->name);
             return 1;
           }
         }
@@ -580,7 +581,7 @@ int prepbasenet(void)
     cp = chains + chain;
     cnt = cp->hopcnt;
     chstats[min(cnt,ivhi)]++;
-    if (cnt == 0) { vrb(0,"chain %u has no hops",chain); continue; }
+    if (cnt == 0) { info(Iter,"chain %u rtid %u rrid %u has no hops",chain,cp->rtid,cp->rrid); continue; }
     else if (cnt > 2) {
       if (cnt > hichlen) { hichlen = cnt; hichain = chain; }
       if (cnt < lochlen) { lochlen = cnt; lochain = chain; }
@@ -622,9 +623,11 @@ int prepbasenet(void)
   for (iv = 0; iv <= ivhi; iv++) infocc(chstats[iv],0,"%u chain\as of length %u",chstats[iv],iv);
 
   // list shortest and longest chain
-  cp = chains + hichain;
   lochlen = min(lochlen,hichlen);
-  info(0,"\ah%u chains len %u .. %u at chain,rid %u %u and %u %u",cumchaincnt,lochlen,hichlen,lochain,chains[lochain].rid,hichain,cp->rid);
+  cp = chains + hichain;
+  rid = cp->rid; rrid = cp->rrid;
+  info(0,"\ah%u chains len %u .. %u",cumchaincnt,lochlen,hichlen);
+  info(0,"longest chain %u len %u rid %u rrid %u",hichain,hichlen,rid,rrid);
   cnt = cp->hopcnt;
   chp = chainhops + cp->hopofs;
   for (ci = 0; ci < cnt; ci++) {
@@ -633,9 +636,22 @@ int prepbasenet(void)
     hp = hops + hop;
     pdep = ports + hp->dep;
     parr = ports + hp->arr;
-    info(0,"chi hop %u %u-%u at \ad%u %s to %s",hop,hp->dep,hp->arr,tdep,pdep->name,parr->name);
+    info(0,"  hop %u %u-%u at \ad%u %s to %s",hop,hp->dep,hp->arr,tdep,pdep->name,parr->name);
   }
+
+  cnt = 0;
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    if (hp->rrid != rrid) continue;
+    pdep = ports + hp->dep;
+    parr = ports + hp->arr;
+    vrb(0,"  hop %u %u-%u %s to %s",hop,hp->dep,hp->arr,pdep->name,parr->name);
+    cnt++;
+  }
+  info(0,"%u hops on rid %u rrid %u",cnt,rid,rrid);
+
   cp = chains + lochain;
+  info(0,"shortest chain %u len %u rid %u rrid %u",lochain,lochlen,cp->rid,cp->rrid);
   cnt = cp->hopcnt;
   chp = chainhops + cp->hopofs;
   for (ci = 0; ci < cnt; ci++) {
@@ -644,7 +660,7 @@ int prepbasenet(void)
     hp = hops + hop;
     pdep = ports + hp->dep;
     parr = ports + hp->arr;
-    info(0,"clo hop %u %u-%u seq %u %s to %s",hop,hp->dep,hp->arr,tripseq,pdep->name,parr->name);
+    info(0,"  hop %u %u-%u seq %u %s to %s",hop,hp->dep,hp->arr,tripseq,pdep->name,parr->name);
   }
 
   // list chains per route
@@ -653,7 +669,7 @@ int prepbasenet(void)
   for (rid = 0; rid < ridcnt; rid++) {
     rp = routes + rid;
     cnt = rp->chaincnt;
-    vrb(0,"rid %u cnt %u",rid,cnt);
+    info(0,"rid %u rrid %u has %u chains",rid,rp->rrid,cnt);
     rp->chainofs = ridchainofs;
     ridchainofs += cnt;
   }
@@ -716,9 +732,11 @@ int prepbasenet(void)
 
     if (progress(&eta,"hop %u of %u in pass 2, \ah%lu events",hop,hopcnt,cumevcnt2)) return 1;
 
+    hp = hops + hop;
+    if (hp->valid == 0) continue;
+
     msgprefix(0,"hop %u",hop);
 
-    hp = hops + hop;
     dep = hp->dep;
     arr = hp->arr;
     timespos = hp->timespos;

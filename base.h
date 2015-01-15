@@ -3,7 +3,7 @@
 /*
    This file is part of Tripover, a broad-search journey planner.
 
-   Copyright (C) 2014 Joris van der Geer.
+   Copyright (C) 2014-2015 Joris van der Geer.
 
    This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
@@ -76,6 +76,8 @@ extern struct globs {
   ub4 maxports;
   ub4 maxhops;
   ub4 maxstops;
+
+  int netok;
 
   ub4 writext;
   ub4 writpdf;

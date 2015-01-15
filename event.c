@@ -154,6 +154,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
   }
 
   if (n) {
+    if (n + tp->evcnt == evlimit) warning(0,"hop %u exceeding event limit %u",hop,evlimit);
     tp->t0 = tlo; tp->t1 = thi;   // keep track of first and last actual departure
     hoplog(hop,0,"%u event\as tlo %u thi %u",n,tlo,thi);
   } else hoplog(hop,0,"no events in range %u-%u",tlo,thi);

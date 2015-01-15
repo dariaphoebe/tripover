@@ -37,6 +37,7 @@ static ub4 msgfile;
 #include "event.h"
 #include "condense.h"
 #include "compound.h"
+#include "partition.h"
 #include "search.h"
 
 struct globs globs;
@@ -76,6 +77,7 @@ static int init0(char *progname)
   ininetprep();
   inievent(0);
   inicondense();
+  inipartition();
   inicompound();
   inisearch();
 
@@ -98,6 +100,7 @@ static int getbasenet(void)
   ub4 portcnt = globs.maxports;
   ub4 hopcnt = globs.maxhops;
   netbase *basenet = getnetbase();
+  gnet *gnet;
   int rv;
 
   error_ovf(portcnt,ub2);
@@ -109,6 +112,9 @@ static int getbasenet(void)
       if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
       if (rv) return rv;
       if (dorun(FLN,Runprep)) rv = prepnet(basenet);
+      if (rv) return rv;
+      gnet = getgnet();
+      rv = partition(gnet);
       info(0,"rv %d",rv);
       return rv;
     } else return 0;
@@ -131,7 +137,7 @@ static int do_main(void)
 
   if (mknet(globs.maxstops)) return 1;
 
-  if (globs.testcnt > 1) {
+  if (globs.testcnt > 1 && globs.netok) {
     ub4 dep,arr,lostop = 0, histop = 3;
     int rv;
     search src;
@@ -142,7 +148,7 @@ static int do_main(void)
     arr = globs.testset[1];
     if (globs.testcnt > 3) {
       lostop = globs.testset[2];
-      histop= globs.testset[3];
+      histop = globs.testset[3];
     }
     info(0,"test plan %u to %u minstop %u maxstop %u",dep,arr,lostop,histop);
 
@@ -154,7 +160,7 @@ static int do_main(void)
 
   showmemsums();
 
-  if (dorun(FLN,Runserver)) {
+  if (globs.netok && dorun(FLN,Runserver)) {
     return serverloop();
   }
 

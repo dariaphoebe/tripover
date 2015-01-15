@@ -44,6 +44,7 @@ void inisearch(void)
 }
 
 static const ub4 fldcnt = 4;
+static const ub4 walkfreq = 5;
 
 static void inisrc(search *src,const char *desc,ub4 arg)
 {
@@ -129,7 +130,7 @@ static ub4 mkdepevs(search *src,ub8 *events,ub2 *evmaps,struct timepat *tp,struc
     }
   }
   src->dcnts[0] = dcnt;
-  src->tps[0] = tp;
+  src->duraccs[0] = tp->duracc;
   if (dcnt == 0) return 0;
 
   src->dtcurs[0] = lodur;
@@ -181,13 +182,13 @@ static ub4 nxtevs(search *src,ub8 *events,ub2 *evmaps,ub4 leg,struct timepat *tp
   if (t0 + gt0 > deptmax + src->dtlos[leg]) return info(Iter,"hop %u tt range \aD%u - \aD%u, dep window \aD%u - \aD%u",hp->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
   else if (t1 + gt0 <= deptmin + src->dtlos[leg]) return info(Iter,"hop %u tt range \aD%u - \aD%u, dep window \aD%u - \aD%u",hp->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
 
-  src->tps[leg] = tp;
+  src->duraccs[leg] = tp->duracc;
 
   ev = events + tp->evofs;
   map = evmaps + tp->dayofs;
 
-  atp = src->tps[aleg];
-  aev = events + atp->evofs;
+//  atp = src->tps[aleg];
+//  aev = events + atp->evofs;
 
   dev = src->depevs[leg];
   adev = src->depevs[aleg];
@@ -246,13 +247,128 @@ static ub4 nxtevs(search *src,ub8 *events,ub2 *evmaps,ub4 leg,struct timepat *tp
   return dcnt;
 }
 
+// forward existing evs, e.g. walk link after nonwalk
+static ub4 fwdevs(search *src,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
+{
+  struct timepat *atp;
+  ub4 deptmin = src->deptmin;
+  ub4 deptmax = src->deptmax;
+  ub4 aleg;
+  ub4 dcnt = 0;
+  ub4 gndx,agndx,dmax = Maxevs;
+  ub4 adndx,adcnt;
+  ub4 rt,t,tid,atid,at,dur,adur,lodt,lodev,loadev,dt,adt,*dev,*adev;
+  ub8 x,*ev,*aev;
+  ub2 *map;
+
+  error_z(leg,hop);
+
+  src->dcnts[leg] = 0;
+
+  if (leg < Nxleg - 1) {
+    src->dtcurs[leg] = src->dtcurs[leg+1] = hi32;
+    src->devcurs[leg] = src->devcurs[leg+1] = hi32;
+  }
+
+  aleg = leg - 1;
+  adcnt = src->dcnts[aleg];
+  if (adcnt == 0) return 0;
+
+  dev = src->depevs[leg];
+  adev = src->depevs[aleg];
+
+  t = at = 0;
+  lodt = hi32; lodev = loadev = hi32;
+  adndx = 0;
+  while (adndx < adcnt && dcnt < dmax) {
+    at = adev[timefld(adndx)];
+    adt = adev[dtfld(adndx)];
+    adur = adev[durfld(adndx)];
+    atid = adev[durfld(adndx)];
+
+    dt = adt + midur;
+    if (dt >= dthi) { adndx++; continue; }
+
+    dev[timefld(dcnt)] = at + midur;
+    dev[tidfld(dcnt)] = atid;
+    dev[dtfld(dcnt)] = dt;
+    dev[durfld(dcnt)] = midur;
+
+    if (dt < lodt) { lodt = dt; lodev = dcnt; loadev = adndx; }
+    dcnt++;
+
+    adndx++;
+  }
+  src->dcnts[leg] = dcnt;
+  if (dcnt == 0) return 0;
+
+  src->dtcurs[leg] = lodt;
+  src->devcurs[leg] = lodev;
+  src->devcurs[aleg] = loadev;
+  src->duraccs[leg] = 0;
+  infocc(src->varcnt < 20,Iter,"%u dep events for leg %u",dcnt,leg);
+  return dcnt;
+}
+
+// fill events with frequency, e.g. walk link before nonwalk or 'every x min' metro
+// leg0 only
+static ub4 frqevs(search *src,ub4 leg,ub4 hop,ub4 midur,ub4 freq,ub4 dthi)
+{
+  ub4 deptmin = src->deptmin;
+  ub4 deptmax = src->deptmax;
+  ub4 dcnt = 0;
+  ub4 gndx,agndx,dmax = Maxevs;
+  ub4 adndx,adcnt;
+  ub4 rt,t,tid,atid,at,dur,adur,lodt,lodev,loadev,dt,adt,*dev,*adev;
+  ub8 x,*ev,*aev;
+  ub2 *map;
+
+  error_nz(leg,hop);
+
+  src->dcnts[leg] = 0;
+
+  if (leg < Nxleg - 1) {
+    src->dtcurs[leg] = src->dtcurs[leg+1] = hi32;
+    src->devcurs[leg] = src->devcurs[leg+1] = hi32;
+  }
+
+  if (midur >= dthi) return 0;
+
+  dev = src->depevs[leg];
+
+  t = 0;
+  lodt = hi32; lodev = hi32;
+  while (t + deptmin < deptmax && dcnt < dmax) {
+
+    dt = midur;
+
+    dev[timefld(dcnt)] = t + deptmin;
+    dev[tidfld(dcnt)] = hi32;
+    dev[dtfld(dcnt)] = midur;
+    dev[durfld(dcnt)] = midur;
+
+    if (dt < lodt) { lodt = dt; lodev = dcnt; }
+    t += freq;
+    dcnt++;
+  }
+  src->dcnts[leg] = dcnt;
+  if (dcnt == 0) return 0;
+
+  src->dtcurs[leg] = lodt;
+  src->devcurs[leg] = lodev;
+  src->duraccs[leg] = 0;
+  infocc(src->varcnt < 20,Iter,"%u dep events for leg %u",dcnt,leg);
+  return dcnt;
+}
+
+// rescan back given the latest arrival to find best start
 static ub4 prvevs(search *src,ub4 leg)
 {
   struct timepat *atp;
   ub4 aleg;
   ub4 gndx,agndx;
   ub4 dcnt,adndx,adcnt;
-  ub4 rt,t,tid,at,dur,adur,lodt,lodev,loadev,dt,adt,*dev,*adev;
+  ub4 rt,t,tid,at,dur,duracc,adur,lodt,lodev,loadev,dt,adt,*dev,*adev;
   ub4 ttmax = 120; // todo
   ub8 x,*ev,*aev;
   ub2 *map;
@@ -266,7 +382,7 @@ static ub4 prvevs(search *src,ub4 leg)
   dcnt = src->dcnts[leg];
   error_z(dcnt,leg);
 
-  atp = src->tps[aleg];
+  duracc = src->duraccs[aleg];
 
   dev = src->depevs[leg];
   adev = src->depevs[aleg];
@@ -287,7 +403,7 @@ static ub4 prvevs(search *src,ub4 leg)
     adur = adev[durfld(adndx)];
 
     if (at + adur + ttmax < t) { adndx++; continue; }
-    else if (at + adur + atp->duracc >= t) break;
+    else if (at + adur + duracc >= t) break;
 
     dt = t - at;
 
@@ -378,8 +494,9 @@ static ub4 srclocal(ub4 callee,struct network *net,ub4 part,ub4 dep,ub4 arr,ub4 
   ub4 v0 = 0;
 
   ub4 portcnt = net->portcnt;
-  ub4 chopcnt = net->chopcnt;
   ub4 hopcnt = net->hopcnt;
+  ub4 whopcnt = net->whopcnt;
+  ub4 chopcnt = net->chopcnt;
   ub4 *choporg = net->choporg;
   ub4 midur,*hopdur = net->hopdur;
 
@@ -443,6 +560,9 @@ static ub4 srclocal(ub4 callee,struct network *net,ub4 part,ub4 dep,ub4 arr,ub4 
         hp = hops + l;
         tp = &hp->tp;
         evcnt = addevs(src,events,evmaps,leg,tp,hp,midur,hi32);
+      } else if (l < whopcnt) {
+        if (leg) evcnt = fwdevs(src,leg,l,midur,hi32);
+        else evcnt = frqevs(src,leg,l,midur,walkfreq,hi32);
       } else {
         l1 = choporg[l * 2];
         l2 = choporg[l * 2 + 1];
@@ -524,7 +644,7 @@ static ub4 srcxpart2(struct network *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
 {
   ub4 tpart = tnet->part;
   ub4 tportcnt,dportcnt,aportcnt;
-  ub4 hopcnt,thopcnt,ahopcnt,chopcnt,tchopcnt,achopcnt;
+  ub4 hopcnt,thopcnt,ahopcnt,chopcnt,tchopcnt,achopcnt,whopcnt,twhopcnt,awhopcnt;
   struct network *dnet,*anet;
   ub4 dep,arr,dmid,amid,depmid,tdepmid,tdmid,tamid,adepmid,amidarr;
   ub2 *cnts,*tcnts,*acnts,cnt,tcnt,acnt,var,tvar,avar;
@@ -547,7 +667,7 @@ static ub4 srcxpart2(struct network *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
   ub8 *events,*tevents,*aevents;
   ub2 *evmaps,*tevmaps,*aevmaps;
   ub4 evcnt;
-  struct hop *hp,*ahp,*hops,*thops,*ahops;
+  struct hop *hp,*hops,*thops,*ahops;
   struct timepat *tp;
   ub4 *choporg,*tchoporg,*achoporg;
   ub4 midur,*hopdur,*thopdur,*ahopdur;
@@ -573,6 +693,9 @@ static ub4 srcxpart2(struct network *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
   hopcnt = dnet->hopcnt;
   thopcnt = tnet->hopcnt;
   ahopcnt = anet->hopcnt;
+  whopcnt = dnet->whopcnt;
+  twhopcnt = tnet->whopcnt;
+  awhopcnt = anet->whopcnt;
   chopcnt = dnet->chopcnt;
   tchopcnt = tnet->chopcnt;
   achopcnt = anet->chopcnt;
@@ -684,6 +807,9 @@ static ub4 srcxpart2(struct network *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
           hp = hops + l;
           tp = &hp->tp;
           evcnt = addevs(src,events,evmaps,leg,tp,hp,midur,dthi);
+        } else if (l < whopcnt) {
+          if (leg) evcnt = fwdevs(src,leg,l,midur,dthi);
+          else evcnt = frqevs(src,leg,l,midur,walkfreq,dthi);
         } else {
           l1 = choporg[l * 2];
           l2 = choporg[l * 2 + 1];
@@ -745,6 +871,9 @@ static ub4 srcxpart2(struct network *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
               hp = thops + l;
               tp = &hp->tp;
               evcnt = addevs(src,tevents,tevmaps,tleg + nleg,tp,hp,midur,dthi);
+            } else if (l < twhopcnt) {
+              if (tleg) evcnt = fwdevs(src,tleg,l,midur,dthi);
+              else evcnt = frqevs(src,tleg,l,midur,walkfreq,dthi);
             } else {
               l1 = tchoporg[l * 2];
               l2 = tchoporg[l * 2 + 1];
@@ -809,7 +938,7 @@ static ub4 srcxpart2(struct network *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
               for (iv = 0; iv <= distiv; iv++) distsums[iv]++;
 
               evcnt = 0;
-              dtcur = hi32; ahp = NULL;
+              dtcur = hi32;
               for (aleg = 0; aleg < naleg; aleg++) {
                 l = avp[aleg];
                 midur = ahopdur[l];
@@ -818,6 +947,9 @@ static ub4 srcxpart2(struct network *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
                   hp = ahops + l;
                   tp = &hp->tp;
                   evcnt = addevs(src,aevents,aevmaps,aleg + nleg + ntleg,tp,hp,midur,dthi);
+                } else if (l < awhopcnt) {
+                  if (aleg) evcnt = fwdevs(src,aleg,l,midur,dthi);
+                  else evcnt = frqevs(src,aleg,l,midur,walkfreq,dthi);
                 } else {
                   l1 = achoporg[l * 2];
                   l2 = achoporg[l * 2 + 1];
@@ -828,7 +960,6 @@ static ub4 srcxpart2(struct network *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
                 if (evcnt == 0) break;
                 dtcur = src->dtcurs[aleg + nleg + ntleg];
                 if (dtcur >= topdts[topdt1]) break;
-                if (aleg == naleg - 1) ahp = hp;
               }
               if (evcnt == 0 || dtcur >= topdts[topdt1]) { avp += naleg; continue; }
 

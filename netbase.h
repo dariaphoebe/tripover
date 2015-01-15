@@ -287,8 +287,6 @@ struct networkbase {
 
   ub4 hitripid,hirrid,hichainlen;
 
-  ub4 maxvariants,routevarmask;
-
   sb2 *faremaps;
 };
 typedef struct networkbase netbase;

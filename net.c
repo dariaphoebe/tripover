@@ -140,6 +140,7 @@ static int mkwalks(struct network *net)
 
   ub4 geohist[64];
   ub4 iv,ivcnt = Elemcnt(geohist);
+  aclear(geohist);
   for (dep = 0; dep < portcnt; dep++) {
     for (arr = 0; arr < portcnt; arr++) {
       if (dep == arr) continue;
@@ -210,7 +211,6 @@ static int mkwalks(struct network *net)
 static int mknet0(struct network *net)
 {
   ub4 portcnt = net->portcnt;
-  ub4 zportcnt = net->zportcnt;
   ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
   ub4 whopcnt = net->whopcnt;
@@ -236,20 +236,15 @@ static int mknet0(struct network *net)
 
   if (portcnt == 0) return error(0,"no ports for %u hops net",hopcnt);
   if (hopcnt == 0) return error(0,"no hops for %u port net",portcnt);
-  error_z(zportcnt,portcnt);
   error_lt(chopcnt,hopcnt);
 
-  info(0,"init 0-stop connections for %u port %u hop network in %u zports",portcnt,hopcnt,zportcnt);
+  info(0,"init 0-stop connections for %u port %u hop network",portcnt,hopcnt);
 
   port2 = portcnt * portcnt;
-  zport2 = zportcnt * zportcnt;
 
   ports = net->ports;
   hops = net->hops;
   ub4 *choporg = net->choporg;
-
-  p2z = net->port2zport;
-  z2p = net->zport2port;
 
   portsbyhop = net->portsbyhop;
 
@@ -496,7 +491,7 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 varlimit,var12limit;
 
   // todo
-  ub4 portlimit = 6000;
+  ub4 portlimit = 7000;
   ub4 lstlimit = 1024 * 1024 * 128;
 
   ub4 dupcode,legport1,legport2;
@@ -1005,7 +1000,7 @@ static int mknetn(struct network *net,ub4 nstop)
           n2 = cnts2[midarr];
           if (n2 == 0) { mid++; continue; }
 
-          firstmid = min(firstmid,mid);
+          if (firstmid == hi32) firstmid = mid;
           n12 = n1 * n2;
 
           conofs1 = net->conofs[midstop1];
@@ -1126,9 +1121,9 @@ static int mknetn(struct network *net,ub4 nstop)
 
         // if none found for any dep-Mid-arr, but mid exists, use first one
         if (cnt && gen == 0 && firstmid != hi32) {
-          warn(Iter,"dep %u arr %u no conn for mid %u cnt %u distlim %u",dep,arr,firstmid,cnt,distlim);
+          info(Iter,"dep %u arr %u no conn for mid %u cnt %u distlim %u",dep,arr,firstmid,cnt,distlim);
           depmid = dep * portcnt + firstmid;
-          midarr = mid * portcnt + arr;
+          midarr = firstmid * portcnt + arr;
 
           error_z(cnts1[depmid],firstmid);
           error_z(cnts2[midarr],firstmid);
@@ -1268,13 +1263,13 @@ static int mknetn(struct network *net,ub4 nstop)
     }
     leftcnt = portcnt - arrcon - 1;
     if (leftcnt) {
-      vrb(0,"port %u lacks %u connection\as %s",dep,(ub4)leftcnt,pdep->name);
+      infovrb(nstop > 1,0,"port %u lacks %u connection\as %s",dep,(ub4)leftcnt,pdep->name);
       for (da = 1; da < nda; da++) {
         deparr = deparrs[da];
         if (deparr == hi32) break;
         arr = deparr % portcnt;
         parr = ports + arr;
-        vrb(0,"port %u no connection to %u %s",dep,arr,parr->name);
+        infovrb(nstop > 1,0,"port %u %s no connection to %u %s",dep,pdep->name,arr,parr->name);
       }
     }
   }
@@ -1694,14 +1689,14 @@ int mknet(ub4 maxstop)
 {
   ub4 portcnt,hopcnt;
   ub4 nstop,histop,part,partcnt;
-  int rv;
+  int rv,netok = 0;
   struct gnetwork *gnet = getgnet();
   struct network *net;
 
   if (dorun(FLN,Runmknet) == 0) return 0;
 
   partcnt = gnet->partcnt;
-  if (partcnt == 0) return info0(0,"skip init zero-partition net");
+  if (partcnt == 0) return warn(0,"no partitions for %u ports net",gnet->portcnt);
 
   for (part = 0; part < partcnt; part++) {
 
@@ -1714,7 +1709,7 @@ int mknet(ub4 maxstop)
     if (portcnt == 0) { info0(0,"skip mknet on 0 ports"); continue; }
     if (hopcnt == 0) { info0(0,"skip mknet on 0 hops"); continue; }
 
-    msgprefix(0,"s%u ",part);
+    msgprefix(0,"p%u/%u ",part,partcnt);
 
     rv = mkwalks(net);
     if (rv) return msgprefix(1,NULL);
@@ -1724,6 +1719,7 @@ int mknet(ub4 maxstop)
 
     if (dorun(FLN,Runnet0)) {
       if (mknet0(net)) return msgprefix(1,NULL);
+      netok = 1;
     } else continue;
 
     histop = maxstop;
@@ -1743,6 +1739,8 @@ int mknet(ub4 maxstop)
 
   } // each part
 
+  if (netok == 0) return 0;
+
   for (part = 0; part < partcnt; part++) {
     net = getnet(part);
     gnet->histop = min(gnet->histop,net->histop);
@@ -1754,6 +1752,7 @@ int mknet(ub4 maxstop)
 
   if (dogconn(caller,gnet)) return 1;
 
+  globs.netok = 1;
   return 0;
 }
 
