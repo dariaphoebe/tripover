@@ -10,15 +10,16 @@
 #  To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
 
 # primary use is to import gtfs feeds into tripover format.
-# feeds can be merged, filtered, or verified
-# optional export from tripover format to gtfs
+# see usage below
+# basic provisions for feed merge : no timezone handling
+# basic filtering on transport mode
 
 use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 21;
-my $lastchanged = "15 jan 2015";
+my $version_min = 22;
+my $lastchanged = "17 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -48,12 +49,13 @@ my $showmerge = 0;
 
 my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
 my $infer_parent = 0;   # infer parent when seemingly missing : seq
-my $infer_limit = 0.10;
-my $dup_limit = 0.20;
+my $infer_limit = 0.15;
+my $dup_limit = 0.25;
 
 my $geoacc = 5; # decimals for lat/lon in canon output
 
 my $omit_unconnect = 1;
+my $omit_noparent = 1;
 
 my $watchfile = 'watches.cfg';
 my $gtfscfgfile = 'gtfsfeed.cfg';
@@ -94,7 +96,7 @@ sub basemsg($) {
   return 1;
 }
 
-my $clron = sprintf('%c[0;32m',27);
+my $clron = sprintf('%c[1;36m',27); # 32 green 36 cyan
 my $clrof = sprintf('%c[0m',27);
 my $inprogress = 0;
 
@@ -310,6 +312,9 @@ my $parentdupcnt = 0;
 
 my %uniparents;
 my %parentdups;
+
+my @calendar;
+my @caldates;
 
 my %serviceids;
 my %noserviceids;
@@ -548,7 +553,7 @@ sub readagency($)
 
   my $linecnt = scalar(@lines);
 
-  my ($id,$name,$tzstr);
+  my ($id,$name,$url,$tzstr);
 
   info("$linecnt lines") if $linecnt > 1;
 
@@ -563,10 +568,11 @@ sub readagency($)
     $id = $cols[$col_id] if defined $col_id;
     $name = $cols[$col_name] if defined $col_name;
     $tzstr = $cols[$col_tz] if defined $col_tz;
+    $url = $cols[$col_url] if defined $col_url;
 
     $agencyname = $name unless defined $agencyname;  # todo: use first one as overall feed ID
 
-    push @agencies,join("\t",$id,$name,$tzstr);
+    push @agencies,join("\t",$id,$name,$url,$tzstr);
   }
   info("Agency: '$agencyname'") if $linecnt == 1;
   return 1;
@@ -943,13 +949,17 @@ sub readstops($)
     $hasparent = (length($rparent) > 0);
     if ($hasparent) {
       unless (exists($rstopids{$rparent})) {
-        warning("$id $name has nonexistent parent $rparent on line $stopid");
+        if ($omit_noparent) {
+          info("omitting emmber stop id $id $name on no parent $rparent line $rstopid");
+        } else {
+          warning("$id $name has nonexistent parent $rparent on line $rstopid");
+        }
         next;
       }
       $parentid = $stopmerge{$rstopids{$rparent}};
       $parent = $rstopbyid{$parentid};
       if ($parent ne $rparent) {
-        info("reparent $rparent to $parent for $id");
+        infovrb($showmerge,"reparent $rparent to $parent for $id");
         $rstops{$rstopid} = join("\t",$name,$lat,$lon,$ilat,$ilon,$parent,$loctype,$code,$desc);
       }
     }
@@ -958,10 +968,15 @@ sub readstops($)
   while (($id,$rstopid) = each %rstopids) { # stops
     ($name,$lat,$lon,$ilat,$ilon,$parent,$loctype,$code,$desc) = split("\t",$rstops{$rstopid});
 
+    $hasparent = (length($parent) > 0);
+    if ($hasparent) {
+      next unless exists($rstopids{$parent});
+    }
+
     $stopid = $stopmerge{$rstopid};
     $id = $rstopbyid{$stopid};
     if ($stopid != $rstopid) {
-      info("merge $name id $id $rstopid to $stopid");
+      infovrb($showmerge,"merge $name id $id $rstopid to $stopid");
       next;
     }
 
@@ -1063,10 +1078,8 @@ sub readstops($)
     }
 
     error_exit("no stop code for $rstopid") unless defined $code;
-
     error_exit("no id for $rstopid") unless defined $id;
     error_exit("no parent for $rstopid") unless defined $parent;
-
     error_exit("duplicate stop $stopid for $rstopid") if exists $stops{$stopid};
 
     $stops{$stopid} = join("\t",$name,$ilat,$ilon,$code,$desc,$opt);
@@ -1137,8 +1150,8 @@ sub readstops($)
       $parents{$newparent} .= $stopid . ' ';
       $parentbyid{$stopid} = $newparent;
       $stopstr = $stops{$stopid};
-      ($name,$id,$parent,$ilat,$ilon,$code,$desc,$opt) = split("\t",$stopstr);
-      $stops{$stopid} = join("\t",$name,$id,$ilat,$ilon,$code,$desc . ' infer',$opt_childstop);
+      ($name,$ilat,$ilon,$code,$desc,$opt) = split("\t",$stopstr);
+      $stops{$stopid} = join("\t",$name,$ilat,$ilon,$code,$desc . ' infer',$opt_childstop);
     }
     $stops{$newparentid} = join("\t",$name . '-parentsta',$ilat,$ilon,$code,$desc . ' infer',$opt_parentstop);
   }
@@ -1191,7 +1204,7 @@ sub readroutes($)
 
   my ($routefile,$routefname);
   my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$routeid,$name,$slname,$rtype,$modename);
+  my ($route_id,$agency_id,$routeid,$name,$slname,$rtype,$modename);
 
   $routefname = $dir . '/' . 'routes.txt';
 
@@ -1293,7 +1306,8 @@ sub readroutes($)
     $rtypes{$routeid} = $rtype;
 
     if (filtermode($rtype)) {
-      push(@routes,join("\t",$route_id,$slname,$rtype));
+      $agency_id = '';
+      push(@routes,join("\t",$route_id,$agency_id,'',$slname,$rtype));
     } else {
       $noroutecnt++;
       if ($rtype < @modenames) { $modename = $modenames[$rtype]; }
@@ -1313,7 +1327,8 @@ sub readroutes($)
   $routeids{$route_id} = $walkroute;
   $routebyids{$walkroute} = $route_id;
   $rtypes{$walkroute} = $rtype;
-  push(@routes,join("\t",$route_id,$slname,$rtype));
+  $agency_id = '';
+#  push(@routes,join("\t",$route_id,$agency_id,'',$slname,$rtype));
 
   info("add inferred walk route $walkroute as type $rtype");
   $routecnt = scalar(@routes);
@@ -1383,7 +1398,7 @@ sub readtrips($)
 
     $line .= ',';
 
-    $trip_id = ''; $route_id = ''; $service_id = ''; $dirid = '';
+    $trip_id = ''; $route_id = ''; $service_id = ''; $dirid = ''; $headsign = '';
     foreach $col (@cols) {
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
@@ -1443,7 +1458,7 @@ sub readtrips($)
 
     if (exists($norouteids{$route_id})) {  # filtered
     } elsif (exists($routeids{$route_id})) {
-      push(@trips,join("\t",$routeid,$service_id,$trip_id,$dirid));
+      push(@trips,join("\t",$route_id,$service_id,$trip_id,$headsign,$dirid));
       $tripservice{$trip_id} = $service_id;
     } else {
       warning("$linno: undefined route id $route_id");
@@ -1473,9 +1488,10 @@ sub readcalendar($)
   info("reading $calfname");
   return info("dryrun") if $dryrun;
 
-  open($calfile,'<',$calfname) or return info("no $calfname");
+  open($calfile,'<',$calfname) or return info("optional $calfname not present");
   my $headline = readline($calfile);
-  error_exit("$calfname is empty") unless defined $headline and length($headline);
+  return info("optional $calfname is empty") unless defined $headline and length($headline);
+
   $c = chop $headline;
   $headline .= $c if $c ne "\n"; 
   $c = chop $headline;
@@ -1509,7 +1525,7 @@ sub readcalendar($)
 
   my @lines = readline($calfile);
   close($calfile);
-  error_exit("$calfname is empty") unless (@lines > 0);
+  return info("optional $calfname is empty") unless (@lines > 0);
 
   my $linno = 1;
   my $analines = '';
@@ -1601,6 +1617,7 @@ sub readcalendar($)
     if (defined $rsids2watch{$sid} or defined $rsids2watch{'*'}) {
       $analines .= sprintf("rsid %02x.%02u: $t0 .. $t1 at $dows %x '$service_id'\n",$sid,$sid,$dow);
     }
+    push @calendar,join("\t",$service_id,$dow[6],$dow[5],$dow[4],$dow[3],$dow[2],$dow[1],$dow[0],$t0,$t1);
   } # each line
 
 # dummy for unknown
@@ -1730,6 +1747,7 @@ sub readcaldates($)
           push (@{ $servicesub{$sid} },$date);
         }
       }
+      push @caldates,join("\t",$service_id,$date,$extype);
     } elsif (exists($noserviceids{$service_id})) {
       vrb("$linno: service id $service_id previously filtered at calendar : $noserviceids{$service_id}");
       next;
@@ -1747,6 +1765,7 @@ sub readcaldates($)
       $servicesub{$sid} = [($date)] if $extype == 2;
       $mint0 = min($date,$mint0);
       $maxt1 = max($date,$maxt1);
+      push @caldates,join("\t",$service_id,$date,$extype);
     }
   } # each line
 
@@ -1991,7 +2010,7 @@ sub readstoptimes($)
     $stopid = $stopmerge{$rstopid};
 
     unless (exists $stop_ids{$stopid}) {
-      warning("unknown stop ID $stopid");
+      warning("unknown stop ID $stopid line $linno"); # todo : at merge
       next;
     }
     $stop_id = $stop_ids{$stopid};
@@ -2021,7 +2040,7 @@ sub readstoptimes($)
     } elsif ($prvtrip == $tripid and not $lastline) {
       push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time));
     } else {
-      warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1;
+      warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1; # todo
       @newstrip = sort { substr($a,0,3) <=> substr($b,0,3) } @newtrip;
 
       @newtrip = ();
@@ -2042,7 +2061,10 @@ sub readstoptimes($)
 
         ($seq,$xtripid,$id,$dep_time,$arr_time) = split("\t",$tripline);
 
-        return error("trip ID '$xtripid' mismatches '$prvtrip' $tripline") if $xtripid ne $prvtrip;
+        if ($xtripid ne $prvtrip) { # todo: at merge
+          warning("trip ID '$xtripid' mismatches '$prvtrip' $tripline");
+          last;
+        }
         return error("trip ID '$xtripid' unsorted sequence $seq") if $seq < $prvseq;
 
         if (length($dep_time) and length($arr_time)) {
@@ -2168,7 +2190,7 @@ sub writext($$)
   my ($indir,$outdir) = @_;
 
   my ($name,$portfile,$hopfile,$stop,$stopid,$hop,$route,$hopid);
-  my ($dep_id,$arr_id,$dep,$arr,$fstopcnt,$depname,$arrname);
+  my ($dep_id,$arr_id,$dep,$arr,$depname,$arrname);
   my ($routeid,$rid,$rtype);
   my ($cnt);
 
@@ -2177,21 +2199,14 @@ sub writext($$)
   info("writing tripover external format");
   return info("dryrun") if $dryrun;
 
-  $fstopcnt = $cnt = 0;
-  for $stopid (values %stopids) {
-    $fstopcnt++ if ($stopdeps[$stopid] > 0 or $stoparrs[$stopid] > 0);
-  }
-  $cnt = $stopcnt - $fstopcnt;
-  warning("$cnt unconnected ports") if $fstopcnt < $stopcnt;
-
   my $portname = $outdir . '/ports.txt';
-  iniext($portname,$fstopcnt);
+  iniext($portname,$stopcnt);
 
   open($portfile,'>:encoding(UTF-8)',$portname) or error_exit("cannot create $portname:$!");
 
   print($portfile "# ports.txt - tripover external port aka stops file\n\n");
   printf($portfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
-  printf($portfile "# %u ports from %s/stops.txt\n\n",$fstopcnt,$indir);
+  printf($portfile "# %u ports from %s/stops.txt\n\n",$stopcnt,$indir);
 
   printf($portfile ".latscale\tD%u\n",$latscale);
   printf($portfile ".lonscale\tD%u\n\n",$lonscale);
@@ -2208,7 +2223,7 @@ sub writext($$)
 
     $stop_id = $stop_ids{$stopid};  # gtfs-view : stop_id.parent = stopid@tripover
 
-    next if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+#    next if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
 
     $stop_code = '' unless defined $stop_code;
     $opts = 0 unless defined $opts;
@@ -2227,10 +2242,11 @@ sub writext($$)
       $portcnt++;
     }
 
+#    info("name $stop_name id $stopid_to sub $stopid lat $ilat lon $ilon opt $opts id $stop_id code $stop_code parent $parent\n");
     printf($portfile "%s\t%x\t%x\t%x\t%x\t%x\t# id %s code %s %s\n",$stop_name,$stopid_to,$stopid,$ilat,$ilon,$opts,$stop_id,$stop_code,$parent);
   }
   close($portfile);
-  info("wrote $fstopcnt stops to $portcnt ports");
+  info("wrote $stopcnt stops to $portcnt ports");
 
   my $timefile;
   my $timename = $outdir . '/times.txt';
@@ -2372,13 +2388,37 @@ sub writext($$)
 
 sub writegtfs()
 {
-  my ($stopsfile,$stoptimfile);
+  my ($stopsfile,$calendarfile,$caldatesfile,$routesfile,$tripsfile,$stoptimfile,$agencyfile);
   my ($line);
 
   my ($name,$id,$parent,$lat,$lon,$ilat,$ilon,$code,$desc,$opt);
   my ($loctype,$stopid,$stopstr);
 
+  my ($mon,$tue,$wed,$thu,$fri,$sat,$sun,$startdate,$enddate,$date,$extype);
+
+  my ($route_id,$shortname,$longname,$rtype);
+
+  my ($service_id,$headsign,$dir);
+
   my ($tripid,$trip_id,$stop_id,$seq,$dep_time,$arr_time);
+
+  my ($agency_id,$agency_name,$agency_url,$agency_timezone);
+
+# agency
+
+  info("writing canonical agency.txt");
+  open($agencyfile,'>:encoding(UTF-8)',$canondir . '/agency.txt') or return 0;
+  print($agencyfile "agency_id,agency_name,agency_url,agency_timezone\n");
+
+  foreach $line (@agencies) {
+    ($agency_id,$agency_name,$agency_url,$agency_timezone) = split("\t",$line);
+    $agency_name =~ tr','`';
+    print($agencyfile "$agency_id,$agency_name,$agency_url,$agency_timezone\n");
+  }
+  close($agencyfile);
+  info("wrote canonical agency.txt");
+
+# stops
 
   info("writing canonical stops.txt");
   open($stopsfile,'>:encoding(UTF-8)',$canondir . '/stops.txt') or return 0;
@@ -2386,8 +2426,6 @@ sub writegtfs()
   while (($stopid,$stopstr) = each %stops) {
 
     ($name,$ilat,$ilon,$code,$desc,$opt) = split("\t",$stopstr);
-
-    next if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
 
     $id = $stop_ids{$stopid};  # gtfs-view : stop_id.parent = stopid@tripover
 
@@ -2397,7 +2435,10 @@ sub writegtfs()
     $parent = '';
     $parent = $idprefix . $parentbyid{$stopid} if exists $parentbyid{$stopid};
 
-    $loctype = ($opt == $opt_parentstop) ? 1 : 0;
+    $loctype = ($opt & $opt_parentstop) ? 1 : 0;
+
+    next if ($omit_unconnect and $loctype == 1 and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+
     $name =~ tr','`';
     $desc =~ tr','`';
 
@@ -2409,6 +2450,71 @@ sub writegtfs()
   }
   close($stopsfile);
   info("wrote canonical stops.txt");
+
+# calendar
+
+  if (@calendar > 0) {
+    info("writing canonical calendar.txt");
+    open($calendarfile,'>:encoding(UTF-8)',$canondir . '/calendar.txt') or return 0;
+    print($calendarfile "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n");
+
+    foreach $line (@calendar) {
+      ($service_id,$mon,$tue,$wed,$thu,$fri,$sat,$sun,$startdate,$enddate) = split("\t",$line);
+      $service_id = $idprefix . $service_id;
+      print($calendarfile "$service_id,$mon,$tue,$wed,$thu,$fri,$sat,$sun,$startdate,$enddate\n");
+    }
+    close($calendarfile);
+    info("wrote canonical calendar.txt");
+  }
+
+  if (@caldates > 0) {
+    info("writing canonical calendar_dates.txt");
+    open($caldatesfile,'>:encoding(UTF-8)',$canondir . '/calendar_dates.txt') or return 0;
+    print($caldatesfile "service_id,date,exception_type\n");
+
+    foreach $line (@caldates) {
+      ($service_id,$date,$extype) = split("\t",$line);
+      $service_id = $idprefix . $service_id;
+      print($caldatesfile "$service_id,$date,$extype\n");
+    }
+    close($caldatesfile);
+    info("wrote canonical calendar_dates.txt");
+  }
+
+# routes
+
+  info("writing canonical routes.txt");
+  open($routesfile,'>:encoding(UTF-8)',$canondir . '/routes.txt') or return 0;
+  print($routesfile "route_id,agency_id,route_short_name,route_long_name,route_type\n");
+
+  foreach $line (@routes) {
+    ($route_id,$agency_id,$shortname,$longname,$rtype) = split("\t",$line);
+    $route_id = $idprefix . $route_id;
+    $shortname =~ tr','`';
+    $longname =~ tr','`';
+    print($routesfile "$route_id,$agency_id,$shortname,$longname,$rtype\n");
+  }
+  close($routesfile);
+  info("wrote canonical routes.txt");
+
+#trips
+
+  info("writing canonical trips.txt");
+  open($tripsfile,'>:encoding(UTF-8)',$canondir . '/trips.txt') or return 0;
+  print($tripsfile "route_id,service_id,trip_id,trip_headsign,direction_id\n");
+
+  foreach $line (@trips) {
+    ($route_id,$service_id,$trip_id,$headsign,$dir) = split("\t",$line);
+    $route_id = $idprefix . $route_id;
+    $service_id = $idprefix . $service_id;
+    $trip_id = $idprefix . $trip_id;
+    $headsign =~ tr','`';
+    print($tripsfile "$route_id,$service_id,$trip_id,$headsign,$dir\n");
+  }
+  close($tripsfile);
+  info("wrote canonical trips.txt");
+
+# stop times
 
   info("writing canonical stop_times.txt");
   open($stoptimfile,'>:encoding(UTF-8)',$canondir . '/stop_times.txt') or return 0;
@@ -2425,11 +2531,39 @@ sub writegtfs()
   return 1;
 }
 
+sub merge($$$)
+{
+  my ($outdir,$indir,$first) = @_;
+
+  my ($name,$infile,$outfile,$infname,$outfname,$headline,$line,$openmode);
+  my @lines;
+
+  info("merge $indir into $outdir");
+  for $name (qw/agency.txt stops.txt calendar.txt calendar_dates.txt routes.txt trips.txt stop_times.txt/) {
+    $outfname = "$outdir/$name";
+    $infname = "$indir/$name";
+    next unless -f $infname;
+    open($infile,'<:encoding(UTF-8)',$infname) or return error("cannot open $infname:$!");
+    $headline = readline($infile);
+    next unless length $headline;
+    @lines = readline($infile);
+    close($infile);
+    next unless (@lines > 0);
+
+    $openmode = ($first ? '>' : '>>');
+    open($outfile,$openmode . ':encoding(UTF-8)',$outfname) or return error("cannot open $outfname:$!");
+    print($outfile $headline) unless -s $outfname;
+    for $line (@lines) { print($outfile $line); }
+    close($outfile);
+  }
+  return 1;
+}
+
 # main program starts here
 
 my $starttime = time();
 
-my ($arg,$opt,$cmd);
+my ($arg,$opt,$cmd,$argno);
 my @args;
 
 if (@ARGV == 0) { usage(); exit 1; }
@@ -2454,7 +2588,7 @@ foreach $arg (@ARGV) {
     elsif ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
     elsif ($opt eq 'a' or $opt eq 'analysis') { info('analysis output enabled'); $anaout = 1; }
     elsif ($opt eq 'c' or $opt eq 'canonical') { info('canonical output enabled'); $canonout = 1; }
-    elsif ($opt eq 't' or $opt eq 'testl') { info('test only, no output'); $testonly = 1; }
+    elsif ($opt eq 't' or $opt eq 'test') { info('test only, no output'); $testonly = 1; }
     elsif ($opt eq 'nobus') { $include_bus = 0; }
     elsif ($opt eq 'nometro') { $include_metro = 0; }
     elsif ($opt eq 'noferry') { $include_ferry = 0; }
@@ -2474,8 +2608,16 @@ if (@args > 0) {
     $anadir = $outdir;
     $canondir = $outdir;
     info("import from $indir to $outdir");
-    import($indir) and writext($indir,$outdir);
-    writegtfs() if $canonout;
+    if (import($indir)) {
+      writext($indir,$outdir);
+      writegtfs() if $canonout;
+    }
+  } elsif ($cmd eq 'merge') {
+    error_exit("merge needs outdir and at least one indir arg") unless (@args > 2);
+    $outdir = $args[1];
+    for ($argno = 2; $argno < @args; $argno++) {
+      merge($outdir,$args[$argno],$argno == 2) or exit 1;
+    }
   }
   else { info("unknown command"); }
 }

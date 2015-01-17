@@ -101,6 +101,8 @@ static void cpfromgnet(gnet *gnet,net *net)
   net->events = gnet->events;
   net->evmaps = gnet->evmaps;
   net->hichainlen = gnet->hichainlen;
+
+  net->ghopcnt = gnet->hopcnt;
 }
 
 struct hisort {
@@ -168,7 +170,7 @@ int partition(gnet *gnet)
   ub1 *gportparts;
 
   // todo configurable
-  ub4 aimpartsize = 3000;
+  ub4 aimpartsize = 30000;
   ub4 aimcnt = max(1,portcnt / aimpartsize);
 
   if (aimcnt > 1) info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
@@ -194,7 +196,13 @@ int partition(gnet *gnet)
     hopdist = alloc(hopcnt,ub4,0,"net hopdist",hopcnt);
     hopdur = alloc(hopcnt,ub4,0,"net hopdur",hopcnt);
 
-    for (port = 0; port < portcnt; port++) g2p[port] = p2g[port] = port;
+    pportcnt = 0;
+    for (port = 0; port < portcnt; port++) {
+      g2p[port] = p2g[port] = port;
+      pdep = ports + port;
+      if (pdep->valid) pportcnt++;
+    }
+    net->vportcnt = pportcnt;
 
     for (hop = 0; hop < hopcnt; hop++) {
       ghp = hops + hop;
@@ -315,12 +323,28 @@ int partition(gnet *gnet)
     while (mi < cnt && mpp[mi] != rid) mi++;
     if (mi == cnt) { mpp[mi] = rid; partcnts[arr] = cnt + 1; }
   }
+  info(0,"initial assignment done, %u rids", ridcnt);
+
+  ub4 partstats[Npart / 4];
+  ub4 iv,cumcnt,partivs = Elemcnt(partstats) - 1;
+  ub4 partstats2[4096];
+  ub4 partiv2s = Elemcnt(partstats2) - 1;
+
+  aclear(partstats);
 
   sumcnt = 0;
   for (port = 0; port < portcnt; port++) {
     pdep = ports + port;
 //    info(0,"port %u cnt %u %s",port,partcnts[port],pdep->name);
-    sumcnt += partcnts[port];
+    cnt = partcnts[port];
+    sumcnt += cnt;
+    partstats[min(cnt,partivs)]++;
+  }
+  cumcnt = 0;
+  for (iv = 0; iv <= partivs; iv++) {
+    cnt = partstats[iv];
+    cumcnt += cnt;
+    infocc(cnt,0,"%u port\as in %u partition\as each, sum %u", cnt,iv,cumcnt);
   }
 
   // check duplicates
@@ -421,11 +445,6 @@ int partition(gnet *gnet)
     }
   }
 
-  ub4 partstats[Npart / 4];
-  ub4 iv,cumcnt,partivs = Elemcnt(partstats) - 1;
-  ub4 partstats2[4096];
-  ub4 partiv2s = Elemcnt(partstats2) - 1;
-
   aclear(partstats);
 
   // check duplicates
@@ -487,7 +506,7 @@ int partition(gnet *gnet)
     pdep = ports + port;
     vrb0(0,"cnt %u iter %u %s",cnt,itercnts[port],pdep->name);
     error_ge(cnt,Npart);
-    partstats[min(cnt,partivs)]++;
+    partstats[min(lcnt,partivs)]++;
   }
 
   for (rid = 0; rid < ridcnt; rid++) {
@@ -498,9 +517,9 @@ int partition(gnet *gnet)
 
   cumcnt = 0;
   for (iv = 0; iv <= partivs; iv++) {
-    cnt = partstats[iv];
-    cumcnt += cnt;
-//    if (cnt) info(0,"parts %u cnt %u sum %u",iv,cnt,cumcnt);
+    lcnt = partstats[iv];
+    cumcnt += lcnt;
+    infocc(lcnt,0,"%u port\as in %u partition\as each, sum %u", lcnt,iv,cumcnt);
   }
 
 /* search N sets of 2 parts with highest number of shared ports
@@ -524,7 +543,9 @@ int partition(gnet *gnet)
 
     newpartcnt = partcnt;
 
-    msgprefix(0,"iter %u parts %u",iter,partcnt);
+    msgprefix(0,"iter %u",iter);
+
+    info(0,"parts %u",partcnt);
 
     for (rid = 0; rid < ridcnt; rid++) {
       if (partmerges[rid] != rid) ridhis[rid] = 1;
@@ -562,7 +583,7 @@ int partition(gnet *gnet)
       cnt = hisorts[hino].cnt;
 
       if (rid1 == rid2 || ridhis[rid1] || ridhis[rid2]) continue;
-      if (iter == 8) info(0,"rid1 %u rid2 %u cnt  %u his %u %u",rid1,rid2,cnt,ridhis[rid1],ridhis[rid2]);
+      if (iter > 8) info(0,"rid1 %u rid2 %u cnt  %u his %u %u",rid1,rid2,cnt,ridhis[rid1],ridhis[rid2]);
 //      if (rid2his[rid1 * ridcnt + rid2]) continue;
 
 //      if (hino < 12) info(0,"rid1 %u rid2 %u cnt %u",rid1,rid2,cnt);
@@ -578,9 +599,9 @@ int partition(gnet *gnet)
         partmerges[rid2] = rid1;
         newpartcnt--;
         ridhis[rid1] = ridhis[rid2] = 1;
-        vrb0(0,"hi %u 10-%u 1-%u ports %u merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
+        infovrb(iter > 7,0,"hi %u 10-%u 1-%u ports %u merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
       } else {
-        vrb0(0,"hi %u 10-%u 1-%u ports %u no merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
+        infovrb(iter > 7,0,"hi %u 10-%u 1-%u ports %u no merge rid %u to %u",hino,cnt,cnt2,pportcnt,rid2,rid1);
 //        rid2his[rid1 * ridcnt + rid2] = 1;
         fullcnt++;
       }

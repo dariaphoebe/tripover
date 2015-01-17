@@ -189,8 +189,10 @@ struct sidtable {
 // holds all for a partition
 struct network {
   ub4 part;
-  ub4 portcnt;
+  ub4 portcnt,vportcnt;
   ub4 hopcnt,whopcnt,chopcnt;
+
+  ub4 ghopcnt;
 
   ub4 routecnt;
   ub4 carriercnt;
@@ -236,7 +238,6 @@ struct network {
 // connection matrices. cached separately ?
   ub2 *con0cnt;    // [port2]  0-stop connections
   ub4 *con0ofs;    // [port2]  offsets in lst
-  ub4 *walknet;    // [port2]
 
   ub4 histop;      // highest n-stop connections inited
   ub4 maxstop;     // highest n-stop connections to be inited

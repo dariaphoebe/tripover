@@ -18,7 +18,9 @@ extern int oscreate(const char *name);
 extern int osfdinfo(struct myfile *mf,int fd);
 extern int osclose(int fd);
 extern int osdup2(int oldfd,int newfd);
-int osrewind(int fd);
+extern int osrewind(int fd);
+extern void *osmmap(size_t len);
+extern int osmunmap(void *p,size_t len);
 
 extern int setsigs(void);
 extern int oslimits(void);

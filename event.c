@@ -183,7 +183,11 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
   if (tdep >= t1 - t0) return warning(0,"hop %u deptime %u above schedule period \ad%u-\ad%u",hop,tdep,t0,t1);
 
   dayid = (t0 - gt0) / daymin;
-  error_gt(dayid,255,0); // todo rearrange
+
+  if (dayid > 255) {
+    info(Iter,"day > 255 for \ad%u",t0); // todo rearrange
+    dayid = 255;
+  }
   t = t0;
   while (t < t1 && n + tp->evcnt < evlimit) {
     tday = (t - t0map) / daymin;

@@ -74,8 +74,8 @@ static ub4 watch_dep[Watches] = { 20 };
 static ub4 watch_arr[Watches] = { 3 };
 
 // todo configurable
-static const ub4 walklimit = 7;
-static const ub4 walkspeed = 5;  // minutes per dist unit
+static const ub4 walklimit = 1;
+static const ub4 walkspeed = 10;  // minutes per dist unit
 
 static ub2 cnt0lim_part = 256; // todo configurable
 
@@ -111,16 +111,17 @@ static int mkwalks(struct network *net)
   info(0,"calculating \ah%u distance pairs", port2);
   for (dep = 0; dep < portcnt; dep++) {
     pdep = ports + dep;
+    if (pdep->valid == 0) continue;
     error_zz(pdep->lat,pdep->lon);
   }
   for (dep = 0; dep < portcnt; dep++) {
-    error_ge(dep,portcnt);
     pdep = ports + dep;
+    if (pdep->valid == 0) continue;
     dname = pdep->name;
     for (arr = 0; arr < portcnt; arr++) {
-      error_ge(arr,portcnt);
       if (dep == arr) continue;
       parr = ports + arr;
+      if (parr->valid == 0) continue;
       aname = parr->name;
       error_eq_cc(pdep->gid,parr->gid,"%s %s",dname,aname);
       deparr = dep * portcnt + arr;
@@ -146,6 +147,9 @@ static int mkwalks(struct network *net)
       if (dep == arr) continue;
       deparr = dep * portcnt + arr;
       dist = dist0[deparr];
+      pdep = ports + dep;
+      parr = ports + arr;
+      if (dist == 1) info(Iter,"port dist %u %u-%u %s to %s",dist,dep,arr,pdep->name,parr->name);
       iv = (dist - lodist) * ivcnt / (hidist - lodist);
       geohist[min(iv,ivcnt-1)]++;
     }
@@ -153,7 +157,6 @@ static int mkwalks(struct network *net)
   for (iv = 0; iv < ivcnt; iv++) if (geohist[iv]) info(0,"geodist bin %u: %u",iv,geohist[iv]);
 
   ub1 *net0 = alloc(port2,ub1,0,"net net0",portcnt);
-  ub4 *walknet = alloc(port2,ub4,0xff,"net walknet",portcnt);
 
   ub4 *orgportsbyhop = net->portsbyhop;
   ub4 *orghopdist = net->hopdist;
@@ -183,23 +186,31 @@ static int mkwalks(struct network *net)
   ub4 *hopdur = alloc(newhopcnt,ub4,0,"cmp hopdur",newhopcnt);
   memcpy(hopdur,orghopdur,hopcnt * sizeof(ub4));
 
+  ub4 hiwdist = 0,hiwhop = hi32;
   whop = hopcnt;
   for (deparr = 0; deparr < port2; deparr++) {
     dist = dist0[deparr];
     if (net0[deparr] || dist > walklimit) continue;
-    walknet[deparr] = whop;
+
     dep = deparr / portcnt;
     arr = deparr % portcnt;
     portsbyhop[whop * 2] = dep;
     portsbyhop[whop * 2 + 1] = arr;
     hopdur[whop] = dist * walkspeed;
     hopdist[whop] = dist;
+    if (dist > hiwdist) { hiwdist = dist; hiwhop = whop; }
     whop++;
+  }
+  if (hiwhop < whop) {
+    dep = portsbyhop[hiwhop * 2];
+    arr = portsbyhop[hiwhop * 2 + 1];
+    pdep = ports + dep;
+    parr = ports + arr;
+    info(0,"longest walk link dist %u hop %u %u-%u %s to %s",hiwdist,hiwhop,dep,arr,pdep->name,parr->name);
   }
 
   net->whopcnt = whop;
   net->dist0 = dist0;
-  net->walknet = walknet;
   net->portsbyhop = portsbyhop;
   net->hopdist = hopdist;
   net->hopdur = hopdur;
@@ -208,7 +219,7 @@ static int mkwalks(struct network *net)
 
 // create 0-stop connectivity matrix and derived info.
 // n-stop builds on this
-static int mknet0(struct network *net)
+static int mknet0(struct network *net,int maxstop)
 {
   ub4 portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
@@ -230,13 +241,14 @@ static int mknet0(struct network *net)
   double fdist;
   ub4 dep,arr,port2,zport2,da,depcnt,arrcnt;
   ub4 needconn,haveconn,watch;
-  ub4 *walknet = net->walknet;
   ub2 iv;
   struct eta eta;
 
   if (portcnt == 0) return error(0,"no ports for %u hops net",hopcnt);
   if (hopcnt == 0) return error(0,"no hops for %u port net",portcnt);
   error_lt(chopcnt,hopcnt);
+
+  cntlim = cnt0lim_part;
 
   info(0,"init 0-stop connections for %u port %u hop network",portcnt,hopcnt);
 
@@ -253,8 +265,10 @@ static int mknet0(struct network *net)
 
   con0lst = mkblock(net->conlst,chopcnt,ub4,Init1,"net0 0-stop conlst");
 
-  lodists = alloc(port2, ub4,0xff,"net0 lodist",portcnt);
-  hidists = alloc(port2, ub4,0,"net0 hidist",portcnt);
+  if (maxstop) {
+    lodists = alloc(port2, ub4,0xff,"net0 lodist",portcnt);
+    hidists = alloc(port2, ub4,0,"net0 hidist",portcnt);
+  } else lodists = hidists = NULL;
 
   // geographical direct-line distance
   dist0 = net->dist0;
@@ -262,7 +276,7 @@ static int mknet0(struct network *net)
 
   // create 0-stop connectivity
   // support multiple hops per port pair
-  ub4 ovfcnt = 0,hicon = 0,hida = 0; 
+  ub4 ovfcnt = 0,hicon = 0,hida = 0, nhopcnt = 0; 
   for (hop = 0; hop < chopcnt; hop++) {
     dep = portsbyhop[hop * 2];
     arr = portsbyhop[hop * 2 + 1];
@@ -275,6 +289,8 @@ static int mknet0(struct network *net)
     error_ge(arr,portcnt);
     pdep = ports + dep;
     parr = ports + arr;
+    if (pdep->valid == 0 || parr->valid == 0) continue;
+
     dname = pdep->name;
     aname = parr->name;
     if (dep == arr) {
@@ -289,25 +305,30 @@ static int mknet0(struct network *net)
 
     da = dep * portcnt + arr;
     concnt = con0cnt[da];
-    cntlim = cnt0lim_part;
 
-    if (concnt >= cntlim) ovfcnt++;
-    else if (concnt == cntlim-1) {
+    if (concnt >= cntlim) {
+      ovfcnt++;
+      continue;
+    } else if (concnt == cntlim-1) {
       info(0,"connect overflow hop %u port %u-%u %s to %s",hop,dep,arr,dname,aname);
       concnt++;
       ovfcnt++;
     } else concnt++;
+    nhopcnt++;
     if (concnt > hicon) { hicon = concnt; hida = da; }
     con0cnt[da] = concnt;
 
     dist = hopdist[hop];
-    lodists[da] = min(lodists[da],dist);
-    hidists[da] = max(hidists[da],dist);
+    if (maxstop) {
+      lodists[da] = min(lodists[da],dist);
+      hidists[da] = max(hidists[da],dist);
+    }
 //    error_z(dist,hop);
     if (hop < hopcnt && dist != dist0[da]) warning(0,"hop %u dist %u vs %u",hop,dist,dist0[da]);
 //    else if (dist < dist0[da]) warning(Iter,"chop %u dist %u vs %u",hop,dist,dist0[da]); // todo
   }
   if (ovfcnt) warning(0,"limiting 0-stop net by \ah%u",ovfcnt);
+  infocc(nhopcnt != chopcnt,0,"marked %u out of %u hops, skipped %u",nhopcnt,chopcnt,chopcnt - nhopcnt);
 
   dep = hida / portcnt; arr = hida % portcnt;
   pdep = ports + dep; parr = ports + arr;
@@ -332,18 +353,17 @@ static int mknet0(struct network *net)
 
   ofs = 0;
   needconn = haveconn = 0;
+
   for (dep = 0; dep < portcnt; dep++) {
 
-    if (progress(&eta,"port %u of %u in pass 2 0-stop %u hop net",dep,portcnt,hopcnt)) return 1;
-
     pdep = ports + dep;
-//    if (dport->ndep == 0) continue;
+    if (pdep->valid == 0) continue;
     dname = pdep->name;
 
     for (arr = 0; arr < portcnt; arr++) {
       if (dep == arr) continue;
       parr = ports + arr;
-//      if (aport->narr == 0) continue;
+      if (parr->valid == 0) continue;
 
       aname = parr->name;
 
@@ -353,46 +373,40 @@ static int mknet0(struct network *net)
       concnt = con0cnt[da];
       if (concnt == 0) continue;
 
-      haveconn++;
-
+      concnt = con0cnt[da];
       con0ofs[da] = ofs;
-      gen = 0;
-      hop = walknet[da];
-      if (hop < chopcnt) {
-        con0lst[ofs+gen] = hop;
-        gen++;
-      }
-
-      for (hop = 0; hop < hopcnt && gen < concnt; hop++) {
-        if (portsbyhop[2 * hop] != dep || portsbyhop[2 * hop + 1] != arr) continue;
-
-//        hp = hops + hop;
-//        if (hp->dep != dep || hp->arr != arr) {
-//          warning(0,"hop %u %s %u-%u not %u-%u",hop,hp->name,hp->dep,hp->arr,dep,arr);
-//          continue;
-//        }
-        error_ge(ofs,chopcnt);
-        con0lst[ofs+gen] = hop;
-        for (watch = 0; watch < watches; watch++) {
-          if (dep == watch_dep[watch] /* && arr == watch_arr[watch] */) {
-            info(0,"dep %u arr %u hop %u %u of %u at %p %s to %s",dep,arr,hop,gen,concnt,con0lst + ofs + gen,dname,aname);
-          }
-        }
-        gen++;
-        if (gen >= concnt) break;
-      }
-
-      for (hop = whopcnt; hop < chopcnt && gen < concnt; hop++) {
-        if (portsbyhop[2 * hop] != dep || portsbyhop[2 * hop + 1] != arr) continue;
-        error_ge(ofs,chopcnt);
-        con0lst[ofs+gen++] = hop;
-        if (gen >= concnt) break;
-      }
-      ofs += gen;
+      ofs += concnt;
     }
   }
+
+  // pass 2: fill
+  info(0,"pass 2 0-stop %u hop net",hopcnt);
+  nclear(con0cnt,port2); // accumulate back below
+  for (hop = 0; hop < chopcnt; hop++) {
+    dep = portsbyhop[hop * 2];
+    arr = portsbyhop[hop * 2 + 1];
+    pdep = ports + dep;
+    parr = ports + arr;
+    if (dep == arr || pdep->valid == 0 || parr->valid == 0) continue;
+
+    da = dep * portcnt + arr;
+    gen = con0cnt[da];
+    ofs = con0ofs[da];
+    if (gen >= cntlim) continue;
+    con0lst[ofs+gen] = hop;
+    con0cnt[da] = gen + 1;
+  }
+
   net->lstlen[0] = ofs;
-  info(0,"  0-stop connectivity \ah%3u of \ah%3u  left \ah%3u",haveconn,needconn,needconn - haveconn);
+
+  for (dep = 0; dep < portcnt; dep++) {
+    for (arr = 0; arr < portcnt; arr++) {
+      da = dep * portcnt + arr;
+      concnt = con0cnt[da];
+      if (concnt) haveconn++;
+    }
+  }
+  info(0,"  0-stop connectivity \ah%3u of \ah%3u  = %02u%%",haveconn,needconn,haveconn * 100 / needconn);
 
   // get connectivity stats
   ub4 hicnt = 0,hiport = 0;
@@ -415,7 +429,7 @@ static int mknet0(struct network *net)
     depstats[min(depivs,depcnt)]++;
   }
   for (iv = 0; iv <= depivs; iv++) {
-    if (depstats[iv]) info(0,"%u port\as reaches %u ports\as", depstats[iv], iv);
+    if (depstats[iv]) info(0,"%u port\as reaches %u port\as", depstats[iv], iv);
   }
   pdep = ports + hiport;
   info(0,"port %u is reached by %u ports %s",hiport,hicnt,pdep->name);
@@ -443,8 +457,10 @@ static int mknet0(struct network *net)
   net->concnt[0] = con0cnt;
   net->conofs[0] = con0ofs;
 
-  net->lodist[0] = lodists;
-  net->hidist[0] = hidists;
+  if (maxstop) {
+    net->lodist[0] = lodists;
+    net->hidist[0] = hidists;
+  }
 
   net->needconn = needconn;
 
@@ -475,7 +491,7 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 dep,mid,arr,firstmid,port2,depcnt,depmid,midarr,deparr,iport1,iport2;
   ub4 iv,ivlim,watch;
   ub4 depstats[4];
-  ub4 cnt,nstop1,n1,n2,n12,nleg1,nleg2,v1,v2,leg,leg1,leg2,nleg;
+  ub4 cnt,nstop1,n1,n2,n12,altcnt,nleg1,nleg2,v1,v2,leg,leg1,leg2,nleg;
   size_t lstlen,newlstlen;
   ub4 midstop1,midstop2;
   ub4 lodist,lodist1,lodist2,lodist12,*lodists,*lodist1s,*lodist2s;
@@ -491,8 +507,9 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 varlimit,var12limit;
 
   // todo
-  ub4 portlimit = 7000;
-  ub4 lstlimit = 1024 * 1024 * 128;
+  ub4 portlimit = 9000;
+  ub4 lstlimit = 1024 * 1024 * 256;
+  ub4 altlimit = 128;
 
   ub4 dupcode,legport1,legport2;
   ub4 trip1ports[Nleg * 2];
@@ -512,6 +529,7 @@ static int mknetn(struct network *net,ub4 nstop)
   case 3: nilonly = 1; varlimit = 4; var12limit = 32; break;
   default: nilonly = 1; varlimit = 2; var12limit = 32; break;
   }
+  altlimit = var12limit * 2;
 
   port2 = portcnt * portcnt;
 
@@ -598,13 +616,15 @@ static int mknetn(struct network *net,ub4 nstop)
       break;
     }
 
-    if (lstlen > lstlimit / nleg) {
-      warning(0,"limiting net by %u triplets",lstlimit / nleg);
+    pdep = ports + dep;
+    if (pdep->valid == 0) continue;
+
+    if (lstlen + 2 * port2 > lstlimit / nleg) {
+      warncc(limited == 0,0,"limiting net by \ah%u triplets",lstlimit / nleg);
       limited = 1;
-      break;
+      var12limit = varlimit = 2;
     }
 
-    pdep = ports + dep;
     dname = pdep->name;
     dudep = pdep->nudep;
     duarr = pdep->nuarr;
@@ -620,6 +640,8 @@ static int mknetn(struct network *net,ub4 nstop)
       for (mid = 0; mid < portcnt; mid++) {
         if (mid == dep) continue;
         pmid = ports + mid;
+        if (pmid->valid == 0) continue;
+
         depmid = dep * portcnt + mid;
 
         n1 = cnts1[depmid];
@@ -659,6 +681,8 @@ static int mknetn(struct network *net,ub4 nstop)
       if (nilonly && lwrcnts[deparr]) { cntstats[9]++; continue; }
 
       parr = ports + arr;
+      if (parr->valid == 0) continue;
+
       aname = parr->name;
 
       lodist = hi32; hidist = 0;
@@ -741,7 +765,10 @@ static int mknetn(struct network *net,ub4 nstop)
         cntstats[8]++;
 
         // subpass 2: create distance histogram and derive threshold
+        altcnt = 0;
         for (midstop1 = 0; midstop1 < nstop; midstop1++) {
+          if (altcnt > altlimit) break;
+
           midstop2 = nstop1 - midstop1;
           nleg1 = midstop1 + 1;
           nleg2 = midstop2 + 1;
@@ -770,6 +797,9 @@ static int mknetn(struct network *net,ub4 nstop)
             midarr = mid * portcnt + arr;
             n2 = cnts2[midarr];
             if (n2 == 0) continue;
+            n12 = n1 * n2;
+            altcnt += n12;
+            if (altcnt > altlimit) break;
 
             for (watch = 0; watch < watches; watch++) {
               if (dep == watch_dep[watch]) vrb(0,"dep %u arr %u mid %u n1 %u n2 %u",dep,arr,mid,n1,n2);
@@ -902,10 +932,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
   info(0,"%u-stop pass 1 done, tentative \ah%lu triplets",nstop,lstlen);
 
-  if (lstlen == 0) {
-    warning(0,"no connections at %u-stop",nstop);
-    return 0;
-  }
+  warncc(lstlen == 0,0,"no connections at %u-stop",nstop);
 
   ub4 cnt1,newcnt;
   struct range portdr;
@@ -925,7 +952,7 @@ static int mknetn(struct network *net,ub4 nstop)
   lstblk = net->conlst + nstop;
 
   lst = alloc((ub4)lstlen * nleg,ub4,0xff,"netv n-stop conlst",nstop);
-  net->lstlen[nstop] = lstlen;
+//  net->lstlen[nstop] = lstlen; todo
 
   cnts1 = net->concnt[nstop1];
   ofs = newcnt = 0;
@@ -1164,6 +1191,8 @@ static int mknetn(struct network *net,ub4 nstop)
   error_gt(newlstlen,lstlen,nstop);
   info(0,"pass 2 done, \ah%lu from \ah%lu triplets",newlstlen,lstlen);
 
+  afree(distlims,"net distlims");
+
   newlst = mkblock(lstblk,newlstlen * nleg,ub4,Init1,"netv part %u %u-stop conlst",part,nstop);
   net->lstlen[nstop] = newlstlen;
 
@@ -1202,7 +1231,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
   net->lstlen[nstop] = lstlen;
 
-  unsigned long doneconn,leftperc,leftcnt,needconn = net->needconn;
+  unsigned long doneconn,doneperc,leftcnt,needconn = net->needconn;
   ub4 n,da,nda = 0,port,hascon,hicon,arrcon,loarrcon,lodep = 0;
   ub4 tports[Nstop];
   ub4 gtports[Nstop];
@@ -1274,10 +1303,8 @@ static int mknetn(struct network *net,ub4 nstop)
     }
   }
   error_gt(doneconn,needconn,0);
-  leftcnt = needconn - doneconn;
-  leftperc = leftcnt * 100 / needconn;
-  if (leftperc > 1) info(0,"0-%u-stop connectivity \ah%3lu of \ah%3lu  left \ah%3lu = %u%%", nstop,doneconn,needconn,leftcnt,(ub4)leftperc);
-  else info(0,"0-%u-stop connectivity \ah%3lu of \ah%3lu  left \ah3%lu", nstop,doneconn,needconn,leftcnt);
+  doneperc = doneconn * 100 / needconn;
+  info(0,"0-%u-stop connectivity \ah%3lu of \ah%3lu = %02u%%", nstop,doneconn,needconn,(ub4)doneperc);
 
   pdep = ports + lodep;
   leftcnt = portcnt - loarrcon - 1;
@@ -1718,7 +1745,7 @@ int mknet(ub4 maxstop)
     if (rv) return msgprefix(1,NULL);
 
     if (dorun(FLN,Runnet0)) {
-      if (mknet0(net)) return msgprefix(1,NULL);
+      if (mknet0(net,maxstop)) return msgprefix(1,NULL);
       netok = 1;
     } else continue;
 

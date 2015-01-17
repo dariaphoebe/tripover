@@ -50,8 +50,9 @@ int compound(struct network *net)
   ub4 part = net->part;
   ub4 rportcnt,port2,portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
+  ub4 ghopcnt = net->ghopcnt;
   ub4 whopcnt = net->whopcnt;
-  ub4 hop,chop,newhopcnt;
+  ub4 hop,chop,newhopcnt = 0;
   ub4 rid,rrid,ridcnt = net->ridcnt;
   ub4 chain,chaincnt = net->chaincnt;
   ub4 chainhopcnt = net->chainhopcnt;
@@ -92,11 +93,22 @@ int compound(struct network *net)
   ub4 midur;
   ub8 met1,met2;
 
-  ub4 *duprids = alloc(port2,ub4,0xff,"cmp duprids",portcnt);
+  ub1 *duphops = alloc(port2,ub1,0,"cmp duphops",portcnt);
+
+  ub4 ghop,hop1,hop2,dep1,arr2;
+  ub4 dist1,dist2,midur1,midur2,dist = 0;
+  ub4 ci,ci1,ci2,pchlen,cmpcnt;
+
+  ub4 pchain[Chainlen];
+  ub4 pdeps[Chainlen];
+  ub4 parrs[Chainlen];
+  ub8 pmets[Chainlen];
 
   error_zp(orghopdist,hopcnt);
 
+#if 0
   // sanity check
+  ub4 *duprids = alloc(port2,ub4,0xff,"cmp duprids",portcnt);
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     rid = hp->rid;
@@ -109,6 +121,8 @@ int compound(struct network *net)
     if (duprids[deparr] == rid) warning(Iter,"duplicate hop %u %u-%u for rid %u",hop,dep,arr,rid);
     duprids[deparr] = rid;
   }
+  afree(duprids,"cmp duprids");
+#endif
 
   ub4 cnt,rawcmphopcnt = 0;
 
@@ -121,56 +135,99 @@ int compound(struct network *net)
   error_zp(routes,part);
   error_zp(chains,part);
 
-  // todo use chain-based loop as below to estimate
   rrid = hi32;
+
+  struct eta eta;
+
+  // pass 1: count
   for (rid = 0; rid < ridcnt; rid++) {
+    if (progress(&eta,"compound rid %u of %u for %u chains pass 1",rid,ridcnt,chaincnt)) return 1;
 
-    rp = routes + rid;
-    hichainlen = rp->hichainlen;
+    nclear(duphops,port2);
+    for (dep = 0; dep < portcnt; dep++) duphops[dep * portcnt + dep] = 1;
 
-    if (hichainlen < 3) continue;
-    else if (hichainlen > maxperm) {
-      info(0,"limiting rid %u rrid %u len %u permutations to len %u",rid,rrid,hichainlen,maxperm);
-      hichainlen = maxperm;
-    }
-    cnt = hichainlen + 5;  // account for variants
+    for (chain = 0; chain < chaincnt; chain++) {
+      cp = chains + chain;
+      cnt = cp->hopcnt;
+      if (cp->rid != rid || cnt < 3) continue;
 
-    rawcmphopcnt += cnt * cnt * 2;  // both directions
-  }
-  info(0,"estimated %u compound hops",rawcmphopcnt);
+      aclear(pdeps);
+      aclear(parrs);
+      pchlen = 0;
+      chp = chainhops + cp->hopofs;
+      chmp = chainmets + cp->hopofs;
+      for (ci = 0; ci < cnt; ci++) {
+        ghop = chp[ci] & hi32;
+        error_ge(ghop,ghopcnt);
+        hop = g2phop[ghop];
+        if (hop == hi32) continue;
 
-  if (rawcmphopcnt == 0) return 0;
+        dep = orgportsbyhop[hop * 2];
+        arr = orgportsbyhop[hop * 2 + 1];
+        error_ge(dep,portcnt);
+        error_ge(arr,portcnt);
+        pdeps[pchlen] = dep;
+        parrs[pchlen] = arr;
+        pchlen++;
+        if (pchlen == maxperm) { warning(0,"limiting rid %u chain to %u",rid,maxperm); break; }
+      }
+      if (pchlen < 3) continue;
 
-  newhopcnt = whopcnt + rawcmphopcnt;
+      // generate all not yet existing compounds
+      // let compounds span ports not in part: search supposed to handle
+      cmpcnt = 0;
+      for (ci1 = 0; ci1 < pchlen - 1; ci1++) {
+        dep1 = pdeps[ci1];
+        for (ci2 = ci1 + 1; ci2 < pchlen; ci2++) {
+          arr2 = parrs[ci2];
+          deparr = dep1 * portcnt + arr2;
+          if (duphops[deparr]) continue;
+          duphops[deparr] = 1;
+          newhopcnt++;
+          cmpcnt++;
+          if (cmpcnt >= maxperm2) break;
+        } // each c2
+        if (cmpcnt >= maxperm2) {
+          warning(0,"limiting compound on rid %u to %u combis",rid,cmpcnt);
+          break;
+        }
+      } // each c1
+    } // each chain
+  } // each rid
+  info(0,"\ah%u compound hops",newhopcnt);
+
+  info(0,"compound %u chains in %u rids pass 2",chaincnt,ridcnt);
+
+  if (newhopcnt == 0) return 0;
+
+  newhopcnt += whopcnt;
 
   chop = whopcnt;
 
   ub4 *portsbyhop = alloc(newhopcnt * 2,ub4,0,"cmp portsbyhop",newhopcnt);
-  ub4 *choporg = alloc(newhopcnt * 2,ub4,0,"cmp choporg",newhopcnt);
+
   memcpy(portsbyhop,orgportsbyhop,whopcnt * 2 * sizeof(ub4));
+  afree(orgportsbyhop,"net portsbyhop");
+  net->portsbyhop = portsbyhop;
 
   ub4 *hopdist = alloc(newhopcnt,ub4,0,"cmp hopdist",newhopcnt);
   memcpy(hopdist,orghopdist,whopcnt * sizeof(ub4));
+  afree(orghopdist,"net hopdist");
+  net->hopdist = hopdist;
 
   ub4 *hopdur = alloc(newhopcnt,ub4,0,"cmp hopdur",newhopcnt);
   memcpy(hopdur,orghopdur,whopcnt * sizeof(ub4));
+  afree(orghopdur,"net hopdur");
+  net->hopdur = hopdur;
 
-  ub1 *duphops = alloc(port2,ub1,0,"cmp duphops",portcnt);
-
-  ub4 ghop,hop1,hop2,dep1,arr2;
-  ub4 dist1,dist2,midur1,midur2,dist = 0;
-  ub4 ci,ci1,ci2,pchlen,cmpcnt;
-
-  ub4 pchain[Chainlen];
-  ub4 pdeps[Chainlen];
-  ub4 parrs[Chainlen];
-  ub8 pmets[Chainlen];
+  ub4 *choporg = alloc(newhopcnt * 2,ub4,0,"cmp choporg",newhopcnt);
 
   midur = 0;
 
   ub8 cumpchainlen = 0, cumgchainlen = 0, pchaincnt = 0;
 
   for (rid = 0; rid < ridcnt; rid++) {
+    if (progress(&eta,"compound rid %u of %u for %u chains pass 2",rid,ridcnt,chaincnt)) return 1;
     nclear(duphops,port2);
     for (dep = 0; dep < portcnt; dep++) duphops[dep * portcnt + dep] = 1;
 
@@ -222,7 +279,8 @@ int compound(struct network *net)
           met1 = pmets[ci1];
           met2 = pmets[ci2];
 
-          error_ge(chop,newhopcnt);
+          if (chop >= newhopcnt) break;
+
           portsbyhop[chop * 2] = dep1;
           portsbyhop[chop * 2 + 1] = arr2;
           choporg[chop * 2] = hop1;
@@ -246,23 +304,25 @@ int compound(struct network *net)
           chop++;
           cmpcnt++;
           if (cmpcnt >= maxperm2) break;
-        }
-        if (cmpcnt >= maxperm2) {
+        } // each c2
+        if (chop >= newhopcnt) {
+          warn(0,"limiting compound to %u hops",chop - whopcnt);
+          break;
+        } else if (cmpcnt >= maxperm2) {
           warning(0,"limiting compound on rid %u to %u combis",rid,cmpcnt);
           break;
         }
-      }
-    }
-  }
+      } // each c1
+      if (chop >= newhopcnt) break;
+    } // each chain
+    if (chop >= newhopcnt) break;
+  } // each rid
 
   info(0,"%u of %u estimated compound hops",chop - whopcnt,rawcmphopcnt);
   info(0,"avg chain len %lu, global %lu",cumpchainlen / pchaincnt,cumgchainlen / pchaincnt);
 
   net->chopcnt = chop;
   net->choporg = choporg;
-  net->portsbyhop = portsbyhop;
-  net->hopdist = hopdist;
-  net->hopdur = hopdur;
 
   return 0;
 }

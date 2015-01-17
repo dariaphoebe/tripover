@@ -27,6 +27,8 @@ static ub4 msgfile;
 // soft limit for wrappers only
 static const ub4 Maxmem_mb = 1024 * 14;
 
+static const ub4 mmap_from_mb = 32;
+
 #define Ablocks 8192
 
 static ub4 totalMB;
@@ -35,17 +37,19 @@ struct sumbyuse {
   char id[16];
   ub4 idlen;
   ub4 sum;
-  ub4 hi;
+  ub4 hi,hicnt;
   char hidesc[64];
   ub4 fln,hifln;
 };
 
 struct ainfo {
   char *base;
-  ub4 len;
+  size_t len;
+  ub4 mb;
   ub4 allocfln;
   ub4 freefln;
   ub4 alloced;
+  ub4 mmap;
 };
 
 static struct sumbyuse usesums[32];
@@ -76,8 +80,10 @@ static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
   if (mbcnt > 32) infofln(up->fln,0,"category %s memuse %u MB adding %u for %s",up->id,up->sum,mbcnt,desc);
   if (mbcnt > up->hi) {
     up->hi = mbcnt;
+    if (up->hifln == fln) up->hicnt++;
+    else up->hicnt = 1;
     up->hifln = fln;
-    strncpy(up->hidesc,desc,sizeof(up->hidesc)-1);
+    strcopy(up->hidesc,desc);
   }
 }
 
@@ -106,7 +112,7 @@ void showmemsums(void)
   while (up < usesums + Elemcnt(usesums) && up->idlen) {
     if (up->sum > 16) {
       infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
-      infofln(up->hifln,0,"  hi %u MB for %s",up->hi,up->hidesc);
+      infofln(up->hifln,0,"  hi %u MB * %u for %s",up->hi,up->hicnt,up->hidesc);
     }
     up++;
   }
@@ -138,15 +144,21 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   nm = (ub4)(n8 >> 20);
   if (n8 != n) error(Exit,"wraparound allocating %u MB for %s", nm, desc);
 
-  if (nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm);
-  if (totalMB + nm >= Maxmem_mb) error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm + totalMB);
+  if (nm >= Maxmem_mb) { showmemsums(); error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm); }
+  if (totalMB + nm >= Maxmem_mb) { showmemsums(); error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm + totalMB); }
 
-  if (nm > 64) infofln(fln,0,"alloc %u MB for %s",nm,desc);
-  p = malloc(n);
-  if (!p) error(Exit,"cannot allocate %u MB for %s", nm, desc);
-
-  if (nm > 64) infofln(fln,0,"clear %u MB for %s",nm,desc);
-  memset(p, fill, n);
+  if (nm >= mmap_from_mb) {
+    if (nm > 64) infofln(fln,0,"alloc %u MB for %s",nm,desc);
+    p = osmmap(n);
+    if (!p) oserror(Exit,"cannot allocate %u MB for %s", nm, desc);
+    if (fill) memset(p, fill, n);
+  } else {
+    if (nm > 64) infofln(fln,0,"alloc %u MB for %s",nm,desc);
+    p = malloc(n);
+    if (!p) error(Exit,"cannot allocate %u MB for %s", nm, desc);
+    if (nm > 64) infofln(fln,0,"clear %u MB for %s",nm,desc);
+    memset(p, fill, n);
+  }
 
   addsum(fln,desc,nm);
 
@@ -164,7 +176,9 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   ai->allocfln = fln;
   ai->freefln = 0;
   ai->alloced = 1;
-  ai->len = nm;
+  ai->mmap = (nm >= mmap_from_mb);
+  ai->mb = nm;
+  ai->len = n;
 
   if (nm > 64) info(0,"alloced %u MB for %s, total %u", nm, desc, totalMB);
   return p;
@@ -198,9 +212,13 @@ int afree_fln(void *p,ub4 fln, const char *desc)
   }
   ai->freefln = fln;
   ai->alloced = 0;
-  nm = ai->len;
+  nm = ai->mb;
   subsum(desc,nm);
-  free(p);
+  if (ai->mmap) {
+    if (osmunmap(p,ai->len)) return oserror(0,"cannot free %u MB at %p",nm,p);
+  }
+  else free(p);
+
   return 0;
 }
 

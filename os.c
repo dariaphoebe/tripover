@@ -11,6 +11,9 @@
 
 #define _POSIX_C_SOURCE 200112L
 
+#define _BSD_SOURCE
+#include <sys/mman.h>
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -123,6 +126,18 @@ static void wrstderrlog(const char *buf,ub4 len)
   oswrite(2,buf,len);
   oswrite(1,buf,len);
   if (fd > 0 && fd != 2) oswrite(fd,buf,len);
+}
+
+void *osmmap(size_t len)
+{
+  void *p = mmap(NULL,len,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+  return p;
+}
+
+int osmunmap(void *p,size_t len)
+{
+  int rv = munmap(p,len);
+  return rv;
 }
 
 static void mysigint(int __attribute__ ((unused)) sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
