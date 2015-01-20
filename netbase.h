@@ -81,6 +81,13 @@ struct subportbase {
   ub4 seq;
 };
 
+struct chainhopbase {
+  ub4 hop;
+  ub4 tdep,tarr;
+  ub4 midur;
+  ub4 dist;
+};
+
 struct chainbase {
   ub4 hoprefs;
   ub4 rtid;
@@ -246,8 +253,10 @@ struct networkbase {
   struct chainbase *chains;
   struct timetablebase *timetables;  // [routecnt]
 
-  ub8 *chainhops;    // seq,hop
-  ub8 *chainmets;    // cum dist,midur
+  ub8 *chainidxs;    // seq,ndx
+  struct chainhopbase *chainhops;
+
+//  ub8 *chainmets;    // cum dist,midur
 
   ub4 *routechains;
   ub4 *timesbase;

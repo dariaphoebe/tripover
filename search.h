@@ -50,6 +50,10 @@ struct srcctx {
 
   ub4 duraccs[Nxleg];
 
+  ub4 hop1s[Nxleg];
+  ub4 hop2s[Nxleg];
+  ub4 parts[Nxleg];
+
   ub4 dcnts[Nxleg];
   ub4 dtlos[Nxleg];
   ub4 dtcurs[Nxleg];

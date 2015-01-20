@@ -43,6 +43,10 @@
 
 #define Chainlen 256
 
+#if (Nstop < 1)
+ #error "Nstop must be > 0"
+#endif
+
 struct port {
   ub4 magic;
   ub4 id;      // index in net.ports
@@ -100,8 +104,16 @@ struct port {
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
 };
 
+struct chainhop {
+  ub4 hop;
+  ub4 tdep,tarr;
+  ub4 midur;
+  ub4 dist;
+};
+
 struct chain {
   ub4 rrid,rid;
+  ub4 rtid,tid;
   ub4 hopcnt;
   ub4 hopofs;
   ub8 code;
@@ -210,21 +222,23 @@ struct network {
   struct carrier *carriers;  
   struct sidtable *sids;
 
-  ub4 *routechains;
-  ub8 *chainhops,*chainmets;   // points to gnet
+//  ub4 *routechains;
+  struct chainhop *chainhops;  // points to gnet
+//  ub8 *chainidxs;              // points to gnet
 
   bool istpart;
 
 // timetables: pointer to basenet
   block *eventmem;
   block *evmapmem;
-  ub8 *events;       // <time,tid> tuples
+  ub8 *events;       // <time,dur+tid> tuples
   ub2 *evmaps;       // day maps
 
 // access
   ub4 *g2pport;      // [gportcnt] global to partition port id
   ub4 *p2gport;      // [portcnt]
   ub4 *g2phop;       // [ghopcnt]
+  ub4 *p2ghop;       // [hopcnt]
 
   ub4 *portsbyhop; // [chopcnt * 2] <dep,arr>
 
@@ -239,12 +253,14 @@ struct network {
   ub2 *con0cnt;    // [port2]  0-stop connections
   ub4 *con0ofs;    // [port2]  offsets in lst
 
+  ub1 *allcnt;     // [port2]  cumulative for n-stop
+
   ub4 histop;      // highest n-stop connections inited
   ub4 maxstop;     // highest n-stop connections to be inited
 
   ub4 hirrid;
 
-  ub4 maxvariants,routevarmask;
+  ub4 *tid2rtid;   // [chaincnt]
   ub4 hichainlen;
 
   size_t needconn;    // final required any-stop connectivity
@@ -322,8 +338,9 @@ struct gnetwork {
   ub8 *events;
   ub2 *evmaps;
 
-  ub4 *routechains;
-  ub8 *chainhops,*chainmets;
+  struct chainhop *chainhops;
+
+  ub4 *tid2rtid;   // [chaincnt]
 
   ub4 histop;     // highest n-stop connections inited
 

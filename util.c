@@ -181,7 +181,7 @@ static ub4 combsort8(ub8 *p,ub4 n)
 
 ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc)
 {
-  ub4 i,rv;
+  ub4 i,rv = 1;
   ub8 v;
 
   switch (n) {  // trivia
@@ -196,17 +196,15 @@ ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc)
   for (i = 1; i < n; i++) if (p[i] > p[i-1]) break;
   if (i == n) {
     infofln(fln,Iter,"csort of %u started in reverse order",n);
-    for (i = 0; i < n; i++) {
-      v = p[i]; p[i] = p[n-i]; p[n-i] = v;
+    for (i = 0; i < n / 2; i++) {
+      v = p[i]; p[i] = p[n-i-1]; p[n-i-1] = v;
     }
-    return 1;
-  }
+  } else rv = combsort8(p,n);
 
-  rv = combsort8(p,n);
   for (i = 1; i < n; i++) if (p[i] < p[i-1]) break;
   if (i < n) {
     warnfln(fln,0,"csort of %u not in order in %u runs",n,rv);
-    for (i = 0; i < n; i++) info(0,"%u %lx",i,p[i]);
+    for (i = 0; i < n; i++) info(0,"%u %u+%u",i,(ub4)(p[i] >> 32),(ub4)(p[i] & hi32));
     error_z(0,0);
   }
   return rv;

@@ -50,7 +50,8 @@ int prepnet(netbase *basenet)
   struct chainbase *bchains,*bcp;
   struct routebase *broutes,*brp;
 
-  ub8 *bchainhops;
+  ub8 *bchip,*bchainidxs;
+  struct chainhopbase *bchp,*bchainhops;
 // todo events
 
   struct port *ports,*pports,*pdep,*parr,*pp,*gp;
@@ -192,6 +193,7 @@ int prepnet(netbase *basenet)
     gportsbyhop[hop * 2 + 1] = arr;
 
     hp = hops + hop;
+    hp->gid = hop;
     nlen = bhp->namelen;
     if (nlen) {
       memcpy(hp->name,bhp->name,nlen);
@@ -275,10 +277,13 @@ int prepnet(netbase *basenet)
   info0(0,"global connectivity");
   showconn(ports,portcnt,0);
 
+  ub4 i,idx,bofs,ofs,seq,prvseq,rtid;
+
   chains = alloc(bchaincnt,struct chain,0,"chains",bchaincnt);
   bchains = basenet->chains;
   bchainhops = basenet->chainhops;
-  chaincnt = 0;
+  bchainidxs = basenet->chainidxs;
+  chaincnt = chainhopcnt = ofs = 0;
   for (chain = 0; chain < bchaincnt; chain++) {
     bcp = bchains + chain;
     cp = chains + chain;
@@ -287,11 +292,47 @@ int prepnet(netbase *basenet)
     cp->hopcnt = cnt;
     cp->rrid = bcp->rrid;
     cp->rid = bcp->rid;
-    cp->hopofs = bcp->hopofs;
+    cp->tid = chain;
+    cp->rtid = bcp->rtid;
+    bofs = bcp->hopofs;
+    cp->hopofs = ofs;
+    ofs += cnt;
     chaincnt++;
   }
-  info(0,"%u from %u chains",chaincnt,bchaincnt);
+  chainhopcnt = ofs;
+  info(0,"%u from %u chains with %u hops",chaincnt,bchaincnt,chainhopcnt);
   chaincnt = bchaincnt;
+
+  ub4 *tid2rtid = alloc(chaincnt,ub4,0,"chain tid2rtid",chaincnt);
+  struct chainhop *chp,*chainhops = alloc(chainhopcnt,struct chainhop,0,"chain hops",chainhopcnt);
+
+  for (chain = 0; chain < chaincnt; chain++) {
+    cp = chains + chain;
+    bcp = bchains + chain;
+    cnt = cp->hopcnt;
+    rtid = cp->rtid;
+    tid2rtid[chain] = rtid;
+    if (cnt < 3) continue;
+    ofs = cp->hopofs;
+    bofs = bcp->hopofs;
+    bchip = bchainidxs + bofs;
+    prvseq = seq = 0;
+    for (i = 0; i < cnt; i++) {
+      chp = chainhops + ofs + i;
+      idx = bchip[i] & hi32;
+      error_ge(idx,cnt);
+      bchp = bchainhops + bofs + idx;
+      prvseq = seq;
+      seq = bchip[i] >> 32;
+      infocc(seq == 0,0,"tid %u rtid %u idx %u/%u at %p",chain,rtid,i,cnt,bchip + i);
+      error_le(seq,prvseq);
+      chp->hop = bchp->hop;
+      chp->tdep = bchp->tdep;
+      chp->tarr = bchp->tarr;
+      chp->midur = bchp->midur;
+      chp->dist = bchp->dist;
+    }
+  }
 
   gnet->portcnt = portcnt;
   gnet->hopcnt = hopcnt;
@@ -307,11 +348,10 @@ int prepnet(netbase *basenet)
 
   gnet->portsbyhop = gportsbyhop;
 
-  gnet->routechains = basenet->routechains;
-  gnet->chainhops = bchainhops;
-  gnet->chainmets = basenet->chainmets;
+  gnet->chainhops = chainhops;
   gnet->chainhopcnt = chainhopcnt;
 
+  gnet->tid2rtid = tid2rtid;
   gnet->hichainlen = basenet->hichainlen;
 
   gnet->eventmem = &basenet->eventmem;

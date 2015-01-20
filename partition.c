@@ -91,10 +91,9 @@ static void cpfromgnet(gnet *gnet,net *net)
 {
   net->chains = gnet->chains;
   net->chaincnt = gnet->chaincnt;
-  net->routechains = gnet->routechains;
   net->chainhops = gnet->chainhops;
-  net->chainmets = gnet->chainmets;
   net->chainhopcnt = gnet->chainhopcnt;
+  net->tid2rtid = gnet->tid2rtid;
 
   net->eventmem = gnet->eventmem;
   net->evmapmem = gnet->evmapmem;
@@ -140,7 +139,7 @@ int partition(gnet *gnet)
   ub4 hop,port,zport,zpport,chain,phop,pport;
   ub4 hirrid;
   ub4 *hopcnts,*portcnts;
-  ub4 *g2p,*p2g,*g2phop;
+  ub4 *g2p,*p2g,*g2phop,*p2ghop;
   ub4 *p2zp,*zp2p,*port2zport;
   ub4 t0,t1,evcnt;
   struct partition *parts,*partp;
@@ -159,18 +158,17 @@ int partition(gnet *gnet)
   ub4 dist,*hopdist;
   ub4 midur,*hopdur;
 
+  if (portcnt < 2 || hopcnt == 0) return 0;
+
   // prepare partitioning
   hopcnts = gnet->hopcnts;
   portcnts = gnet->portcnts;
   parts = gnet->parts;
 
-  port2zport = gnet->port2zport;
-  error_zp(port2zport,0);
-
   ub1 *gportparts;
 
   // todo configurable
-  ub4 aimpartsize = 30000;
+  ub4 aimpartsize = 3000;
   ub4 aimcnt = max(1,portcnt / aimpartsize);
 
   if (aimcnt > 1) info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
@@ -179,7 +177,7 @@ int partition(gnet *gnet)
 
     part = 0; partcnt = 1;
 
-    gportparts = alloc(partcnt * portcnt,ub1,1,"part portparts",portcnt);
+    gportparts = alloc(portcnt,ub1,0,"part portparts",portcnt);
 
     gnet->partcnt = partcnt;
     gnet->portparts = gportparts;
@@ -192,12 +190,14 @@ int partition(gnet *gnet)
     g2p = alloc(portcnt,ub4,0xff,"part g2p-ports",portcnt);
     p2g = alloc(portcnt,ub4,0xff,"part p2g-ports",portcnt);
     g2phop = alloc(hopcnt,ub4,0xff,"part g2p-hops",hopcnt);
+    p2ghop = alloc(hopcnt,ub4,0xff,"part pgg2p-hops",hopcnt);
 
     hopdist = alloc(hopcnt,ub4,0,"net hopdist",hopcnt);
     hopdur = alloc(hopcnt,ub4,0,"net hopdur",hopcnt);
 
     pportcnt = 0;
     for (port = 0; port < portcnt; port++) {
+      gportparts[port] = 1;
       g2p[port] = p2g[port] = port;
       pdep = ports + port;
       if (pdep->valid) pportcnt++;
@@ -211,6 +211,7 @@ int partition(gnet *gnet)
       hopdist[hop] = dist;
       hopdur[hop] = midur;
       g2phop[hop] = hop;
+      p2ghop[hop] = hop;
     }
 
     net->portcnt = portcnt;
@@ -221,6 +222,7 @@ int partition(gnet *gnet)
     net->g2pport = g2p;
     net->p2gport = p2g;
     net->g2phop = g2phop;
+    net->p2ghop = p2ghop;
 
     net->portsbyhop = gportsbyhop;
     net->hopdist = hopdist;
@@ -1164,6 +1166,7 @@ int partition(gnet *gnet)
     g2p = alloc(portcnt,ub4,0xff,"g2p-ports",portcnt);
     p2g = alloc(pportcnt,ub4,0xff,"p2g-ports",pportcnt);
     g2phop = alloc(hopcnt,ub4,0xff,"g2p-hops",hopcnt);
+    p2ghop = alloc(phopcnt,ub4,0xff,"part p2g-hops",phopcnt);
 
     p2zp = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
     zp2p = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
@@ -1201,14 +1204,6 @@ int partition(gnet *gnet)
       g2p[port] = pport;
       p2g[pport] = port;
 
-      zport = port2zport[port];
-      error_ge(zport,portcnt);
-      zpport = zp2p[zport];
-      if (zpport == hi32) {
-        zpport = zp2p[zport] = zpportcnt++;
-      }
-      p2zp[pport] = zpport;
-      zp2p[zpport] = pport;
       pp++;
       pport++;
     }
@@ -1246,6 +1241,8 @@ int partition(gnet *gnet)
       if (phop >= phopcnt) warning(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
       error_ge(phop,phopcnt);
       g2phop[hop] = phop;
+      error_ne(p2ghop[phop],hi32);
+      p2ghop[phop] = hop;
       memcpy(hp,ghp,sizeof(*hp));
       hp->gid = hop;
       t0 = hp->tp.t0;
@@ -1282,7 +1279,8 @@ int partition(gnet *gnet)
     net->g2pport = g2p;
     net->p2gport = p2g;
     net->g2phop = g2phop;
-  
+    net->p2ghop = p2ghop;
+
     net->portsbyhop = portsbyhop;
     net->hopdist = hopdist;
     net->hopdur = hopdur;

@@ -21,8 +21,8 @@ use integer;
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 12;
-my $lastchanged = "8 jan 2015";
+my $version_min = 13;
+my $lastchanged = "20 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -39,7 +39,7 @@ my $querydir;
 
 my $portrefname = 'portrefs.txt';
 
-my $timeout = 5; # seconds
+my $timeout = 12; # seconds
 
 my $agelimit = 60; # seconds
 
@@ -65,6 +65,7 @@ binmode(STDOUT,':utf8');
 my %portnames;
 my %portpnames;
 my %portids;
+my %idbysub;
 my $portcnt = 0;
 
 sub msg($) {
@@ -157,31 +158,33 @@ sub readportrefs($)
     ($id,$subid,$name,$lat,$lon) = split("\t",$line);
     next unless defined $id and defined $name;
     $lcname = lc($name);
-    $portnames{$name} = $id;
-    $portnames{$lcname} = $id;
-    $portids{$id} = $name unless defined $portids{$id};
+    $portnames{$name} = $subid;
+    $portnames{$lcname} = $subid;
+    $portids{$subid} = $name unless defined $portids{$subid};
+    $idbysub{$subid} = $id;
   }
   $portcnt = scalar(keys %portids);
   info("$portcnt ports");
 
   # prepare partial ( prefix) matching
-  while (($name,$id) = each %portnames) {
+  while (($name,$subid) = each %portnames) {
     $nlen = length($name);
     next if $nlen < 4;
     while ($nlen-- > 3) {
       chop $name;
-      if (defined($portpnames{$name})) { $portpnames{$name} .= "\t" . $id; }
-      else { $portpnames{$name} = $id; }
+      if (defined($portpnames{$name})) { $portpnames{$name} .= "\t" . $subid; }
+      else { $portpnames{$name} = $subid; }
     }
   }
   $haveportrefs = 1;
 }
 
+# returns sub-id by name
 sub portbyname($)
 {
   my ($name) = @_;
 
-  my ($port,$id,$seq,$lcname,$plen,$line);
+  my ($port,$id,$subid,$seq,$lcname,$plen,$line);
   my @plist;
 
   readportrefs($portrefname) unless $haveportrefs;
@@ -200,8 +203,8 @@ sub portbyname($)
   info("$plen matches for $name");
   if ($plen < 40) {
     $seq = 1;
-    foreach $id (@plist) {
-      printf("%2u %s\n",$seq++,$portids{$id});
+    foreach $subid (@plist) {
+      printf("%2u %s\n",$seq++,$portids{$subid});
     }
     do {
       print('Choose port by number or q to quit: ');
@@ -267,7 +270,10 @@ sub plan($$$$$)
   return 1 unless length($arr);
   info("$arrname resolved into $portids{$arr}");
 
-  iplan($dep,$arr,$stops,$dayrange,$startday);
+  my $pdep = $idbysub{$dep};
+  my $parr = $idbysub{$arr};
+
+  iplan($pdep,$parr,$stops,$dayrange,$startday);
 }
 
 sub stop($)

@@ -18,8 +18,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 22;
-my $lastchanged = "17 jan 2015";
+my $version_min = 23;
+my $lastchanged = "20 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -45,12 +45,13 @@ my $verbose_hops = 1;
 my $idprefix = '';
 
 my $merge_dup = 1;  # merge if lat,lon,name almost identical: nl
+my $dup_limit = 0.25;
 my $showmerge = 0;
 
 my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
 my $infer_parent = 0;   # infer parent when seemingly missing : seq
 my $infer_limit = 0.15;
-my $dup_limit = 0.25;
+my $showinfer = 0;
 
 my $geoacc = 5; # decimals for lat/lon in canon output
 
@@ -941,10 +942,13 @@ sub readstops($)
   info("not merged $mergedupcnt3 stops on duplicate name and colocated > $dup_limit") if $mergedupcnt3;
 
   # rescan stops, applying duplicate merging
+  my %rstops1;
 
-  while (($id,$rstopid) = each %rstopids) { # parents
+  foreach $rstopid (sort { $a <=> $b } keys %rstops) { # parents
+    $id = $rstopbyid{$rstopid};
 
-    ($name,$lat,$lon,$ilat,$ilon,$rparent,$loctype,$code,$desc) = split("\t",$rstops{$rstopid});
+    $stopstr = $rstops{$rstopid};
+    ($name,$lat,$lon,$ilat,$ilon,$rparent,$loctype,$code,$desc) = split("\t",$stopstr);
 
     $hasparent = (length($rparent) > 0);
     if ($hasparent) {
@@ -960,13 +964,15 @@ sub readstops($)
       $parent = $rstopbyid{$parentid};
       if ($parent ne $rparent) {
         infovrb($showmerge,"reparent $rparent to $parent for $id");
-        $rstops{$rstopid} = join("\t",$name,$lat,$lon,$ilat,$ilon,$parent,$loctype,$code,$desc);
-      }
-    }
+        $rstops1{$rstopid} = join("\t",$name,$lat,$lon,$ilat,$ilon,$parent,$loctype,$code,$desc);
+      } else { $rstops1{$rstopid} = $stopstr; }
+    } else { $rstops1{$rstopid} = $stopstr; }
   }
 
-  while (($id,$rstopid) = each %rstopids) { # stops
-    ($name,$lat,$lon,$ilat,$ilon,$parent,$loctype,$code,$desc) = split("\t",$rstops{$rstopid});
+  foreach $rstopid (sort { $a <=> $b } keys %rstops1) {  # stops
+    $id = $rstopbyid{$rstopid};
+    $stopstr = $rstops1{$rstopid};
+    ($name,$lat,$lon,$ilat,$ilon,$parent,$loctype,$code,$desc) = split("\t",$stopstr);
 
     $hasparent = (length($parent) > 0);
     if ($hasparent) {
@@ -1026,13 +1032,13 @@ sub readstops($)
         $sname = $stopnames{$candidate};
         $dist = geodist($slat,$slon,$lat,$lon);
         if ($name eq $sname and $dist < $infer_limit * 8) {
-          info("infer common parent for '$name' within $dist of samenamed");
+          infovrb($showinfer,"infer common parent for '$name' within $dist of samenamed");
           $sims{$candidate} .= $stopid . '_';
         } elsif (substr($name,0,-2) eq substr($sname,0,-2) and $dist < $infer_limit * 4) {
-          info("infer common parent for '$name' within $dist of similar-named '$sname'");
+          infovrb($showinfer,"infer common parent for '$name' within $dist of similar-named '$sname'");
           $sims{$candidate} .= $stopid . '_';
         } elsif ($dist < $infer_limit) {
-           info("infer common parent for '$name' within $dist of '$sname'");
+           infovrb($showinfer,"infer common parent for '$name' within $dist of '$sname'");
           $sims{$candidate} .= $stopid . '_';
         } elsif ($name eq $sname) {
           info("not infer common parent for '$name' within $dist of samenamed");
@@ -1088,12 +1094,14 @@ sub readstops($)
   my (@sibstops,$stoplst);
 
   while (($parent,$parent1) = each %parentdups) {
+    info("xxx");
     $stoplst = $parents{$parent};
     $parents{$parent} = '';
     $parents{$parent1} .= $stoplst;
     @sibstops = split(' ',trimws($stoplst));
     for $stopid (@sibstops) {
       $parentbyid{$stopid} = $parent1;
+      info("xxx");
     }
   }
 
@@ -1104,7 +1112,8 @@ sub readstops($)
   $stopcnt = scalar(keys %stops);
 
   $infercnt = 0;
-  while ( ($candidate,$simlst) = each %sims) {
+  foreach $candidate (sort { $a <=> $b } keys %sims) {
+    $simlst = $sims{$candidate};
     @sims1 = split('_',$simlst);
     next if @sims1 == 0;
 
@@ -1139,14 +1148,14 @@ sub readstops($)
     $stopdeps[$newparentid] = 0;
     $stoparrs[$newparentid] = 0;
 
-    info("inferred parent id $newparent $newparentid name $newparent");
+    infovrb($showinfer,"inferred parent id $newparent $newparentid name $newparent");
     foreach $stopid (@sims3) {
       next unless length $stopid and $stopid ne '_';
       error_exit("no name for '$stopid'") unless exists $stopnames{$stopid};
       $name = $stopnames{$stopid};
       $lat = $simlats{$stopid};
       $lon = $simlons{$stopid};
-      info("  member id $stopid name $name lat $lat lon $lon");
+      infovrb($showinfer,"  member id $stopid name $name lat $lat lon $lon");
       $parents{$newparent} .= $stopid . ' ';
       $parentbyid{$stopid} = $newparent;
       $stopstr = $stops{$stopid};
@@ -1452,9 +1461,14 @@ sub readtrips($)
     $trip_ids{$tripid} = $trip_id;
     $hitripid = $linno;
 
+    unless (exists($routeids{$route_id})) {
+      warning("$linno: unknown route id $route_id");
+      next;
+    }
+
     $routeid = $routeids{$route_id};
 #    info("route $route_id id $routeid");
-    $triproutes{$trip_id} = $routeid;
+    $triproutes{$tripid} = $routeid;
 
     if (exists($norouteids{$route_id})) {  # filtered
     } elsif (exists($routeids{$route_id})) {
@@ -1940,10 +1954,11 @@ sub readstoptimes($)
 
   my $nottcnt = 0;
 
-  my (@newtrip,@newstrip);
-  my ($newtripln,$parent,$parentid,$sid,$service_id,$xtripid);
+  my (@newtrip,@newstrip,@newstrip1);
+  my ($newtripln,$parent,$parentid,$sid,$service_id,$xtripid,$xlinno);
   my $prvtrip = 0;
-  $tripid = 0;
+  my $prvroute = 0;
+  $tripid = 0; $routeid = 0;
 
   my ($uniqid,$name,$tripline);
   my ($thh,$tmm,$tss,$tahh,$tamm,$tass,$tdepsec,$tarrsec);
@@ -1993,12 +2008,18 @@ sub readstoptimes($)
       next;
     }
     $prvtrip = $tripid;
+    $prvroute = $routeid;
     $tripid = $tripids{$trip_id};
 
-    $routeid = $triproutes{$trip_id};
+    unless (exists($triproutes{$tripid})) {
+      warning("$linno: undefined route for trip $trip_id");
+      next;
+    }
+
+    $routeid = $triproutes{$tripid};
     $route_id = $routebyids{$routeid};
     if (exists $norouteids{$route_id}) { # filtered
-      vrb("filter $stop_id on route $route_id");
+      info("filter $stop_id on route $route_id");
       next;
     }
 
@@ -2036,22 +2057,24 @@ sub readstoptimes($)
 
     if ($prvtrip == 0) {
       @newtrip = ();
-      push @newtrip,sprintf("%03u\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time);
+      push @newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno);
     } elsif ($prvtrip == $tripid and not $lastline) {
-      push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time));
+      push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
     } else {
       warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1; # todo
       @newstrip = sort { substr($a,0,3) <=> substr($b,0,3) } @newtrip;
+      @newstrip1 = ();
+      foreach $tripline (@newstrip) { push @newstrip1,$tripline; }
 
       @newtrip = ();
-      push @newtrip,sprintf("%03u\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time);
+      push @newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno);
 
       vrb("processing last line $newstrip[0]") if $lastline;
 
       $tdepsec = 0; $tarrsec = 0;
-      ($seq,$xtripid,$id,$dep_time,$arr_time) = split("\t",$newstrip[0]);
+      ($seq,$xtripid,$id,$dep_time,$arr_time,$xlinno) = split("\t",$newstrip1[0]);
 
-      foreach $tripline (@newstrip) {
+      foreach $tripline (@newstrip1) {
         $prvtdep = $tdepsec;
         $prvtarr = $tarrsec;
         $prvid = $id;
@@ -2059,7 +2082,7 @@ sub readstoptimes($)
 
 #        info("$tripline");
 
-        ($seq,$xtripid,$id,$dep_time,$arr_time) = split("\t",$tripline);
+        ($seq,$xtripid,$id,$dep_time,$arr_time,$xlinno) = split("\t",$tripline);
 
         if ($xtripid ne $prvtrip) { # todo: at merge
           warning("trip ID '$xtripid' mismatches '$prvtrip' $tripline");
@@ -2090,7 +2113,7 @@ sub readstoptimes($)
           $tarrsec = $prvtarr;
           if ($seq > $prvseq) { $tdepsec += 2; $tarrsec += 2; }
           else { $tdepsec -= 2; $tarrsec -= 2; }
-          info("trip $xtripid has no time for seq $seq : interpolated");
+          info("trip $xtripid has no time for seq $seq at line $xlinno : interpolated");
         } else {
           info("trip $xtripid stop $stopnames{$id} has no time");
           $sid = $nosid;
@@ -2098,6 +2121,7 @@ sub readstoptimes($)
           $tarrsec = $prvtarr;
           next;
         }
+#        info("skip hop $id line $linno") if $id == $prvid;
         next if $id == $prvid;
         return error("trip ID '$xtripid' duplicate sequence $seq") if $seq == $prvseq;
 
@@ -2114,7 +2138,7 @@ sub readstoptimes($)
         warning("tdep $htdep equals tarr $htarr") if $htdep == $htarr;
 
         # actual hop derived from key lateron
-        $uniqid = join('_',$routeid,$prvid,$id);
+        $uniqid = join('_',$prvroute,$prvid,$id);
 #        info("uniqid $uniqid");
         $sumtimes++;
         if (exists($tripseq{$uniqid})) {
@@ -2124,6 +2148,7 @@ sub readstoptimes($)
           push @uniqids,$uniqid;
           $stopdeps[$prvid]++;
           $stoparrs[$id]++;
+#          info("$uniqid line $xlinno start $linno") if $prvroute == 69;
           $hopcnt++;
         }
       } # each tripline
@@ -2139,6 +2164,16 @@ sub readstoptimes($)
 
   do_conn();
 
+  my %ridrefs;
+  my ($rid,$arr,$cnt);
+
+  foreach $uniqid (@uniqids) {
+    ($rid,$dep,$arr) = split('_',$uniqid);
+    $ridrefs{$rid}++;
+  }
+  while (($rid,$cnt) = each %ridrefs) {
+    info("rid $rid has $cnt hops");
+  }
   return 1;
 }
 
@@ -2217,7 +2252,8 @@ sub writext($$)
   my ($parent,$parentid,$stopstr);
   my $portcnt = $parentcnt;
 
-  while (($stopid,$stopstr) = each %stops) {
+  foreach $stopid (sort { $a <=> $b } keys %stops) {
+    $stopstr = $stops{$stopid};
 
     ($stop_name,$ilat,$ilon,$stop_code,$desc,$opts) = split("\t",$stopstr);
 

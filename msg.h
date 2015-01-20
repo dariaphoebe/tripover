@@ -55,9 +55,9 @@ struct eta {
 
 #define info0(code,s) info0fln(FLN,(code),(s))
 
-#define vrbcc(cc,code,fmt,...) if ((cc)) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
-#define infocc(cc,code,fmt,...) if ((cc)) infofln(FLN,(code),(fmt),__VA_ARGS__)
-#define warncc(cc,code,fmt,...) if ((cc)) warnfln(FLN,(code),(fmt),__VA_ARGS__)
+#define vrbcc(cc,code,fmt,...) { sassert(sizeof(fmt) >= sizeof(void*),"fmt arg is not a string"); if ((cc)) vrbfln(FLN,(code),(fmt),__VA_ARGS__); }
+#define infocc(cc,code,fmt,...) { sassert(sizeof(fmt) >= sizeof(void*),"fmt arg is not a string"); if ((cc)) infofln(FLN,(code),(fmt),__VA_ARGS__); }
+#define warncc(cc,code,fmt,...) { sassert(sizeof(fmt) >= sizeof(void*),"fmt arg is not a string"); if ((cc)) warnfln(FLN,(code),(fmt),__VA_ARGS__); }
 
 #define infovrb(cc,code,fmt,...) genmsgfln(FLN,(cc) ? Info : Vrb,(code),(fmt),__VA_ARGS__)
 #define warninfo(cc,code,fmt,...) genmsgfln(FLN,(cc) ? Warn : Info,(code),(fmt),__VA_ARGS__)

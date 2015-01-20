@@ -96,7 +96,7 @@ static struct cfgvar {
   // limits
   {"maxhops",Uint,Maxhops,0,Hopcnt,5000,"maximum number of hops"},
   {"maxports",Uint,Maxports,0,Portcnt,1000,"maximum number of ports"},
-  {"maxstops",Uint,Maxstops,0,Nstop,3,"maximum number of stops"},
+  {"maxstops",Uint,Maxstops,0,Nstop-1,3,"maximum number of stops"},
 
   // run
   {"stopat",EnumRunlvl,Stopat,0,Runcnt,Runcnt,"stop at given stage"},

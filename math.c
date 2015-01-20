@@ -281,7 +281,7 @@ void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt])
   bbox[Boxcnt]++;
 }
 
-static double geolow = M_PI * 0.0001;
+static double geolow = M_PI * 0.002;   // ~ 40 km
 static double geolimit = M_PI * 1.0e-8;
 
 // great circle lat/lon to Km.

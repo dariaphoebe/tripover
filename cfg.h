@@ -18,7 +18,7 @@
 // search limits: practical
 
 // max stops aka transfers supported within a single part
-#define Nstop 6
+#define Nstop 8
 
 // idem, inter-part. typically 3 * Nstop
 #define Nxstop 20

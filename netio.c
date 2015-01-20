@@ -1186,7 +1186,7 @@ static int rdexthops(netbase *net,const char *dir)
   ub4 rsid,sid,sidcnt,*rsid2sids;
   int rv;
   char *buf;
-  ub4 len,linno,colno,val,namelen,valndx,id,idhi,maxid,maxrid,maxsid;
+  ub4 len,linno,colno,val,namelen,valndx,id,idhi,maxid,hirrid,maxsid;
   ub4 depid,arrid,dep,arr,pid,rtype,routeid,timecnt;
   char *name,*dname,*aname;
   ub4 *vals;
@@ -1235,7 +1235,7 @@ static int rdexthops(netbase *net,const char *dir)
 
   maxsid = net->maxsid;
 
-  id = idhi = maxid = maxrid = 0;
+  id = idhi = maxid = hirrid = 0;
 
   vals = eft.vals;
   name = eft.name;
@@ -1326,7 +1326,9 @@ static int rdexthops(netbase *net,const char *dir)
         break;
       }
 
-      if (routeid != hi32) maxrid = max(maxrid,routeid);
+      infocc(routeid == 69,0,"rrid %u hop id %u %u-%u %s to %s route %s",routeid,id,depid,arrid,dname,aname,name);
+
+      if (routeid != hi32) hirrid = max(hirrid,routeid);
       else info(0,"hop %u has no route id %s to %s",hop,dname,aname);
 
       if (timecnt && !sumtimes) return inerr(FLN,fname,linno,colno,"hop %u-%u has %u times, sumtimes var zero",depid,arrid,timecnt);
@@ -1478,6 +1480,23 @@ static int rdexthops(netbase *net,const char *dir)
   hopcnt = hop;
   progress(&eta,"reading hop %u of %u, \ah%u time entries",hop,hopcnt,timespos);
 
+  ub4 *rridrefs = alloc(hirrid+1,ub4,0,"io ridrefs",hirrid);
+  ub4 cnt,rrid,rridhicnt = 0,rridhi = 0,rridhihop = hi32;
+
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    rrid = hp->rrid;
+    cnt = rridrefs[rrid] + 1;
+    rridrefs[rrid] = cnt;
+    if (cnt > rridhicnt) { rridhicnt = cnt; rridhi = rrid; rridhihop = hop; }
+  }
+  hp = hops + rridhihop;
+  info(0,"rrid %u has %u hops route %s",rridhi,rridhicnt,hp->name);
+  for (rrid = 0; rrid <= hirrid; rrid++) {
+    cnt = rridrefs[rrid];
+    if (cnt) info(0,"rrid %u has %u hops",rrid,cnt);
+  }
+
 #if 0
   ub4 dupcnt = 0;
 
@@ -1531,7 +1550,7 @@ static int rdexthops(netbase *net,const char *dir)
   info(0,"read %u hops from %s", hopcnt, fname);
   net->hopcnt = hopcnt;
   net->hops = hops;
-  net->hirrid = maxrid;
+  net->hirrid = hirrid;
 
   net->hitripid = hitripid;
 
@@ -1649,7 +1668,7 @@ int wrportrefs(netbase *net)
       spp = sports + sofs + sport;
       y = lat2ext(spp->lat);
       x = lon2ext(spp->lon);
-      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\n",port,spp->subid,spp->name,y,x); // use parent port to make alias
+      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\n",port,spp->subid + portcnt,spp->name,y,x); // use parent port to make alias
       if (filewrite(fd,buf,pos,portsname)) return 1;
       wportcnt++;
     }

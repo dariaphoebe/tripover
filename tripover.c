@@ -110,8 +110,10 @@ static int getbasenet(void)
       rv = readextnet(basenet,globs.netdir);
       if (rv) return rv;
       if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
+      else return 0;
       if (rv) return rv;
       if (dorun(FLN,Runprep)) rv = prepnet(basenet);
+      else return 0;
       if (rv) return rv;
       gnet = getgnet();
       rv = partition(gnet);

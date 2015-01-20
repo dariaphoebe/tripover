@@ -273,8 +273,9 @@ int prepbasenet(void)
 
   ub4 *tbp,*timesbase = basenet.timesbase;
   ub4 tndx,timecnt,timespos,evcnt,zevcnt,cnt;
-  ub4 sid,tid,rid,rsid,tdep,tarr,tripseq,tdepsec,tarrsec,prvtdep;
-  ub4 rrid,chcnt,i;
+  ub4 sid,rsid,tid,rtid,rid,rrid;
+  ub4 tdep,tarr,tripseq,tdepsec,tarrsec,prvtdep;
+  ub4 chcnt,i;
   ub4 t0,t1,ht0,ht1,hdt,tdays,mapofs;
   ub8 cumevcnt = 0,cumzevcnt = 0,cumtdays = 0;
   ub4 evhops = 0;
@@ -305,9 +306,9 @@ int prepbasenet(void)
   ub4 cumhoprefs2 = 0;
   struct chainbase *cp,*chains = basenet.chains;
 
-  ub8 *chainhops = alloc(cumhoprefs,ub8,0,"chain",cumhoprefs);
-  ub8 *chainmets = alloc(cumhoprefs,ub8,0,"chain",cumhoprefs);
-  ub8 *chp,*chmp;
+  ub8 *chip,*chainidxs = alloc(cumhoprefs,ub8,0,"chain idx",cumhoprefs);
+  struct chainhopbase *chp,*chp2,*chainhops = alloc(cumhoprefs,struct chainhopbase,0,"chain hops",cumhoprefs);
+
   ub4 chain;
   ub4 rawchaincnt = basenet.rawchaincnt;
   ub4 hirrid = basenet.hirrid;
@@ -318,7 +319,7 @@ int prepbasenet(void)
   double fdist;
   ub4 dist;
 
-  ub4 chainofs = 0;
+  ub4 ofs,chainofs = 0;
   for (chain = 0; chain < rawchaincnt; chain++) {
     cp = chains + chain;
     cp->hopofs = chainofs;
@@ -369,7 +370,7 @@ int prepbasenet(void)
     } else rid = hi32;
     hp->rid = rid;
 
-    if (rrid == rrid2watch || rid == 2477) info(0,"hop %u rrid %u rid %u %s to %s",hop,rrid,rid,pdep->name,parr->name);
+    if (rrid == rrid2watch || rrid == 15) info(0,"hop %u rrid %u rid %u %s to %s route %s",hop,rrid,rid,pdep->name,parr->name,hp->name);
 
     hoplog(hop,0,"rrid %x %u-%u %s to %s",rrid,dep,arr,pdep->name,parr->name);
 
@@ -445,30 +446,47 @@ int prepbasenet(void)
       if (tid != hi32) {
         error_ge(tid,rawchaincnt);
         cp = chains + tid;
-        chp = chainhops + cp->hopofs;
+        rtid = cp->rtid;
+        chip = chainidxs + cp->hopofs;
         chcnt = cp->hopcnt;
-        error_ge(cp->hopofs + chcnt,cumhoprefs);
+        ofs = cp->hopofs;
+        error_ge(ofs + chcnt,cumhoprefs);
+        chp = chainhops + ofs + chcnt;
+        pp = ports + cp->dep;
+        error_z(tripseq,tid);
+        infocc(tid == 57021,0,"xxx tid %u seq %u idx %u at %p",tid,tripseq,chcnt,chip);
+        error_ge(chcnt,cp->hoprefs);
         if (chcnt == 0) {
-          chp[0] = hop | ((ub8)tripseq << 32);
+          chip[0] = (ub8)tripseq << 32;
+          error_z(chip[0],tid);
+          chp->hop = hop;
+          chp->tdep = tdep;
+          chp->tarr = tarr;
           cp->rrid = rrid;
           cp->dep = dep;
           cp->hopcnt = 1;
           cumhoprefs2++;
-        } else if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
-        else {
-          i = chcnt;
-//          while (i < chcnt && (chp[i] & hi32) != hop) i++;
+        } else {
+          if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
+          chp2 = chainhops + ofs;
+          for (i = 0; i < chcnt; i++) {
+            if (chp2[i].hop == hop) {
+              warn(Iter,"rrid %u r.tid %u.%u skip equal hop %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,i,pdep->name,parr->name,pp->name,hp->name);
+              break;
+            } else if ( (chip[i] >> 32) == tripseq) {
+              warn(Iter,"rrid %x tid %u skip equal seq %u at %u %s to %s start %s",rrid,tid,tripseq,i,pdep->name,parr->name,pp->name);
+              break;
+            }
+          }
           if (i == chcnt) {
             if (tid == tid2watch || hop == hop2watch) info(0,"add hop %u tid %u at %u",hop,tid,i);
-            chp[chcnt] = hop | ((ub8)tripseq << 32);
+            chip[chcnt] = chcnt | ((ub8)tripseq << 32);
+            chp->hop = hop;
+            chp->tdep = tdep;
             error_ge(chcnt,cp->hoprefs);
             cp->hopcnt = chcnt + 1;
             cumhoprefs2++;
             if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u at %u %s to %s",rrid,rid,tid,hop,i,pdep->name,parr->name);
-          } else {
-            pp = ports + cp->dep;
-            warn(Iter,"rrid %x tid %u skip equal hop %u at %u %s to %s start %s",rrid,tid,hop,i,pdep->name,parr->name,pp->name);
-            return 1;
           }
         }
       } else info(Iter,"hop %u no tid",hop);
@@ -569,7 +587,7 @@ int prepbasenet(void)
   }
 
   // prepare hoplist in chain
-  ub4 ci,iv,eqcnt = 0,hichlen = 0,lochlen = hi32,hichain = 0,lochain = 0;
+  ub4 ci,idx,iv,eqcnt = 0,hichlen = 0,lochlen = hi32,hichain = 0,lochain = 0;
   ub4 cumchaincnt = 0,ridchainofs = 0;
   ub8 sum1,sum2,sum;
   ub4 chstats[128];
@@ -594,20 +612,26 @@ int prepbasenet(void)
       rp = routes + rid;
       rp->chaincnt++;
       cumchaincnt++;
-      chp = chainhops + cp->hopofs;
-      chmp = chainmets + cp->hopofs;
-      sort8(chp,cnt,FLN,"chainhops");
+      ofs = cp->hopofs;
+      chip = chainidxs + ofs;
+      sort8(chip,cnt,FLN,"chainhops");
 
       sum1 = sum2 = 0;
       dist = 0; midur = prvdur = 0;
       for (ci = 0; ci < cnt; ci++) {
-        hop = chp[ci] & hi32;
+        tripseq = chip[ci] >> 32;
+        error_z(tripseq,chain);
+        idx = chip[ci] & hi32;
+        error_ge(idx,cnt);
+        chp = chainhops + ofs + idx;
+        hop = chp->hop;
         error_ge(hop,hopcnt);
         hp = hops + hop;
         dist += hp->dist;
         if (hp->tp.midur == hi32) { prvdur = midur; midur = hi32; }
         else midur += hp->tp.midur;
-        chmp[ci] = ((ub8)dist << 32) | midur;
+        chp->dist = dist;
+        chp->midur = midur;
         if (midur == hi32) midur = prvdur;
         sum1 = (sum1 + hop) % hi32;
         sum2 = (sum2 + sum1) % hi32;
@@ -630,9 +654,12 @@ int prepbasenet(void)
   info(0,"longest chain %u len %u rid %u rrid %u",hichain,hichlen,rid,rrid);
   cnt = cp->hopcnt;
   chp = chainhops + cp->hopofs;
+  chip = chainidxs + cp->hopofs;
   for (ci = 0; ci < cnt; ci++) {
-    hop = chp[ci] & hi32;
-    tdep = chp[0] >> 32;
+    idx = chip[ci] & hi32;
+    tripseq = chip[ci] >> 32;
+    hop = chp[idx].hop;
+    tdep = chp[idx].tdep;
     hp = hops + hop;
     pdep = ports + hp->dep;
     parr = ports + hp->arr;
@@ -653,10 +680,13 @@ int prepbasenet(void)
   cp = chains + lochain;
   info(0,"shortest chain %u len %u rid %u rrid %u",lochain,lochlen,cp->rid,cp->rrid);
   cnt = cp->hopcnt;
-  chp = chainhops + cp->hopofs;
+  ofs = cp->hopofs;
+  chp = chainhops + ofs;
+  chip = chainidxs + ofs;
   for (ci = 0; ci < cnt; ci++) {
-    hop = chp[ci] & hi32;
-    tripseq = chp[0] >> 32;
+    idx = chip[ci] & hi32;
+    tripseq = chip[ci] >> 32;
+    hop = chp[idx].hop;
     hp = hops + hop;
     pdep = ports + hp->dep;
     parr = ports + hp->arr;
@@ -703,7 +733,7 @@ int prepbasenet(void)
 
   basenet.routechains = routechains;
   basenet.chainhops = chainhops;
-  basenet.chainmets = chainmets;
+  basenet.chainidxs = chainidxs;
 
   eventmem = &basenet.eventmem;
   evmapmem = &basenet.evmapmem;
