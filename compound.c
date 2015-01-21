@@ -42,7 +42,8 @@ void inicompound(void)
   iniassert();
 }
 
-static const ub4 maxperm = 130, maxperm2 = maxperm * maxperm;
+static const ub4 maxperm = min(130,Chainlen);
+static const ub4 maxperm2 = maxperm * maxperm;
 
 // add compound hops
 int compound(struct network *net)
@@ -93,13 +94,14 @@ int compound(struct network *net)
 
   ub4 ghop,hop1,hop2,dep1,arr2;
   ub4 dist1,dist2,midur1,midur2,dist = 0;
-  ub4 tdep1,tdep2;
+  ub4 tdep,tarr,tdep1,tdep2,tarr2;
   ub4 ci,ci1,ci2,pchlen,cmpcnt;
 
   ub4 pchain[Chainlen];
   ub4 pdeps[Chainlen];
   ub4 parrs[Chainlen];
   ub4 ptdep[Chainlen];
+  ub4 ptarr[Chainlen];
   ub4 pdist[Chainlen];
 
   error_zp(orghopdist,hopcnt);
@@ -157,14 +159,18 @@ int compound(struct network *net)
         hop = g2phop[ghop];
         if (hop == hi32) continue;
 
+        if (pchlen == maxperm) { warning(0,"limiting rid %u chain to %u",rid,maxperm); break; }
+
         dep = orgportsbyhop[hop * 2];
         arr = orgportsbyhop[hop * 2 + 1];
         error_ge(dep,portcnt);
         error_ge(arr,portcnt);
         pdeps[pchlen] = dep;
         parrs[pchlen] = arr;
+        tdep = chp->tdep;
+        tarr = chp->tarr;
+        error_lt(tarr,tdep);
         pchlen++;
-        if (pchlen == maxperm) { warning(0,"limiting rid %u chain to %u",rid,maxperm); break; }
       }
       if (pchlen < 3) continue;
 
@@ -255,6 +261,7 @@ int compound(struct network *net)
         parrs[pchlen] = arr;
         pdist[pchlen] = chp->dist;
         ptdep[pchlen] = chp->tdep;
+        ptarr[pchlen] = chp->tarr;
         pchlen++;
         if (pchlen == maxperm) { warning(0,"limiting rid %u chain to %u",rid,maxperm); break; }
       }
@@ -267,7 +274,6 @@ int compound(struct network *net)
       cmpcnt = 0;
       for (ci1 = 0; ci1 < pchlen - 1; ci1++) {
         dep1 = pdeps[ci1];
-        hop1 = pchain[ci1];
         for (ci2 = ci1 + 1; ci2 < pchlen; ci2++) {
           arr2 = parrs[ci2];
           deparr = dep1 * portcnt + arr2;
@@ -281,11 +287,12 @@ int compound(struct network *net)
           duphops[deparr] = 1;
 
           // generate compound
+          hop1 = pchain[ci1];
           hop2 = pchain[ci2];
           dist1 = pdist[ci1];
           dist2 = pdist[ci2];
           tdep1 = ptdep[ci1];
-          tdep2 = ptdep[ci2];
+          tarr2 = ptarr[ci2];
 
           error_eq(hop1,hop2);
 
@@ -298,8 +305,8 @@ int compound(struct network *net)
           dist = dist2 - dist1;
           hopdist[chop] = dist;
 
-//          error_lt(tdep2,tdep1);   // todo take average over chains if not constant
-          midur = tdep2 - tdep1;
+          error_lt(tarr2,tdep1);   // todo take average over chains if not constant
+          midur = tarr2 - tdep1;
           hopdur[chop] = midur;
 
           chop++;

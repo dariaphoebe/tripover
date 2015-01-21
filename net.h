@@ -317,7 +317,7 @@ struct gnetwork {
 
   ub4 *portsbyhop; // [hopcnt * 2] <dep,arr>
 
-  ub4 partcnt;
+  ub4 partcnt,tpart;
 
   struct partition parts[Npart];
 

@@ -179,6 +179,7 @@ int partition(gnet *gnet)
 
     gportparts = alloc(portcnt,ub1,0,"part portparts",portcnt);
 
+    gnet->tpart = 0;
     gnet->partcnt = partcnt;
     gnet->portparts = gportparts;
 
@@ -1122,6 +1123,7 @@ int partition(gnet *gnet)
 
   tportcnt = portcnts[tpart];
 
+  gnet->tpart = tpart;
   gnet->partcnt = partcnt;
   gnet->portparts = gportparts;
 

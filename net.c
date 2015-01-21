@@ -1417,7 +1417,7 @@ static int mkxmap(ub4 callee,struct gnetwork *gnet)
  */
   info0(0,"fill inter-partition reach maps pass 1");
 
-  tpart = partcnt - 1;
+  tpart = gnet->tpart;
   tnet = getnet(tpart);
   tportcnt = tnet->portcnt;
   conmask = tnet->conmask = alloc(tportcnt * tportcnt,ub1,0,"part topnet conn",tportcnt);
@@ -1427,8 +1427,8 @@ static int mkxmap(ub4 callee,struct gnetwork *gnet)
 
   for (tdep = 0; tdep < tportcnt; tdep++) {
     for (tarr = 0; tarr < tportcnt; tarr++) {
-      if (tdep == tarr) continue;
       deparr = tdep * tportcnt + tarr;
+      if (tdep == tarr) { conmask[deparr] = 0x80; continue; }
       stopset = getconn(caller,tnet,deparr);
       if (stopset == 0) continue;
       conmask[deparr] = (ub1)stopset;
@@ -1605,7 +1605,7 @@ static int dogconn(ub4 callee,struct gnetwork *gnet)
     xmapdbase = xmapabase = NULL;
   }
 
-  tpart = partcnt - 1;
+  tpart = gnet->tpart;
   tnet = getnet(tpart);
   tportcnt = tnet->portcnt;
   tmap = tnet->conmask;

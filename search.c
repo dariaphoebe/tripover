@@ -832,6 +832,7 @@ static ub4 srcglocal(struct gnetwork *gnet,ub4 part,ub4 gdep,ub4 garr,ub4 stop,s
 #define Distbins 256
 #define Percbins 128
 
+// core interpart search loop
 static ub4 srcxpart2(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gdmid,ub4 gamid,search *src)
 {
   ub4 tpart = tnet->part;
@@ -993,32 +994,6 @@ static ub4 srcxpart2(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
 
       evcnt = addevs(caller,src,dnet,vp,nleg,0,dthi,&dtcur);
 
-#if 0
-
-      for (leg = 0; leg < nleg; leg++) {
-        l = vp[leg];
-
-        midur = hopdur[l];
-        if (l < hopcnt) {
-          hp = hops + l;
-          tp = &hp->tp;
-          evcnt = addevs(dnet,src,events,evmaps,leg,tp,hp,midur,dthi);
-        } else if (l < whopcnt) {
-          if (leg) evcnt = fwdevs(src,leg,l,midur,dthi);
-          else evcnt = frqevs(src,leg,l,midur,walkfreq,dthi);
-        } else {
-          l1 = choporg[l * 2];
-          l2 = choporg[l * 2 + 1];
-          hp = hops + l1;
-          tp = &hp->tp;
-          evcnt = addevs(dnet,src,events,evmaps,leg,tp,hp,midur,dthi);
-        }
-        if (evcnt == 0) break;
-        dtcur = src->dtcurs[leg];
-        if (dtcur >= topdts[topdt1]) break;
-      }
-#endif
-
       if (evcnt == 0 || dtcur >= topdts[topdt1]) {
 //        info(0,"evcnt %u dtcur %u leg %u",evcnt,dtcur,leg);
         vp += nleg;
@@ -1068,31 +1043,6 @@ static ub4 srcxpart2(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
 
           evcnt = addevs(caller,src,tnet,tvp,ntleg,nleg,dthi,&dtcur);
           infocc(evcnt,0,"%u event\as",evcnt);
-
-#if 0
-          for (tleg = 0; tleg < ntleg; tleg++) {
-            l = tvp[tleg];
-            midur = thopdur[l];
-
-            if (l < thopcnt) {
-              hp = thops + l;
-              tp = &hp->tp;
-              evcnt = addevs(tnet,src,tevents,tevmaps,tleg + nleg,tp,hp,midur,dthi);
-            } else if (l < twhopcnt) {
-              if (tleg) evcnt = fwdevs(src,tleg,l,midur,dthi);
-              else evcnt = frqevs(src,tleg,l,midur,walkfreq,dthi);
-            } else {
-              l1 = tchoporg[l * 2];
-              l2 = tchoporg[l * 2 + 1];
-              hp = thops + l1;
-              tp = &hp->tp;
-              evcnt = addevs(tnet,src,tevents,tevmaps,tleg + nleg,tp,hp,midur,dthi);
-            }
-            if (evcnt == 0) break;
-            dtcur = src->dtcurs[leg];
-            if (dtcur >= topdts[topdt1]) break;
-          }
-#endif
 
           if (evcnt == 0 || dtcur >= topdts[topdt1]) {
             tvp += ntleg; continue;
@@ -1150,31 +1100,6 @@ static ub4 srcxpart2(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
 
               evcnt = addevs(caller,src,anet,avp,naleg,nleg + ntleg,dthi,&dtcur);
               infocc(evcnt,0,"%u event\as",evcnt);
-
-#if 0
-              for (aleg = 0; aleg < naleg; aleg++) {
-                l = avp[aleg];
-                midur = ahopdur[l];
-
-                if (l < ahopcnt) {
-                  hp = ahops + l;
-                  tp = &hp->tp;
-                  evcnt = addevs(anet,src,aevents,aevmaps,aleg + nleg + ntleg,tp,hp,midur,dthi);
-                } else if (l < awhopcnt) {
-                  if (aleg) evcnt = fwdevs(src,aleg,l,midur,dthi);
-                  else evcnt = frqevs(src,aleg,l,midur,walkfreq,dthi);
-                } else {
-                  l1 = achoporg[l * 2];
-                  l2 = achoporg[l * 2 + 1];
-                  hp = ahops + l1;
-                  tp = &hp->tp;
-                  evcnt = addevs(anet,src,aevents,aevmaps,aleg + nleg + ntleg,tp,hp,midur,dthi);
-                }
-                if (evcnt == 0) break;
-                dtcur = src->dtcurs[aleg + nleg + ntleg];
-                if (dtcur >= topdts[topdt1]) break;
-              }
-#endif
 
               if (evcnt == 0 || dtcur >= topdts[topdt1]) { avp += naleg; continue; }
 
@@ -1259,6 +1184,287 @@ static ub4 srcxpart2(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
   return varcnt;
 }
 
+// special case of core search loop : single node at top
+static ub4 srcxpart2t(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid,search *src)
+{
+  ub4 tpart = tnet->part;
+  ub4 tportcnt,dportcnt,aportcnt;
+  ub4 hopcnt,thopcnt,ahopcnt,chopcnt,tchopcnt,achopcnt,whopcnt,twhopcnt,awhopcnt;
+  struct network *dnet,*anet;
+  ub4 dep,arr,dmid,amid,depmid,tdepmid,tdmid,tamid,adepmid,amidarr;
+  ub2 *cnts,*tcnts,*acnts,cnt,tcnt,acnt,var,tvar,avar;
+  ub4 *ofss,*tofss,*aofss,ofs,tofs,aofs;
+  ub4 *vp,*tvp,*avp;
+  ub4 dstop,astop,histop;
+  ub4 nleg,ntleg,naleg,l,l1,l2,leg,tleg,aleg,triplen;
+  block *lstblk,*tlstblk,*alstblk;
+  ub4 *lst,*tlst,*alst;
+  ub4 *lodists,*tlodists,*alodists,lodist,tlodist,alodist;
+  ub4 *hopdist,*thopdist,*ahopdist;
+  ub4 dist,distrange,distiv,iv,pct;
+  ub4 dt,dtcur,dthi,dtndx,dtndx2;
+  ub4 varcnt = 0;
+  ub4 distbins[Distbins];
+  ub4 distsums[Distbins];
+  ub4 distlims[Percbins];
+  ub4 *topdts;
+  ub4 topdt1 = Topdts - 1;
+  ub8 *events,*tevents,*aevents;
+  ub2 *evmaps,*tevmaps,*aevmaps;
+  ub4 evcnt;
+  struct hop *hp,*hops,*thops,*ahops;
+  struct timepat *tp;
+  ub4 *choporg,*tchoporg,*achoporg;
+  ub4 midur,*hopdur,*thopdur,*ahopdur;
+
+  ub4 *trip;
+
+  ub4 dvarcnt,tvarcnt,avarcnt,dvarxcnt,tvarxcnt,avarxcnt,totvarcnt;
+
+  dvarcnt = tvarcnt = avarcnt = dvarxcnt = tvarxcnt = avarxcnt = 0;
+  totvarcnt = src->varcnt;
+
+  aclear(distbins);
+  aclear(distsums);
+  topdts = src->topdts;
+
+  dnet = getnet(dpart);
+  anet = getnet(apart);
+
+  tportcnt = tnet->portcnt;
+  dportcnt = dnet->portcnt;
+  aportcnt = anet->portcnt;
+
+  hopcnt = dnet->hopcnt;
+  thopcnt = tnet->hopcnt;
+  ahopcnt = anet->hopcnt;
+  whopcnt = dnet->whopcnt;
+  twhopcnt = tnet->whopcnt;
+  awhopcnt = anet->whopcnt;
+  chopcnt = dnet->chopcnt;
+  tchopcnt = tnet->chopcnt;
+  achopcnt = anet->chopcnt;
+
+  choporg = dnet->choporg;
+  tchoporg = tnet->choporg;
+  achoporg = anet->choporg;
+  hopdur = dnet->hopdur;
+  thopdur = tnet->hopdur;
+  ahopdur = anet->hopdur;
+
+  error_zp(choporg,0);
+  error_zp(hopdur,0);
+
+  histop = src->histop;
+  trip = src->trip.trip;
+
+  dep = dnet->g2pport[gdep];
+  dmid = dnet->g2pport[gamid];
+  depmid = dep * dportcnt + dmid;
+
+  tdmid = tamid = tnet->g2pport[gamid];
+
+  amid = anet->g2pport[gamid];
+  arr = anet->g2pport[garr];
+  amidarr = amid * aportcnt + arr;
+
+  events = dnet->events;
+  evmaps = dnet->evmaps;
+  hops = dnet->hops;
+
+  tevents = tnet->events;
+  tevmaps = tnet->evmaps;
+  thops = tnet->hops;
+
+  aevents = anet->events;
+  aevmaps = anet->evmaps;
+  ahops = anet->hops;
+
+  distrange = max(src->geodist,1) * 10;
+
+  for (pct = 0; pct < Percbins; pct++) distlims[pct] = pct * 5;
+
+  for (dstop = 0; dstop <= min(dnet->histop,histop); dstop++) {
+
+    nleg = dstop + 1;
+    cnts = dnet->concnt[dstop];
+    cnt = cnts[depmid];
+    if (cnt == 0) continue;
+    dvarcnt += cnt;
+
+    ofss = dnet->conofs[dstop];
+    lstblk = &dnet->conlst[dstop];
+    lodists = dnet->lodist[dstop];
+    hopdist = dnet->hopdist;
+
+    ofs = ofss[depmid];
+    lodist = lodists[depmid];
+    lst = blkdata(lstblk,0,ub4);
+    error_ge(ofs,dnet->lstlen[dstop]);
+    vp = lst + ofs * nleg;
+
+    for (var = 0; var < cnt; var++) {
+
+      if (globs.sigint) return 0;
+
+      dist = 0;
+      for (leg = 0; leg < nleg; leg++) {
+        l = vp[leg];
+        error_ge(l,chopcnt);
+        dist += hopdist[l];
+      }
+      dist = max(dist,lodist);
+      distiv = (dist - lodist) * Distbins / distrange;
+      if (totvarcnt > 5 && distiv >= Distbins) { vp += nleg; continue; }
+
+      if (varcnt > 50 && distiv < Distbins) {
+        pct = distsums[distiv] * Percbins / varcnt;
+        if (pct >= Percbins || distsums[distiv] > distlims[pct]) { vp += nleg; continue; }
+      }
+
+      dvarxcnt++;
+
+      dtcur = hi32;
+      dthi = topdts[topdt1];
+
+      evcnt = addevs(caller,src,dnet,vp,nleg,0,dthi,&dtcur);
+
+      if (evcnt == 0 || dtcur >= topdts[topdt1]) {
+//        info(0,"evcnt %u dtcur %u leg %u",evcnt,dtcur,leg);
+        vp += nleg;
+        continue;
+      }
+
+      ntleg = 0;
+
+          for (astop = 0; astop <= min(anet->histop,histop - dstop); astop++) {
+            naleg = astop + 1;
+            acnts = anet->concnt[astop];
+            acnt = acnts[amidarr];
+            if (acnt == 0) continue;
+            avarcnt += acnt;
+
+            aofss = anet->conofs[astop];
+            alstblk = anet->conlst + astop;
+            alodists = anet->lodist[astop];
+            ahopdist = anet->hopdist;
+
+            aofs = aofss[amidarr];
+            alodist = alodists[amidarr];
+            alst = blkdata(alstblk,0,ub4);
+            error_ge(aofs,anet->lstlen[astop]);
+            bound(alstblk,aofs * naleg,ub4);
+            avp = alst + aofs * naleg;
+            bound(alstblk,(aofs + acnt) * naleg,ub4);
+
+            for (avar = 0; avar < acnt; avar++) {
+
+              for (aleg = 0; aleg < naleg; aleg++) {
+                l = avp[aleg];
+                if (l == hi32) {
+                  error(Exit,"arr part %u port %u-%u stop %u var %u leg %u at %p %s",apart,amid,arr,astop,avar,aleg,avp,alstblk->desc);
+                  break;
+                }
+                error_ge(l,achopcnt);
+                dist += ahopdist[l];
+              }
+              dist = max(dist,lodist + alodist);
+//              noexit error_lt(dist,alodist + tlodist + lodist);  todo
+              distiv = (dist - lodist - alodist) * Distbins / distrange;
+              if (totvarcnt > 5 && distiv >= Distbins) { avp += naleg; continue; }
+
+              if (distiv < Distbins && varcnt > 50) {
+                pct = distsums[distiv] * Percbins / varcnt;
+                if (pct >= Percbins || distsums[distiv] > distlims[pct]) { avp += naleg; continue; }
+              }
+
+              avarxcnt++;
+              distiv = min(distiv,Distbins-1);
+              distbins[distiv]++;
+              for (iv = 0; iv <= distiv; iv++) distsums[iv]++;
+
+              dtcur = hi32;
+
+              evcnt = addevs(caller,src,anet,avp,naleg,nleg + ntleg,dthi,&dtcur);
+              infocc(evcnt,0,"%u event\as",evcnt);
+
+              if (evcnt == 0 || dtcur >= topdts[topdt1]) { avp += naleg; continue; }
+
+              triplen = nleg + ntleg + naleg;
+              error_ge(triplen,Nxleg);
+
+              dt = dtcur;
+              if (triplen > 2) {
+                for (aleg = triplen - 2; aleg; aleg--) {
+                  dt = prvevs(src,aleg);
+                  if (dt == 0) break;
+                }
+              }
+              if (dt == 0) { avp += naleg; continue; }
+
+              evcnt = getevs(src,gnet,triplen);
+              if (evcnt == 0) { avp += naleg; continue; }
+
+              dtndx = 0;
+              while (dtndx < Topdts && dtcur >= topdts[dtndx]) dtndx++;
+              if (dtndx == topdt1) topdts[dtndx] = dtcur;
+              else if (dtndx < topdt1) {
+                for (dtndx2 = topdt1; dtndx2 > dtndx; dtndx2--) topdts[dtndx2] = topdts[dtndx2-1];
+                info(0,"put dt %u at pos %u",dtcur,dtndx);
+                topdts[dtndx] = dtcur;
+              }
+              dthi = topdts[topdt1];
+              varcnt++;
+
+              if (src->trip.cnt == 0 || src->curdt < src->lodt) {
+                for (leg = 0; leg < nleg; leg++) {
+                  trip[leg * 2 + 1] = vp[leg];
+                  trip[leg * 2] = dpart;
+                }
+                for (aleg = 0; aleg < naleg; aleg++) {
+                  trip[leg * 2 + 1] = avp[aleg];
+                  trip[leg * 2] = apart;
+                  leg++;
+                }
+                info(0,"store trip \aV%u%p dur %u dep \ad%u tid %x",triplen,trip,src->curdt,src->curt,src->lotid);
+                for (leg = 0; leg < triplen; leg++) {
+                  error_z(src->curts[leg],leg);
+                  src->trip.t[leg] = src->curts[leg];
+                  src->trip.dur[leg] = src->curdurs[leg];
+                  src->trip.tid[leg] = src->curtids[leg];
+                  info(0,"  leg %u dep \ad%u",leg,src->curts[leg]);
+                }
+                src->trip.cnt = 1;
+                src->trip.len = triplen;
+                leg--;
+                src->lodt = src->curdt;
+                src->lot = src->curts[leg];
+                src->lotid = src->curtids[leg];
+                src->lodist = dist;
+              }
+              avp += naleg;
+
+            } // avar
+          } // each astop
+
+      vp += nleg;
+    } // each depvar
+  } // each dstop
+
+  src->dvarcnt += dvarcnt;
+  src->dvarxcnt += dvarxcnt;
+  src->tvarcnt += tvarcnt;
+  src->tvarxcnt += tvarxcnt;
+  src->avarcnt += avarcnt;
+  src->avarxcnt += avarxcnt;
+  src->varcnt += varcnt;
+
+  if (varcnt) info(0,"%u of %u depvars %u of %u midvars %u of %u arrvars %u total",dvarxcnt,dvarcnt,tvarxcnt,tvarcnt,avarxcnt,avarcnt,varcnt);
+
+  return varcnt;
+}
+
+// main loop of interpart search : dep,top,arr each separate parts 
 static ub4 srcxpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *ref)
 {
   struct network *net,*tnet,*anet;
@@ -1289,7 +1495,7 @@ static ub4 srcxpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *re
 
   memset(src->topdts,0xff,sizeof(src->topdts));
 
-  tpart = partcnt - 1;
+  tpart = gnet->tpart;
   tnet = getnet(tpart);
   tportcnt = tnet->portcnt;
   tp2g = tnet->p2gport;
@@ -1317,7 +1523,7 @@ static ub4 srcxpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *re
     stats[0]++;
     gdmid = tp2g[tdmid];
     for (tamid = 0; tamid < tportcnt; tamid++) {
-      if (tdmid == tamid) continue;
+//      if (tdmid == tamid) continue;
 
       xam = xamap[tamid];
       if (xam == 0) continue;
@@ -1348,7 +1554,8 @@ static ub4 srcxpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *re
 
           if (progress(&eta,"step %u of %u, %u vars",xpartcnt - 1,estvar,src->varcnt)) return 0;
 
-          conn += srcxpart2(gnet,tnet,dpart,apart,gdep,garr,gdmid,gamid,src);
+          if (gdmid == gamid) conn += srcxpart2t(gnet,tnet,dpart,apart,gdep,garr,gdmid,src);
+          else conn += srcxpart2(gnet,tnet,dpart,apart,gdep,garr,gdmid,gamid,src);
         }
       }
     }
@@ -1359,36 +1566,222 @@ static ub4 srcxpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *re
   return conn;
 }
 
+// special case of main interpart search : dep in top 
+static ub4 srcxdpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *ref)
+{
+  struct network *net,*tnet,*anet;
+  ub1 *portparts = gnet->portparts;
+  ub4 partcnt = gnet->partcnt;
+  ub4 tpart = gnet->tpart;
+  ub4 dep,arr,deparr;
+  ub4 dstop,astop,tstop,dlostop,dhistop;
+  ub4 conn = 0;
+  ub4 part,dpart,apart;
+  ub4 ti,ati,tcnt,tacnt;
+  ub4 dtmid,gdtmid,tdmid,tamid,atmid,gatmid,gamid,xamid,xmid,gdmid;
+  ub4 portcnt,tportcnt,aportcnt;
+  ub4 *t2g,*g2t;
+  ub4 stats[8];
+  ub4 xpartcnt = 0,estvar;
+  ub4 iv,niv = Elemcnt(stats);
+  int rv;
+  struct eta eta;
+
+  ub2 *xmap,*xamap,*xmapdbase,*xmapabase,stopset,xm,xam;
+  ub1 *tmap;
+  block *xpartdmap = &gnet->xpartdmap;
+  block *xpartamap = &gnet->xpartamap;
+
+  if (partcnt == 1) { error(0,"interpart search called without partitions, ref %s",ref); return 0; }
+
+  aclear(stats);
+
+  memset(src->topdts,0xff,sizeof(src->topdts));
+
+  tnet = getnet(tpart);
+  tportcnt = tnet->portcnt;
+  t2g = tnet->p2gport;
+  g2t = tnet->g2pport;
+
+  xmapdbase = blkdata(xpartdmap,0,ub2);
+  xmapabase = blkdata(xpartamap,0,ub2);
+
+  xmap = xmapdbase + gdep * tportcnt;
+  xamap = xmapabase + garr * tportcnt;
+  tmap = tnet->conmask;
+
+  gdmid = gdep;
+  tdmid = g2t[gdmid];
+  error_eq(tdmid,hi32);
+
+  for (tamid = 0; tamid < tportcnt; tamid++) {
+//      if (tdmid == tamid) continue;
+
+    xam = xamap[tamid];
+    if (xam == 0) continue;
+
+    stats[1]++;
+    deparr = tdmid * tportcnt + tamid;
+    if (tmap[deparr] == 0) continue;
+    vrb0(0,"conn %x for top %u-%u",tmap[deparr],tdmid,tamid);
+    stats[3]++;
+    gamid = t2g[tamid];
+
+    // assess trips gdmid-gamid-garr, with gdmid-gamid in top
+
+    dpart = tpart;
+
+    for (apart = 0; apart < tpart; apart++) { // foreach part with arr as member
+      if (portparts[garr * partcnt + apart] == 0) continue;
+      stats[6]++;
+      if (portparts[gamid * partcnt + apart] == 0) continue;
+
+      xpartcnt++;
+      stats[7] = xpartcnt;
+      estvar = xpartcnt * tportcnt / max(tdmid,1);
+
+      if (progress(&eta,"step %u of %u, %u vars",xpartcnt - 1,estvar,src->varcnt)) return 0;
+
+      conn += srcxpart2t(gnet,tnet,dpart,apart,gdep,garr,gamid,src);
+    }
+  }
+
+  for (iv = 0; iv < niv; iv++) info(0,"stats %u %u",iv,stats[iv]);
+
+  return conn;
+}
+
+// special case interpart search : arr in top
+static ub4 srcxapart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *ref)
+{
+  struct network *net,*tnet,*anet;
+  ub1 *portparts = gnet->portparts;
+  ub4 partcnt = gnet->partcnt;
+  ub4 dep,arr,deparr;
+  ub4 dstop,astop,tstop,dlostop,dhistop;
+  ub4 conn = 0;
+  ub4 part,tpart,dpart,apart;
+  ub4 ti,ati,tcnt,tacnt;
+  ub4 dtmid,gdtmid,tdmid,tamid,atmid,gatmid,gamid,xamid,xmid,gdmid;
+  ub4 portcnt,tportcnt,aportcnt;
+  ub4 *t2g,*g2t;
+  ub4 stats[8];
+  ub4 xpartcnt = 0,estvar;
+  ub4 iv,niv = Elemcnt(stats);
+  int rv;
+  struct eta eta;
+
+  ub2 *xmap,*xamap,*xmapdbase,*xmapabase,stopset,xm,xam;
+  ub1 *tmap;
+  block *xpartdmap = &gnet->xpartdmap;
+  block *xpartamap = &gnet->xpartamap;
+
+  if (partcnt == 1) { error(0,"interpart search called without partitions, ref %s",ref); return 0; }
+
+  aclear(stats);
+
+  memset(src->topdts,0xff,sizeof(src->topdts));
+
+  tpart = gnet->tpart;
+  tnet = getnet(tpart);
+  tportcnt = tnet->portcnt;
+  t2g = tnet->p2gport;
+  g2t = tnet->g2pport;
+
+  xmapdbase = blkdata(xpartdmap,0,ub2);
+  xmapabase = blkdata(xpartamap,0,ub2);
+
+  xmap = xmapdbase + gdep * tportcnt;
+  xamap = xmapabase + garr * tportcnt;
+  tmap = tnet->conmask;
+
+  tamid = g2t[garr];
+  error_eq(tamid,hi32);
+
+  for (tdmid = 0; tdmid < tportcnt; tdmid++) {
+    xm = xmap[tdmid];
+    if (xm == 0) continue;
+    stats[0]++;
+    gdmid = t2g[tdmid];
+
+    // assess trips gdep-gdmid-gamid-garr, with gdmid-gamid in top
+
+    for (dpart = 0; dpart < tpart; dpart++) { // foreach part with dep as member
+      if (portparts[gdep * partcnt + dpart] == 0) continue;
+      stats[4]++;
+      if (portparts[gdmid * partcnt + dpart] == 0) continue;
+      stats[5]++;
+
+      apart = tpart;
+
+      xpartcnt++;
+      stats[7] = xpartcnt;
+      estvar = xpartcnt * tportcnt / max(tdmid,1);
+
+      if (progress(&eta,"step %u of %u, %u vars",xpartcnt - 1,estvar,src->varcnt)) return 0;
+
+      conn += srcxpart2t(gnet,tnet,dpart,apart,gdep,garr,gdmid,src);
+    }
+  }
+
+  for (iv = 0; iv < niv; iv++) info(0,"stats %u %u",iv,stats[iv]);
+
+  return conn;
+}
+
+// toplevel: choose transfer count and partitions
 static ub4 dosrc(struct gnetwork *gnet,ub4 nstoplo,ub4 nstophi,search *src,char *ref)
 {
   ub4 gportcnt = gnet->portcnt;
   ub1 *portparts = gnet->portparts;
   ub4 part,partcnt = gnet->partcnt;
+  ub4 tpart = gnet->tpart;
   ub4 gdep = src->dep;
   ub4 garr = src->arr;
   ub4 stop;
 
   ub4 conn = 0;
 
-  if (partcnt == 0) { error(0,"search called without partitions, ref %s",ref); return 0; }
-  else if (gportcnt == 0) { error(0,"search without ports, ref %s",ref); return 0; }
+  if (gportcnt == 0) { error(0,"search without ports, ref %s",ref); return 0; }
 
-  for (part = 0; part < partcnt; part++) {
-    if (partcnt > 1 && (portparts[gdep * partcnt + part] == 0 || portparts[garr * partcnt + part] == 0)) continue;
-    info(0,"dep %u and arr %u share part %u",gdep,garr,part);
+  if (partcnt == 0) { error(0,"search called without partitions, ref %s",ref); return 0; }
+  else if (partcnt == 1) {
+    if (portparts[gdep] == 0) return info(0,"port %u not in partmap",gdep);
+    if (portparts[garr] == 0) return info(0,"port %u not in partmap",garr);
     for (stop = nstoplo; stop < nstophi; stop++) {
-      conn = srcglocal(gnet,part,gdep,garr,stop,src);
-      if (conn) return conn;
+      info(0,"search %u stops",stop);
+      conn = srcglocal(gnet,0,gdep,garr,stop,src);
+      if (conn) { info(0,"found trip at %u stops",stop); return conn; }
     }
-    if (conn || partcnt == 1) return conn;
+    return 0;
   }
 
-  conn = srcxpart(gnet,gdep,garr,src,ref);
+  for (part = 0; part < partcnt; part++) {
+    if (portparts[gdep * partcnt + part] == 0 || portparts[garr * partcnt + part] == 0) continue;
+    info(0,"dep %u and arr %u share part %u",gdep,garr,part);
+    for (stop = nstoplo; stop < nstophi; stop++) {
+      info(0,"search %u stops in part %u",stop,part);
+      conn = srcglocal(gnet,part,gdep,garr,stop,src);
+      if (conn) { info(0,"found trip at %u stops in part %u ",stop,part); return conn; }
+    }
+  }
 
+  // no shared parts, or intrapart had no result
+  if (portparts[gdep * partcnt + tpart]) {
+    info0(0,"search interpart: dep in top");
+    conn = srcxdpart(gnet,gdep,garr,src,ref);
+  } else if (portparts[garr * partcnt + tpart]) {
+    info0(0,"search interpart: arr in top");
+    conn = srcxapart(gnet,gdep,garr,src,ref);
+  }
+  if (conn) return conn;
+
+  info0(0,"search interpart");
+  conn = srcxpart(gnet,gdep,garr,src,ref);
   return conn;
 }
 
-// work in progress
+// handle criteria and reporting
 int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 {
   ub4 port;

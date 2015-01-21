@@ -483,6 +483,7 @@ int prepbasenet(void)
             chip[chcnt] = chcnt | ((ub8)tripseq << 32);
             chp->hop = hop;
             chp->tdep = tdep;
+            chp->tarr = tarr;
             error_ge(chcnt,cp->hoprefs);
             cp->hopcnt = chcnt + 1;
             cumhoprefs2++;
