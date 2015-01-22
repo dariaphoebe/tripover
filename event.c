@@ -96,7 +96,10 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
   ub4 mapofs = sp->mapofs;
   ub4 rsid = sp->rsid;
 
-  error_ne(t0map,gt0);
+  if (t0map != gt0) {
+    info(0,"rsid %u map period \ad%u-\ad%u",rsid,sp->t0,sp->t1);
+    error(Exit,"rsid %u map daystart \ad%u mismatches \ad%u",rsid,t0map,gt0);
+  }
 
   t0 = sp->t0;
   t1 = sp->t1;  // exclusive

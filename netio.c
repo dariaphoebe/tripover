@@ -50,6 +50,8 @@ static const ub4 hop2watch = 0;
 
 static ub4 sid2add = hi32;
 
+static const ub4 rtype_walk = 1699; // todo
+
 #include "watch.h"
 
 /* tripover external format: easy manual editing, typical from single gtfs
@@ -203,7 +205,10 @@ static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *f
    first item is name, rest are integers
    string starting with . is a command, double dot to escape a dot
    # is comment
-   D prefix for decimal, no prefix for hex
+   . prefix for decimal
+   no prefix to use default radix
+   .. switch radix to dec
+   x switch radix to hex
  */
 
 #define Maxval 16 * 1024
@@ -262,11 +267,12 @@ static enum extresult nextchar(struct extfmt *ef)
 
     switch(state) {
 
-    case Init: linno = 1; // cascade
+    case Init:
+      linno = 1; // cascade
+      radix = 16;
     case Out:
       valndx = 0;
       iscmd = 0;
-      radix = 16;
       switch (c) {
         case '#': state = Fls; break;
         case '\t': valndx = namelen = 0; vals[0] = 0; state = Val0; break;
@@ -305,7 +311,7 @@ static enum extresult nextchar(struct extfmt *ef)
         case '#': newitem = 1; state = Fls; break;
         case '\n': newitem = 1; state = Out; break;
         case '\t': case ' ': break;
-        case 'D': case '.': state = Dec0; break;
+        case '.': state = Dec0; break;
         case 'x': radix = 16; break;
         case '\'': state = Val1; break;
         case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
@@ -401,12 +407,10 @@ struct cmdvars {
 };
 
 static ub4 sumtimes;
-static ub4 rtype_walk;
 static ub4 rawtripcnt;
 static ub4 hitripid;
 
 static struct cmdvars hopvars[] = {
-  {"walk_id",7,1,&rtype_walk,0},
   {"sumtimes",8,1,&sumtimes,0},
   {"trips",5,1,&rawtripcnt,0},
   {"hitrip",6,1,&hitripid,0},
@@ -423,6 +427,12 @@ static struct cmdvars timevars[] = {
   {"dowstart",8,0,&dummy,0},
   {"utcofs",6,1,&utcofs12,0},
   {"",0,0,NULL,0}
+};
+
+static ub4 ridrange[2];
+
+static struct cmdvars routevars[] = {
+  {"ridrange",8,2,ridrange,0}  // ridcnt, hirrid
 };
 
 static int docmd(struct cmdvars *cvs,ub4 namelen,const char *name,ub4 linno,const char *fname,ub4 *vals,ub4 valcnt)
@@ -1159,6 +1169,124 @@ static int rdexttimes(netbase *net,const char *dir)
   return 0;
 }
 
+// todo generalise
+static enum txkind rt2tx(ub4 rtype)
+{
+  if (rtype_walk && rtype == rtype_walk) return Walk;
+  else if (rtype == 0 || rtype == 1 || rtype == 2) return Rail;
+  else if (rtype == 3) return Bus;
+  else if (rtype == 4) return Ferry;
+  else return Unknown;
+}
+
+static int rdextroutes(netbase *net,const char *dir)
+{
+  enum extresult res;
+  struct extfmt eft;
+  const char *fname;
+
+  ub4 rawridcnt,ridcnt;
+  struct routebase *routes,*rp;
+  ub4 rrid,rid,hirrid = 0,*rrid2rid = 0;
+  int rv;
+  char *buf;
+  ub4 len,linno = 0,colno = 0,namelen,valndx,valcnt;
+  ub4 rtype;
+  char *name;
+  ub4 *vals;
+  enum txkind tx;
+  ub4 namemax = sizeof(rp->name) - 1;
+  int initvars = 0;
+
+  oclear(eft);
+
+  fmtstring(eft.mf.name,"%s/to_routes.txt",dir);
+  fname = eft.mf.name;
+
+  rv = readfile(&eft.mf,fname,1);
+  if (rv) return 1;
+
+  buf = eft.mf.buf;
+  len = (ub4)eft.mf.len;
+  rawridcnt = linecnt(fname,buf, len);
+
+  if (rawridcnt == 0) return warning(0,"%s is empty",fname);
+  ridcnt = 0;
+
+  rawridcnt++;
+  routes = rp = mkblock(&net->ridmem,rawridcnt,struct routebase,Init0,"");
+
+  vals = eft.vals;
+  name = eft.name;
+
+  do {
+    res = nextchar(&eft);
+
+    switch(res) {
+
+    case Newcmd:
+      namelen = eft.namelen;
+      valndx = eft.valndx;
+      linno = eft.linno;
+      colno = eft.colno;
+      docmd(routevars,namelen,name,linno,fname,vals,valndx);
+      break;
+
+    case Newitem:
+      if (initvars == 0) {
+        hirrid = ridrange[1];
+        if (rawridcnt > hirrid) {
+          parsewarn(FLN,fname,linno,colno,"hi rrid %u < ridcnt %u",hirrid,rawridcnt);
+          hirrid = rawridcnt;
+        }
+        rrid2rid = alloc(hirrid+1,ub4,0xff,"net rrid2rid",hirrid);
+        initvars = 1;
+      }
+      namelen = eft.namelen;
+      valcnt = eft.valndx;
+      linno = eft.linno;
+      colno = eft.colno;
+      error_gt(ridcnt+1,rawridcnt,linno);
+      if (valcnt < 2) return parserr(FLN,fname,linno,colno,"expect svcid,sid,dow,start,end,n+,n- args, found only %u args",valcnt);
+      rrid = vals[0];
+      rtype = vals[1];
+
+      if (namelen > namemax) {
+        parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
+        namelen = namemax;
+      } else if (namelen == 0) {
+        strcopy(rp->name,"(unnamed)");
+        rp->namelen = 9;
+      } else {
+        rp->namelen = namelen;
+        memcopy(rp->name,name,namelen);
+      }
+      if (rrid > hirrid) { parsewarn(FLN,fname,linno,colno,"rrid %u > hirrid %u",rrid,hirrid); continue; }
+      else if (rrid2rid[rrid] != hi32) { parsewarn(FLN,fname,linno,colno,"duplicate rrid %u",rrid); continue; }
+      rrid2rid[rrid] = ridcnt;
+      tx = rt2tx(rtype);
+      rp->rrid = rrid;
+      rp->rtype = rtype;
+      rp->kind = tx;
+      rp++;
+      ridcnt++;
+      break;
+
+    case Next: break;
+    case Eof: break;
+    case Parserr: return 1;
+    }
+
+  } while (res < Eof);  // each input char
+
+  net->routes = routes;
+  net->ridcnt = ridcnt;
+  net->rrid2rid = rrid2rid;
+  net->hirrid = hirrid;
+
+  return 0;
+}
+
 // match with gtfstool
 #define Fmt_prvsid 1
 #define Fmt_diftid 2
@@ -1174,6 +1302,7 @@ static int rdexthops(netbase *net,const char *dir)
 
   ub4 hop,hop2,rawhopcnt,hopcnt;
   ub4 portcnt,subportcnt;
+  ub4 ridcnt;
   ub4 chain,chaincnt;
   ub4 maxportid;
   struct hopbase *hops,*hp,*hp2;
@@ -1181,6 +1310,7 @@ static int rdexthops(netbase *net,const char *dir)
   struct subportbase *subports,*sbp;
   struct sidbase *sids,*sp;
   struct chainbase *chains = NULL,*cp;
+  struct routebase *rp,*routes;
   ub4 *rtid2tid = NULL,*rtidrefs = NULL;
   ub4 *id2ports, *subid2ports;
   ub4 rsid,sid,sidcnt,*rsid2sids;
@@ -1192,7 +1322,7 @@ static int rdexthops(netbase *net,const char *dir)
   ub4 *vals;
   ub4 namemax = sizeof(hops->name) - 1;
   ub4 kinds[Kindcnt];
-  enum txkind kind;
+  enum txkind tx;
 
   ub4 *tbp,*timesbase = NULL;
   ub4 timespos = 0;
@@ -1219,7 +1349,7 @@ static int rdexthops(netbase *net,const char *dir)
   if (rawhopcnt == 0) return warning(0,"%s is empty",fname);
   hop = chain = 0;
 
-  hops = hp = mkblock(&net->hopmem,rawhopcnt,struct hopbase,Init0,"");
+  hops = hp = mkblock(&net->hopmem,rawhopcnt,struct hopbase,Init0,"net hops");
 
   portcnt = net->portcnt;
   subportcnt = net->subportcnt;
@@ -1232,8 +1362,10 @@ static int rdexthops(netbase *net,const char *dir)
   rsid2sids = net->rsid2sids;
   sids = net->sids;
   sidcnt = net->sidcnt;
-
   maxsid = net->maxsid;
+
+  routes = net->routes;
+  ridcnt = net->ridcnt;
 
   id = idhi = maxid = hirrid = 0;
 
@@ -1452,11 +1584,9 @@ static int rdexthops(netbase *net,const char *dir)
       hp->arr = arr;
 
 // todo generalise
-      if (rtype_walk && rtype == rtype_walk) { hp->kind = Walk; kinds[Walk]++; routeid = hi32; }
-      else if (rtype == 0 || rtype == 1 || rtype == 2) { hp->kind = Rail; kinds[Rail]++; }
-      else if (rtype == 3) { hp->kind = Bus; kinds[Bus]++; }
-      else if (rtype == 4) { hp->kind = Ferry; kinds[Ferry]++; }
-      else { hp->kind = Unknown; kinds[Unknown]++; }
+      tx = rt2tx(rtype);
+      hp->kind = tx; kinds[tx]++;
+      if (tx == Walk) routeid = hi32;
 
       hp->rrid = routeid;
       hp->namelen = namelen;
@@ -1480,21 +1610,40 @@ static int rdexthops(netbase *net,const char *dir)
   hopcnt = hop;
   progress(&eta,"reading hop %u of %u, \ah%u time entries",hop,hopcnt,timespos);
 
-  ub4 *rridrefs = alloc(hirrid+1,ub4,0,"io ridrefs",hirrid);
-  ub4 cnt,rrid,rridhicnt = 0,rridhi = 0,rridhihop = hi32;
+  if (hopcnt == 0) return error(0,"0 hops from %u",rawhopcnt);
+
+  if (hirrid != net->hirrid) {
+    warn(0,"hi rrid %u vs %u",hirrid,net->hirrid);
+    hirrid = net->hirrid;
+  }
+
+  ub4 cnt,rid,rrid,ridhicnt = 0,ridhihop = hi32;
+  ub4 *rrid2rid = net->rrid2rid;
 
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     rrid = hp->rrid;
-    cnt = rridrefs[rrid] + 1;
-    rridrefs[rrid] = cnt;
-    if (cnt > rridhicnt) { rridhicnt = cnt; rridhi = rrid; rridhihop = hop; }
+    if (rrid > hirrid) { hp->rid = hp->rrid = hi32; continue; }
+    rid = rrid2rid[rrid];
+    hp->rid = rid;
+    if (rid == hi32) continue;
+    rp = routes + rid;
+    cnt = rp->hopcnt + 1;
+    rp->hopcnt = cnt;
+    if (cnt > ridhicnt) { ridhicnt = cnt; ridhihop = hop; }
   }
-  hp = hops + rridhihop;
-  info(0,"rrid %u has %u hops route %s",rridhi,rridhicnt,hp->name);
-  for (rrid = 0; rrid <= hirrid; rrid++) {
-    cnt = rridrefs[rrid];
-    if (cnt) info(0,"rrid %u has %u hops",rrid,cnt);
+  if (ridhihop != hi32) {
+    hp = hops + ridhihop;
+    rp = routes + hp->rid;
+    info(0,"r.rid %u.%u has %u hops on route %s",hp->rrid,hp->rid,ridhicnt,rp->name);
+  }
+
+  for (rid = 0; rid < ridcnt; rid++) {
+    rp = routes + rid;
+    cnt = rp->hopcnt;
+    rrid = rp->rrid;
+    if (cnt == 0) info(0,"r.rid %u.%u has no hops %s",rrid,rid,rp->name);
+    else if (cnt == 1) info(0,"r.rid %u.%u has 1 hop %s",rrid,rid,rp->name);
   }
 
 #if 0
@@ -1516,9 +1665,9 @@ static int rdexthops(netbase *net,const char *dir)
 
   net->timescnt = timespos;
 
-  for (kind = 0; kind < Kindcnt; kind++) {
-    val = kinds[kind];
-    if (val) info(0,"%u %s hop\as",val,kindnames[kind]);
+  for (tx = 0; tx < Kindcnt; tx++) {
+    val = kinds[tx];
+    if (val) info(0,"%u %s hop\as",val,kindnames[tx]);
   }
 
   info(0,"%u hops, %u time entries",hopcnt,sumtimes);
@@ -1599,6 +1748,9 @@ int readextnet(netbase *net,const char *dir)
   if (portcnt) net->portwrk = alloc(portcnt,ub4,0,"portwrk",portcnt);
 
   rv = rdexttimes(net,dir);
+  if (rv) return rv;
+
+  rv = rdextroutes(net,dir);
   if (rv) return rv;
 
   rv = rdexthops(net,dir);

@@ -309,6 +309,7 @@ int partition(gnet *gnet)
     if (dep == arr) continue;
 
     rid = hp->rid;
+    if (rid == hi32) continue;
 
     cnt = partcnts[dep];
     if (cnt < Npart - 1) {
@@ -646,7 +647,8 @@ int partition(gnet *gnet)
       lcnt = lpartcnts[port];
       lmpp = lportparts + port * Npart;
       lppm = lpartportcnts + port * ridcnt;
-      error_z(lcnt,port);
+      warncc(lcnt == 0,0,"port %u has no local parts",port);
+//      error_z(lcnt,port); todo
 
       mi = 0;
       while(mi < lcnt) {

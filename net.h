@@ -138,7 +138,7 @@ struct hop {
 //  ub4 id;
   ub4 gid;
 
-  char name[128];  // todo: use below structure instead
+  char name[64];  // todo: use below structure instead
   ub4 namelen;
 //  struct gname name;
 
@@ -160,10 +160,10 @@ struct route {
   ub4 magic;
   ub4 id;
 
-  char name[128];  // todo: use below structure instead
+  char name[128];
   ub4 namelen;
 
-//  enum txkind kind;
+  enum txkind kind;
 
   ub4 rrid;
   ub4 portcnt;

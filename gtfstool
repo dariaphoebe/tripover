@@ -18,8 +18,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 23;
-my $lastchanged = "20 jan 2015";
+my $version_min = 24;
+my $lastchanged = "21 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -224,7 +224,6 @@ sub usage()
 }
 
 # these are written as options to ext output
-my $rtype_walk = 1699;
 
 my $hisid = 0;
 my $nosid = 0xffff;
@@ -267,6 +266,7 @@ my $col_date      = $col_enum++;
 my $col_extype    = $col_enum++;
 
 my $col_routeid   = $col_enum++;
+my $col_agencyid  = $col_enum++;
 my $col_routesname = $col_enum++;
 my $col_routelname = $col_enum++;
 my $col_routedesc = $col_enum++;
@@ -339,7 +339,6 @@ my @uniqids;
 
 my %triproutes;
 my %tripsids;
-my $walkroute;
 
 my @trips;
 
@@ -354,6 +353,8 @@ my %routeids;
 my %norouteids;
 my %routebyids;
 my %rtypes;
+
+my $hirrid = 0;
 
 my %uniqhops;
 
@@ -1236,6 +1237,7 @@ sub readroutes($)
   foreach $colname (@colnames) {
     $colid = $col_unknown;
     $colid = $col_routeid if ($colname eq 'route_id');
+    $colid = $col_agencyid if ($colname eq 'agency_id');
     $colid = $col_routesname if ($colname eq 'route_short_name');
     $colid = $col_routelname if ($colname eq 'route_long_name');
     $colid = $col_routedesc if ($colname eq 'route_desc');
@@ -1269,13 +1271,16 @@ sub readroutes($)
     $linno++;
 
     $line .= ',';
-    $name = ''; $slname = ''; $route_id = ''; $rtype = '';
+    $name = ''; $slname = ''; $route_id = ''; $rtype = ''; $agency_id = '';
     foreach $col (@cols) {
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
 
       if ($col == $col_routeid) {
         $route_id = substr($line,0,$comma);
+
+      } elsif ($col == $col_agencyid) {
+        $agency_id = substr($line,0,$comma);
 
       } elsif ($col == $col_routesname or $col == $col_routelname) {
         if (substr($line,0,1) eq '"') { # quoted
@@ -1292,7 +1297,8 @@ sub readroutes($)
         } else { # unquoted
           $name = substr($line,0,$comma);
         }
-        $slname = $name if length($name);
+        $slname .= ' ' if length($slname);
+        $slname .= $name if length($name);
 
       } elsif ($col == $col_routetype) {
         $rtype = substr($line,0,$comma);
@@ -1315,8 +1321,8 @@ sub readroutes($)
     $rtypes{$routeid} = $rtype;
 
     if (filtermode($rtype)) {
-      $agency_id = '';
       push(@routes,join("\t",$route_id,$agency_id,'',$slname,$rtype));
+      $hirrid = max($hirrid,$routeid);
     } else {
       $noroutecnt++;
       if ($rtype < @modenames) { $modename = $modenames[$rtype]; }
@@ -1327,19 +1333,6 @@ sub readroutes($)
 
   } # each line
 
-  $linno++;
-
-  $route_id = 'walk';
-  $walkroute = $linno;
-  $rtype = $rtype_walk;
-  $slname = 'walk inferred from parent station';
-  $routeids{$route_id} = $walkroute;
-  $routebyids{$walkroute} = $route_id;
-  $rtypes{$walkroute} = $rtype;
-  $agency_id = '';
-#  push(@routes,join("\t",$route_id,$agency_id,'',$slname,$rtype));
-
-  info("add inferred walk route $walkroute as type $rtype");
   $routecnt = scalar(@routes);
   info("$routecnt routes, $noroutecnt filtered out");
 
@@ -2220,14 +2213,22 @@ sub iniext($$)
   rename($name,$bckname) if -f $name;
 }
 
+sub infoext($)
+{
+  my ($file) = @_;
+
+  printf($file "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
+}
+
 sub writext($$)
 {
   my ($indir,$outdir) = @_;
 
-  my ($name,$portfile,$hopfile,$stop,$stopid,$hop,$route,$hopid);
+  my ($name,$portfile,$hopfile,$routefile);
+  my ($stop,$stopid,$hop,$route,$hopid);
   my ($dep_id,$arr_id,$dep,$arr,$depname,$arrname);
-  my ($routeid,$rid,$rtype);
-  my ($cnt);
+  my ($routeid,$route_id,$agency_id,$rid,$rtype,$shortname,$longname);
+  my ($cnt,$line);
 
   return 1 if $testonly;
 
@@ -2240,11 +2241,11 @@ sub writext($$)
   open($portfile,'>:encoding(UTF-8)',$portname) or error_exit("cannot create $portname:$!");
 
   print($portfile "# ports.txt - tripover external port aka stops file\n\n");
-  printf($portfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
+  infoext($portfile);
   printf($portfile "# %u ports from %s/stops.txt\n\n",$stopcnt,$indir);
 
-  printf($portfile ".latscale\tD%u\n",$latscale);
-  printf($portfile ".lonscale\tD%u\n\n",$lonscale);
+  printf($portfile ".latscale\t.%u\n",$latscale);
+  printf($portfile ".lonscale\t.%u\n\n",$lonscale);
 
   printf($portfile "# name\tid\tsubid\tlat\tlon\topts\n\n");
 
@@ -2279,7 +2280,7 @@ sub writext($$)
     }
 
 #    info("name $stop_name id $stopid_to sub $stopid lat $ilat lon $ilon opt $opts id $stop_id code $stop_code parent $parent\n");
-    printf($portfile "%s\t%x\t%x\t%x\t%x\t%x\t# id %s code %s %s\n",$stop_name,$stopid_to,$stopid,$ilat,$ilon,$opts,$stop_id,$stop_code,$parent);
+    printf($portfile "%s\t.%u\t.%u\t%x\t%x\t%x\t# id %s code %s %s\n",$stop_name,$stopid_to,$stopid,$ilat,$ilon,$opts,$stop_id,$stop_code,$parent);
   }
   close($portfile);
   info("wrote $stopcnt stops to $portcnt ports");
@@ -2294,7 +2295,7 @@ sub writext($$)
 
   open($timefile,'>',$timename) or error_exit("cannot create $timename:$!");
   print($timefile "# times.txt - tripover external timetable aka calendar file\n\n");
-  printf($timefile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
+  infoext($timefile);
   printf($timefile "# %u entries from %s\n\n",$sidcnt,$indir);
 
   printf($timefile ".dowstart\t'%s\t# day a week starts at : lsb in mask\n",$dowstart);
@@ -2318,9 +2319,27 @@ sub writext($$)
     } else { $subcnt = 0; }
     $addtimes = $addcnt ? join("\t",@sidadds) : '';
     $subtimes = $subcnt ? join("\t",@sidsubs) : '';
-    printf($timefile "%s\t%x\t%x\t..%u\t%u\t%u\t%u\t%s\t%s\n",$service_id,$sid,$dow,$t0,$t1,$addcnt,$subcnt,$addtimes,$subtimes);
+    printf($timefile "%s\t.%u\t%x\t..%u\t%u\t%u\t%u\t%s\t%s\n",$service_id,$sid,$dow,$t0,$t1,$addcnt,$subcnt,$addtimes,$subtimes);
   }
   close($timefile);
+
+  my $routename = $outdir . '/to_routes.txt';
+  iniext($routename,$routecnt);
+
+  open($routefile,'>:encoding(UTF-8)',$routename) or error_exit("cannot create $routename:$!");
+  print($routefile "# to_routes.txt - tripover external route file\n\n");
+  infoext($routefile);
+  printf($routefile ".ridrange\t..%u\t%u\n\n",$routecnt,$hirrid);
+
+  foreach $line (@routes) {
+    ($route_id,$agency_id,$shortname,$longname,$rtype) = split("\t",$line);
+    next unless exists $routeids{$route_id};
+    $rid = $routeids{$route_id};
+    $name = join(' ',$agency_id,$shortname,$longname);
+    printf($routefile "%s\t%u\t%u\n",$name,$rid,$rtype);
+  }
+  close($routefile);
+  info("wrote to_routes.txt");
 
   my $hopname = $outdir . '/hops.txt';
   iniext($hopname,$hopcnt);
@@ -2330,7 +2349,6 @@ sub writext($$)
   printf($hopfile "# written by gtfstool %u.%u at %s\n",$version_maj,$version_min,getdate());
   printf($hopfile "# %u hops from %s/stoptimes.txt\n\n",$hopcnt,$indir);
 
-  printf($hopfile ".walk_id\t%x\t# route ID for inferred walk\n",$rtype_walk);
   printf($hopfile ".sumtimes\t.%u\t# total number of time entries\n",$sumtimes);
   printf($hopfile ".trips\t.%u\t# total number of trips\n",$tripcnt);
   printf($hopfile ".hitrip\t.%u\t# highest trip ID\n\n",$hitripid);
@@ -2373,9 +2391,8 @@ sub writext($$)
 
     warning("$route type not found") unless exists $rtypes{$rid};
     $rtype = $rtypes{$rid};
-    $mark = ($rid eq $walkroute) ? 'walk ' : '';
     $route = '.' . $route if (substr($route,0,1) eq '.');
-    $xinfo = "\t# $mark '$depname' to '$arrname'" if ($verbose_hops > 0);
+    $xinfo = "\t# '$depname' to '$arrname'" if ($verbose_hops > 0);
 
     ($sid,$tid,$tdep,$tarr,$seq) = @times[0 .. 4];
     $fmt = 0;
@@ -2412,7 +2429,7 @@ sub writext($$)
       }
 
     }
-    printf($hopfile "%s\t%x\t%x\t%x\t%x\t%x\tD%u\t%s%s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$timecnt,$timestr,$xinfo);
+    printf($hopfile "%s\t%x\t.%u\t.%u\t%x\t.%u\t.%u\t%s%s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$timecnt,$timestr,$xinfo);
     $hopno++;
     progress("hop %u of %u",$hopno,$hopcnt) if $hopno == 1 or $hopno >= $hopcnt or ($hopno % 10000) == 0;
   }

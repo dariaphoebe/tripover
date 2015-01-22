@@ -155,14 +155,17 @@ struct routebase {
   ub4 cid;
   ub4 rrid;
 
+  ub4 rtype;
+  enum txkind kind;
+
   char name[128];
   ub4 namelen;
-//  struct gname name;
 
   ub4 end0,end1;
 
   ub4 dist;
 
+  ub4 hopcnt;
   ub4 carriercnt;
   ub4 servicecnt;
   ub4 chaincnt;
@@ -268,6 +271,7 @@ struct networkbase {
   struct memblk subportmem;
   struct memblk hopmem;
   struct memblk sidmem;
+  struct memblk ridmem;
   struct memblk timesmem;
   struct memblk eventmem;
   struct memblk evmapmem;

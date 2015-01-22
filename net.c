@@ -1565,7 +1565,7 @@ static int mkxmap(ub4 callee,struct gnetwork *gnet)
 }
 
 // show cumulative global connectivity
-static int dogconn(ub4 callee,struct gnetwork *gnet)
+static int showgconn(ub4 callee,struct gnetwork *gnet)
 {
   struct network *net,*tnet,*anet,*danet;
   struct port *gpdep,*gparr,*gports = gnet->ports;
@@ -1654,7 +1654,7 @@ static int dogconn(ub4 callee,struct gnetwork *gnet)
       }
       if (lconn) {
         gconn++;
-        infocc(gconn < 3,0,"local conn %u-%u %s to %s",gdep,garr,dname,aname);
+        infocc(gconn < 6,0,"local conn %u-%u %s to %s",gdep,garr,dname,aname);
         continue;
 
       } else if (partcnt == 1) {
@@ -1667,7 +1667,7 @@ static int dogconn(ub4 callee,struct gnetwork *gnet)
 
         if (xamap[tdep]) {
           gxconn++; gxconn1++;
-          infocc(gxconn < 3,0,"interpart-t1 conn %u-%u via %u %s to %s",gdep,garr,gamid,dname,aname);
+          infocc(gxconn < 6,0,"interpart-t1 conn %u-%u via %u %s to %s",gdep,garr,gamid,dname,aname);
           continue;
         }
 
@@ -1789,7 +1789,7 @@ int mknet(ub4 maxstop)
 
   if (mkxmap(caller,gnet)) return 1;
 
-  if (dogconn(caller,gnet)) return 1;
+  if (showgconn(caller,gnet)) return 1;
 
   globs.netok = 1;
   return 0;
@@ -1975,13 +1975,15 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
   struct network *net;
   struct port *gports = gnet->ports,*pdep,*parr = gports;
   struct hop *hops,*hp,*hp2;
+  struct route *rp,*routes = gnet->routes;
   ub4 *trip = ptrip->trip;
-  const char *name;
+  const char *name,*rname,*mode;
   ub4 rid = hi32,rrid;
   ub4 part,leg,prvleg,ghop,l,l1 = 0,l2 = 0,dep,arr = hi32,deparr,tdep,tarr,gdep,garr = hi32;
   ub4 dist,dist0;
   ub4 gportcnt = gnet->portcnt;
   ub4 partcnt = gnet->partcnt;
+  ub4 ridcnt = gnet->ridcnt;
   ub4 hopcnt,whopcnt,chopcnt;
   ub4 portcnt;
   ub4 *portsbyhop;
@@ -2049,16 +2051,28 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
     dist0 = dist0s[deparr];
     tdep = ptrip->t[leg];
     tarr = tdep + ptrip->dur[leg];
-    if (l < whopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s rid %u",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,name,rid);
+    if (rid != hi32) {
+      rp = routes + rid;
+      rname = rp->name;
+      switch(rp->kind) {
+      case Air: mode = "air"; break;
+      case Rail: mode = "train"; break;
+      case Bus: mode = "bus"; break;
+      case Walk: mode = "walk";
+      case Unknown: case Kindcnt:  mode = "unknown";
+      }
+    } else { rname = "(unnamed)"; mode = ""; }
+    if (l < hopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u %s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,mode);
+    else if (l < whopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s walk",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name);
     else {
       hp2 = hops + l2;
       error_ne(rid,hp2->rid);
-      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s rid %u",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,name,rid);
+      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u %s",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,mode);
     }
     pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s\n",leg+1,tdep,pdep->name);
     pos += mysnprintf(buf,pos,buflen,"       arr \ad%u %s\n",tarr,parr->name);
     if (rid == hi32) pos += mysnprintf(buf,pos,buflen,"       %s",name);
-    else pos += mysnprintf(buf,pos,buflen,"       route %s id %u",name,rrid);
+    else pos += mysnprintf(buf,pos,buflen,"       %s route %s",mode,rname);
     pos += mysnprintf(buf,pos,buflen," dist %u direct %u\n\n",dist,dist0);
   }
   *pbuflen = pos;

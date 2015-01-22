@@ -148,6 +148,7 @@ int prepnet(netbase *basenet)
     brp = broutes + rid;
     rp = routes + rid;
     rp->rrid = brp->rrid;
+    rp->kind = brp->kind;
     rp->chainofs = brp->chainofs;
     rp->chaincnt = brp->chaincnt;
     rp->hichainlen = brp->hichainlen;
@@ -329,6 +330,7 @@ int prepnet(netbase *basenet)
       chp->hop = bchp->hop;
       chp->tdep = bchp->tdep;
       chp->tarr = bchp->tarr;
+      error_lt(chp->tarr,chp->tdep);
       chp->midur = bchp->midur;
       chp->dist = bchp->dist;
     }

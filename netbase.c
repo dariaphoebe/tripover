@@ -297,7 +297,7 @@ int prepbasenet(void)
 
   ub8 *events;
   struct timepatbase *tp;
-  struct routebase *routes,*rp;
+  struct routebase *rp,*routes = basenet.routes;
   ub1 *daymap,*sidmaps = basenet.sidmaps;
 
   struct eta eta;
@@ -313,8 +313,7 @@ int prepbasenet(void)
   ub4 rawchaincnt = basenet.rawchaincnt;
   ub4 hirrid = basenet.hirrid;
 
-  ub4 ridcnt = 0;
-  ub4 *rrid2rid = alloc(hirrid+1,ub4,0xff,"misc rrid2rid",hirrid);
+  ub4 ridcnt = basenet.ridcnt;
 
   double fdist;
   ub4 dist;
@@ -327,7 +326,7 @@ int prepbasenet(void)
   }
   error_ne(chainofs,cumhoprefs);
 
-  // pass 1: expand time entries, determine memuse and derive routes
+  // pass 1: expand time entries, determine memuse and assign chains
   for (hop = 0; hop < hopcnt; hop++) {
 
     if (progress(&eta,"hop %u of %u in pass 1, \ah%lu events",hop,hopcnt,cumevcnt)) return 1;
@@ -360,15 +359,8 @@ int prepbasenet(void)
     }
     hp->dist = dist;
 
-    // routes
     rrid = hp->rrid;
-    if (rrid && rrid != hi32) {
-      error_gt(rrid,hirrid,hop);
-      error_ovf(ridcnt,ub2);
-      if (rrid2rid[rrid] == hi32) rid = rrid2rid[rrid] = ridcnt++;
-      else rid = rrid2rid[rrid];
-    } else rid = hi32;
-    hp->rid = rid;
+    rid = hp->rid;
 
     if (rrid == rrid2watch || rrid == 15) info(0,"hop %u rrid %u rid %u %s to %s route %s",hop,rrid,rid,pdep->name,parr->name,hp->name);
 
@@ -463,6 +455,7 @@ int prepbasenet(void)
           chp->tdep = tdep;
           chp->tarr = tarr;
           cp->rrid = rrid;
+          cp->rid = rid;
           cp->dep = dep;
           cp->hopcnt = 1;
           cumhoprefs2++;
@@ -578,15 +571,6 @@ int prepbasenet(void)
   infocc(evhops < hopcnt,0,"%u of %u hops without time events",hopcnt - evhops,hopcnt);
   info(0,"%u of %u hops with constant duration, %u within accuracy",eqdur,hopcnt,accdur);
 
-  // todo from extnet ?
-  routes = alloc(ridcnt,struct routebase,0,"routes",ridcnt);
-  for (rrid = 0; rrid <= hirrid; rrid++) {
-    rid = rrid2rid[rrid];
-    if (rid >= ridcnt) continue;
-    rp = routes + rid;
-    rp->rrid = rrid;
-  }
-
   // prepare hoplist in chain
   ub4 ci,idx,iv,eqcnt = 0,hichlen = 0,lochlen = hi32,hichain = 0,lochain = 0;
   ub4 cumchaincnt = 0,ridchainofs = 0;
@@ -600,16 +584,14 @@ int prepbasenet(void)
     cp = chains + chain;
     cnt = cp->hopcnt;
     chstats[min(cnt,ivhi)]++;
+    rid = cp->rid;
     if (cnt == 0) { info(Iter,"chain %u rtid %u rrid %u has no hops",chain,cp->rtid,cp->rrid); continue; }
-    else if (cnt > 2) {
+    else if (cnt > 2 && rid != hi32) {
       if (cnt > hichlen) { hichlen = cnt; hichain = chain; }
       if (cnt < lochlen) { lochlen = cnt; lochain = chain; }
       infovrb(cnt > 120,0,"chain %u has %u hops",chain,cnt);
       rrid = cp->rrid;
       error_gt(rrid,hirrid,chain);
-      rid = rrid2rid[rrid];
-      error_ge(rid,ridcnt);
-      cp->rid = rid;
       rp = routes + rid;
       rp->chaincnt++;
       cumchaincnt++;
@@ -710,7 +692,8 @@ int prepbasenet(void)
   for (chain = 0; chain < rawchaincnt; chain++) {
     cp = chains + chain;
     cnt = cp->hopcnt;
-    if (cnt < 3) continue;
+    rid = cp->rid;
+    if (cnt < 3 || rid == hi32) continue;
     rp = routes + cp->rid;
     rcp = routechains + rp->chainofs + rp->chainpos;
     error_ge(rp->chainofs + rp->chainpos,cumchaincnt);
@@ -727,9 +710,6 @@ int prepbasenet(void)
     vrb(0,"rid %u cnt %u",rid,cnt);
   }
 
-  basenet.routes = routes;
-  basenet.ridcnt = ridcnt;
-  basenet.rrid2rid = rrid2rid;
   basenet.hichainlen = hichlen;
 
   basenet.routechains = routechains;
