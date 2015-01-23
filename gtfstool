@@ -2319,7 +2319,7 @@ sub writext($$)
     } else { $subcnt = 0; }
     $addtimes = $addcnt ? join("\t",@sidadds) : '';
     $subtimes = $subcnt ? join("\t",@sidsubs) : '';
-    printf($timefile "%s\t.%u\t%x\t..%u\t%u\t%u\t%u\t%s\t%s\n",$service_id,$sid,$dow,$t0,$t1,$addcnt,$subcnt,$addtimes,$subtimes);
+    printf($timefile "%s\t.%u\t%x\t..%u\t%u\t%u\t%u\t%s\t%s\tx\n",$service_id,$sid,$dow,$t0,$t1,$addcnt,$subcnt,$addtimes,$subtimes);
   }
   close($timefile);
 

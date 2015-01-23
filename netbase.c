@@ -24,7 +24,6 @@ static ub4 msgfile;
 
 #include "time.h"
 #include "util.h"
-#include "bitfields.h"
 #include "netbase.h"
 #include "netio.h"
 #include "event.h"
@@ -728,12 +727,12 @@ int prepbasenet(void)
     tp = &hp->tp;
     evcnt = hp->zevcnt;
     tp->evofs = evofs;
-    evofs += evcnt;
+    evofs += 2 * evcnt;
     tdays = tp->tdays;
     tp->dayofs = dayofs;
     dayofs += tdays * 5;
   }
-  error_ne(evofs,cumzevcnt);
+  error_ne(evofs,cumzevcnt * 2);
 
   // pass 2: fill from time entries
   info(0,"preparing \ah%lu events in %u base hops pass 2",cumevcnt,hopcnt);

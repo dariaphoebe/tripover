@@ -31,6 +31,7 @@ struct srcctx {
   ub4 lostop,histop;
   ub4 stop;
   ub4 costlim;
+  ub4 costperstop;
 
   ub4 lodt,hidt;
   ub4 lodist,hidist,geodist;
@@ -47,7 +48,9 @@ struct srcctx {
   ub4 locsrccnt;
   ub4 varcnt;
   ub4 dvarcnt,tvarcnt,avarcnt,dvarxcnt,tvarxcnt,avarxcnt;
-
+  ub4 stat_noprv;
+  ub4 stat_nxtlim;
+  ub4 stat_nxt0,stat_nxt3;
   ub4 duraccs[Nxleg];
 
   ub4 hop1s[Nxleg];

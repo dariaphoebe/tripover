@@ -485,8 +485,8 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
       x = xp[t];
       if ( (x & hi32) == hi32) { t++; continue; }
 
-      error_ge(gndx,2 * tp->genevcnt);
-      bound(evmem,gen + gndx + 2,ub8);
+      error_ge(gndx,tp->genevcnt * 2);
+      bound(evmem,gen + gndx * 2 + 2,ub8);
       evs[gen + gndx++] = t;
       evs[gen + gndx++] = x;
       day = (t - t0) / daymin;
@@ -496,7 +496,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
     }
     infovrb(gndx > 2048,Iter,"hop %u fill %u nonrepeating events",hop,gndx / 2);
     return gndx / 2;
-  }
+  } else return warn(0,"repetition %u not yet supported",gen);
 
   // re-mark candidates on repeat count and time span
   while (t < t1) {
