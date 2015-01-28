@@ -23,15 +23,16 @@ enum Msgcode {
   User = 0x400, // user-style, undecorated
   Ind  = 0x800,  // indent
 
-  GT   = 0x1000,
-  GE   = 0x2000,
+  Notty = 0x1000,
+//  GT   = 0x1000,
+//  GE   = 0x2000,
 
   Iter = 0x4000,
 
   V0   = 0x10000, V1 = 0x20000, V3 = 0x30000
 };
 
-enum Msgopts { Msg_init = 1, Msg_stamp = 2, Msg_pos = 4, Msg_type = 8, Msg_ccerr = 16 };
+enum Msgopts { Msg_stamp = 2, Msg_pos = 4, Msg_type = 8, Msg_ccerr = 16 };
 
 struct eta {
   ub8 now,stamp,start;
@@ -54,6 +55,7 @@ struct eta {
 #define osinfo(code,fmt,...) osinfofln(FLN,(code),(fmt),__VA_ARGS__)
 
 #define info0(code,s) info0fln(FLN,(code),(s))
+#define error0(code,s) errorfln(FLN,(code),0,"%s",(s))
 
 #define vrbcc(cc,code,fmt,...) { sassert(sizeof(fmt) >= sizeof(void*),"fmt arg is not a string"); if ((cc)) vrbfln(FLN,(code),(fmt),__VA_ARGS__); }
 #define infocc(cc,code,fmt,...) { sassert(sizeof(fmt) >= sizeof(void*),"fmt arg is not a string"); if ((cc)) infofln(FLN,(code),(fmt),__VA_ARGS__); }
@@ -75,6 +77,7 @@ extern ub4 mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...) __attri
 #endif
 
 #define fmtstring(dst,fmt,...) mysnprintf((dst),0,sizeof (dst),(fmt),__VA_ARGS__)
+#define fmtstring0(dst,s) mysnprintf((dst),0,sizeof (dst),"%s",(s))
 
 int msgprefix(int rv,const char *fmt, ...) __attribute__ ((format (printf,2,3)));
 
@@ -87,7 +90,7 @@ extern void eximsg(void);
 
 extern void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert);
 extern enum Msglvl getmsglvl(void);
-extern void setmsglog(const char *dir,const char *logname);
+extern int setmsglog(const char *dir,const char *logname);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
 // when failing, both names and values are shown

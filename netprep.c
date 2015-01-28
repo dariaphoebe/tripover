@@ -162,7 +162,7 @@ int prepnet(netbase *basenet)
 
   ub4 *gportsbyhop = alloc(bhopcnt * 2, ub4,0xff,"net portsbyhop",bhopcnt);
   ub4 *drids,*arids,*deps,*arrs;
-  ub4 t0,t1,evcnt;
+  ub4 t0,t1,tdep,prvtdep,evcnt;
 
   hops = alloc(bhopcnt,struct hop,0,"hops",bhopcnt);
   hopcnt = 0;
@@ -317,7 +317,7 @@ int prepnet(netbase *basenet)
     ofs = cp->hopofs;
     bofs = bcp->hopofs;
     bchip = bchainidxs + bofs;
-    prvseq = seq = 0;
+    prvseq = seq = prvtdep = 0;
     for (i = 0; i < cnt; i++) {
       chp = chainhops + ofs + i;
       idx = bchip[i] & hi32;
@@ -328,7 +328,10 @@ int prepnet(netbase *basenet)
       infocc(seq == 0,0,"tid %u rtid %u idx %u/%u at %p",chain,rtid,i,cnt,bchip + i);
       error_le(seq,prvseq);
       chp->hop = bchp->hop;
-      chp->tdep = bchp->tdep;
+      tdep = bchp->tdep;
+      chp->tdep = tdep;
+      error_lt(tdep,prvtdep);
+      prvtdep = tdep;
       chp->tarr = bchp->tarr;
       error_lt(chp->tarr,chp->tdep);
       chp->midur = bchp->midur;
@@ -360,6 +363,8 @@ int prepnet(netbase *basenet)
   gnet->evmapmem = &basenet->evmapmem;
   gnet->events = basenet->events;
   gnet->evmaps = basenet->evmaps;
+  gnet->t0 = basenet->t0;
+  gnet->t1 = basenet->t1;
 
   // write reference for name lookup
   if (wrportrefs(basenet)) return 1;

@@ -31,8 +31,9 @@ static ub4 msgfile;
 
 #include "bitfields.h"
 #include "netbase.h"
-#include "net.h"
 #include "netio.h"
+#include "gtfs.h"
+#include "net.h"
 #include "netprep.h"
 #include "event.h"
 #include "condense.h"
@@ -48,21 +49,21 @@ static int streq(const char *s,const char *q) { return !strcmp(s,q); }
 
 static int init0(char *progname)
 {
-  char nowstr[64];
+  char mtimestr[64];
 
   setsigs();
 
-  inimsg(progname,"tripover.log",Msg_init|Msg_stamp|Msg_pos|Msg_type);
+  inimsg(progname,"tripover.log",Msg_stamp|Msg_pos|Msg_type);
   msgfile = setmsgfile(__FILE__);
   iniassert();
 
 #ifdef NOW
-  sec70toyymmdd(NOW,nowstr,sizeof(nowstr));
+  sec70toyymmdd(NOW,mtimestr,sizeof(mtimestr));
 #else
-  strcopy(nowstr,__DATE__);
+  strcopy(mtimestr,__DATE__);
 #endif
 
-  info(User,"tripover %u.%u %s %s\n%s\n", Version_maj,Version_min,Version_phase,nowstr,copyright);
+  info(User,"\ntripover %u.%u %s %s\n%s\n", Version_maj,Version_min,Version_phase,mtimestr,copyright);
 
   if (iniutil(0)) return 1;
   if (inicfg()) return 1;
@@ -72,6 +73,7 @@ static int init0(char *progname)
   initime(0);
   inimath();
   ininetbase();
+  inigtfs();
   ininet();
   ininetio();
   ininetprep();
@@ -80,9 +82,6 @@ static int init0(char *progname)
   inipartition();
   inicompound();
   inisearch();
-
-  sec70toyymmdd(gettime_sec(),nowstr,sizeof(nowstr));
-  info(0,"starting at %s utc",nowstr);
 
   return 0;
 }
@@ -105,35 +104,65 @@ static int getbasenet(void)
 
   error_ovf(portcnt,ub2);
 
-  if (*globs.netdir) {  // todo read compiled net
-    if (dorun(FLN,Runread)) {
-      rv = readextnet(basenet,globs.netdir);
-      if (rv) return rv;
-      if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
-      else return 0;
-      if (rv) return rv;
-      if (dorun(FLN,Runprep)) rv = prepnet(basenet);
-      else return 0;
-      if (rv) return rv;
-      gnet = getgnet();
-      rv = partition(gnet);
-      info(0,"rv %d",rv);
-      return rv;
-    } else return 0;
-  }
-  info(0,"generate random %u port %u hop net", globs.maxports, globs.maxhops);
-  rv = mkrandnet(portcnt,hopcnt);
-  if (rv) return rv;
-  if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
-  if (rv) return rv;
-  if (dorun(FLN,Runprep)) rv = prepnet(basenet);
-//  net2pdf(net);
-  return rv;
+  if (*globs.netdir == 0) return 1;
+
+  if (dorun(FLN,Runread)) {
+    rv = readextnet(basenet,globs.netdir);
+    if (rv) return rv;
+    if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
+    else return 0;
+    if (rv) return rv;
+    if (globs.writgtfs) rv = writegtfs(basenet,globs.netdir);
+    if (rv) return rv;
+    if (dorun(FLN,Runprep)) rv = prepnet(basenet);
+    else return 0;
+    if (rv) return rv;
+    gnet = getgnet();
+    rv = partition(gnet);
+    info(0,"rv %d",rv);
+    return rv;
+  } else return 0;
+
 }
 
 static int do_main(void)
 {
+  ub4 argc = globs.argc;
+  struct myfile nd;
+  const char *cmdstr;
+
+  if (argc == 0) return shortusage();
+
+  cmdstr = globs.args[0];
+  if (*cmdstr == 0) return shortusage();
+
+  if (streq(cmdstr,"run")) {
+    info0(0,"command 'run'"); 
+  } else if (streq(cmdstr,"gtfsout")) {
+    info0(0,"cmd: 'gtfsout': read net, process events and write normalised gtfs");
+    globs.stopat = Runprep;
+    globs.writgtfs = 1;
+  } else if (streq(cmdstr,"init")) {
+    return 0;
+  } else return error(0,"unknown command %s",cmdstr);
+
+  if (argc < 2) return error0(0,"commands 'run' and 'gtfsout' need network dir arg");
+  strcopy(globs.netdir,globs.args[1]);
+
+  if (*globs.netdir) {
+    oclear(nd);
+    if (osfileinfo(&nd,globs.netdir)) return oserror(0,"cannot access net directory %s",globs.netdir);
+    else if (nd.isdir == 0) return error(0,"net arg %s is not a directory",globs.netdir);
+    if (setmsglog(globs.netdir,"tripover.log")) return 1;
+  }
+
+  char nowstr[64];
+  sec70toyymmdd(gettime_sec(),nowstr,sizeof(nowstr));
+  info(0,"starting at %s utc",nowstr);
+
   inievent(1);
+
+  oslimits();
 
   if (getbasenet()) return 1;
 
@@ -156,7 +185,7 @@ static int do_main(void)
 
     rv = plantrip(&src,(char *)"buildin test",dep,arr,lostop,histop);
     if (rv) warning(0,"search returned error %d",rv);
-    else if (src.trip.cnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.trip.port,src.lodist);
+    else if (src.trips[0].cnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.trips[0].port,src.lodist);
     else info(0,"%u to %u : no trip\n",dep,arr);
   }
 
@@ -214,10 +243,18 @@ static int cmd_stopat(struct cmdval *cv)
   return 0;
 }
 
-static int cmd_arg(struct cmdval *cv) {
-  vrb(0,"add arg %s", cv->sval);
-  strcopy(globs.netdir, cv->sval);
+static int cmd_arg(struct cmdval *cv)
+{
+  ub4 argc = globs.argc;
+  char *dst;
+  ub4 maxlen = sizeof(globs.args[0]);
 
+  if (argc + 1 >= Elemcnt(globs.args)) return error(0,"exceeded %u arg limit",argc);
+
+  dst = globs.args[argc];
+  vrb(0,"add arg %s", cv->sval);
+  strncpy(dst, cv->sval,maxlen-1);
+  globs.argc = argc + 1;
   return 0;
 }
 
@@ -249,11 +286,7 @@ int main(int argc, char *argv[])
 
   if (cmdline(argc,argv,cmdargs)) return 1;
 
-  if (*globs.netdir) setmsglog(globs.netdir,"tripover.log");
-
   if (inicfgcl()) return 1;
-
-  oslimits();
 
   initime(1);
 

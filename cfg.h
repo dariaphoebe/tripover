@@ -31,6 +31,10 @@
 
 // end of limits
 
+enum Engvars { Eng_periodlim,Eng_abc,Eng_cnt };
+
+sassert(Eng_cnt < sizeof(globs.engvars),"globs.engvars < Eng_cnt");
+
 #define Cfgcl (1U << 31)
 #define Cfgdef (1U << 30)
 

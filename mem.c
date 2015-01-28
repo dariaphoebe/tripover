@@ -24,8 +24,8 @@
 static ub4 msgfile;
 #include "msg.h"
 
-// soft limit for wrappers only
-static const ub4 Maxmem_mb = 1024 * 14;
+// soft limit for wrappers only, from config
+static ub4 Maxmem_mb;
 
 static const ub4 mmap_from_mb = 32;
 
@@ -108,7 +108,7 @@ void showmemsums(void)
 {
   struct sumbyuse *up = usesums;
 
-  info(0,"total memuse %u MB",totalMB);
+  infocc(totalMB > 16,0,"total memuse %u MB",totalMB);
   while (up < usesums + Elemcnt(usesums) && up->idlen) {
     if (up->sum > 16) {
       infofln(up->fln,0,"category %s memuse %u MB",up->id,up->sum);
@@ -130,6 +130,8 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
 
   if (curainfo + 1 == Ablocks) errorfln(fln,Exit,FLN,"exceeding limit of %u memblocks allocating %s",Ablocks,desc);
 
+  if (Maxmem_mb == 0) Maxmem_mb = globs.maxvm * 1024;
+
   vrbfln(fln,V0|CC,"alloc %s:\ah%u * %s:\ah%u for %s-%u",slen,elems,sel,elsize,desc,arg);
 
   // check for zero and overflow
@@ -144,19 +146,25 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   nm = (ub4)(n8 >> 20);
   if (n8 != n) error(Exit,"wraparound allocating %u MB for %s", nm, desc);
 
-  if (nm >= Maxmem_mb) { showmemsums(); error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm); }
-  if (totalMB + nm >= Maxmem_mb) { showmemsums(); error(Exit,"exceeding %u MB limit by %u MB",Maxmem_mb,nm + totalMB); }
+  if (Maxmem_mb && nm >= Maxmem_mb) {
+    showmemsums();
+    errorfln(fln,Exit,FLN,"exceeding %u MB limit by %u MB for %s-%u",Maxmem_mb,nm,desc,arg);
+  }
+  if (Maxmem_mb && totalMB + nm >= Maxmem_mb) {
+    showmemsums();
+    errorfln(fln,Exit,FLN,"exceeding %u MB limit by %u MB for %s-%u",Maxmem_mb,nm + totalMB,desc,arg);
+  }
 
   if (nm >= mmap_from_mb) {
-    if (nm > 64) infofln(fln,0,"alloc %u MB for %s",nm,desc);
+    if (nm > 64) infofln(fln,0,"alloc %u MB for %s-%u",nm,desc,arg);
     p = osmmap(n);
-    if (!p) oserror(Exit,"cannot allocate %u MB for %s", nm, desc);
+    if (!p) oserrorfln(fln,Exit,"%u: cannot allocate %u MB for %s-%u", __LINE__,nm, desc,arg);
     if (fill) memset(p, fill, n);
   } else {
-    if (nm > 64) infofln(fln,0,"alloc %u MB for %s",nm,desc);
+    if (nm > 64) infofln(fln,0,"alloc %u MB for %s-%u",nm,desc,arg);
     p = malloc(n);
-    if (!p) error(Exit,"cannot allocate %u MB for %s", nm, desc);
-    if (nm > 64) infofln(fln,0,"clear %u MB for %s",nm,desc);
+    if (!p) errorfln(fln,Exit,FLN,"cannot allocate %u MB for %s-%u", nm, desc,arg);
+    if (nm > 64) infofln(fln,0,"clear %u MB for %s-%u",nm,desc,arg);
     memset(p, fill, n);
   }
 
@@ -243,6 +251,8 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   void *p;
 
   error_zp(blk,fln);
+
+  if (Maxmem_mb == 0) Maxmem_mb = globs.maxvm * 1024;
 
   desc = blk->desc;
   desclen = sizeof(blk->desc);

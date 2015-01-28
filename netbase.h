@@ -96,6 +96,7 @@ struct chainbase {
   ub4 dep;
   ub4 hopcnt;
   ub4 hopofs;
+  ub4 lotdep;
   ub8 code;
 };
 
@@ -162,6 +163,7 @@ struct routebase {
   ub4 namelen;
 
   ub4 end0,end1;
+  ub4 utcofs;
 
   ub4 dist;
 
@@ -202,7 +204,7 @@ struct sidbase {
   ub4 service;
 
   ub4 t0,t1;      // tt range in minutes std
-  ub4 t0map;      // start of day map in minutes std
+//  ub4 t0map;      // start of day map in minutes std
 
   ub4 lt0day,lt1day; // tt range in localtime days
 
@@ -280,7 +282,7 @@ struct networkbase {
   ub4 latrange[2];
   ub4 lonrange[2];
 
-  ub4 t0,t1;
+  ub4 t0,t1; // overall timebox in localtime + tz uncertainty
 
 // workspace
   ub4 *portwrk;   // [portcnt]
@@ -294,9 +296,13 @@ struct networkbase {
   ub4 *id2hops;          // [maxid]
   ub4 *rsid2sids;
   ub4 *rrid2rid;
+  ub4 *tid2rtid;
+
   ub4 maxportid;
   ub4 maxsubportid;
   ub4 maxsid;
+
+  ub4 timespanlimit;
 
   ub4 hitripid,hirrid,hichainlen;
 

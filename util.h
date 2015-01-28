@@ -38,6 +38,7 @@ extern ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc);
 extern ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc);
 
 extern int cmdline(int argc, char *argv[], struct cmdarg *cap);
+extern int shortusage(void);
 
 #define memcopy(d,s,n) memcopyfln((d),(s),(n),FLN)
 extern void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln);

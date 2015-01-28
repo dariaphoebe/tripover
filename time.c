@@ -71,7 +71,7 @@ void initime(int iter)
   } else {
     now = (ub4)time(NULL);
     sec70toyymmdd(now,buf,sizeof(buf));
-    info(0,"current time %s : expect UTC",buf);
+    vrb0(0,"current time %s utc",buf);
   }
 }
 

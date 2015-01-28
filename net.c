@@ -723,7 +723,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
           midarr = mid * portcnt + arr;
           n2 = cnts2[midarr];
-          if (n2 == 0) { cntstats[6]++; continue; }
+          if (n2 == 0) continue;
 
           error_ovf(n1,ub2);
           error_ovf(n2,ub2);
@@ -1970,7 +1970,7 @@ int triptoports_fln(ub4 fln,struct network *net,ub4 *trip,ub4 triplen,ub4 *ports
   return 0;
 }
 
-int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen)
+int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,ub4 *ppos)
 {
   struct network *net;
   struct port *gports = gnet->ports,*pdep,*parr = gports;
@@ -1978,7 +1978,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
   struct route *rp,*routes = gnet->routes;
   ub4 *trip = ptrip->trip;
   const char *name,*rname,*mode;
-  ub4 rid = hi32,rrid;
+  ub4 rid = hi32,rrid,tid;
   ub4 part,leg,prvleg,ghop,l,l1 = 0,l2 = 0,dep,arr = hi32,deparr,tdep,tarr,gdep,garr = hi32;
   ub4 dist,dist0;
   ub4 gportcnt = gnet->portcnt;
@@ -1991,8 +1991,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
   ub4 *dist0s;
   ub4 *choporg;
   ub4 *p2g;
-  ub4 pos = 0;
-  ub4 buflen = *pbuflen;
+  ub4 pos = *ppos;
   ub4 triplen = ptrip->len;
   ub4 *ports = ptrip->port;
 
@@ -2051,6 +2050,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
     dist0 = dist0s[deparr];
     tdep = ptrip->t[leg];
     tarr = tdep + ptrip->dur[leg];
+    tid = ptrip->tid[leg];
     if (rid != hi32) {
       rp = routes + rid;
       rname = rp->name;
@@ -2062,12 +2062,12 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
       case Unknown: case Kindcnt:  mode = "unknown";
       }
     } else { rname = "(unnamed)"; mode = ""; }
-    if (l < hopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u %s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,mode);
+    if (l < hopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode);
     else if (l < whopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s walk",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name);
     else {
       hp2 = hops + l2;
       error_ne(rid,hp2->rid);
-      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u %s",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,mode);
+      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode);
     }
     pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s\n",leg+1,tdep,pdep->name);
     pos += mysnprintf(buf,pos,buflen,"       arr \ad%u %s\n",tarr,parr->name);
@@ -2075,7 +2075,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 *pbuflen
     else pos += mysnprintf(buf,pos,buflen,"       %s route %s",mode,rname);
     pos += mysnprintf(buf,pos,buflen," dist %u direct %u\n\n",dist,dist0);
   }
-  *pbuflen = pos;
+  *ppos = pos;
   error_ge(garr,gportcnt);
   ports[triplen] = garr;
   return 0;

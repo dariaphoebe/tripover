@@ -370,6 +370,14 @@ static int showvers(struct cmdval *cv)
   return cv->retval;
 }
 
+int shortusage(void)
+{
+  info(User,"%s - %s",Program_name,Program_desc);
+  info(User,"usage: %s [options] <cmd> <args>\n",Program_name);
+  info(User,"'%s help' shows commandline usage",globs.progname);
+  return 1;
+}
+
 static int usage(struct cmdval *cv)
 {
   struct cmdarg *ap = cv->args;
@@ -380,8 +388,8 @@ static int usage(struct cmdval *cv)
   char argstr[64];
   char optstr[128];
 
-  info0(User,"tripover server - flight+train search engine");
-  info0(User,"usage: tripover [options] [args]\n");
+  info(User,"%s - %s",Program_name,Program_desc);
+  info(User,"usage: %s [options] [args]\n",Program_name);
 
   info0(User,"options:");
 
@@ -484,7 +492,8 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
   }
   plainap = cap;
 
-  globs.progname = argv[0];
+  arg = strrchr(argv[0],'/');
+  globs.progname = (arg ? arg + 1 : argv[0]);
 
   for (argno = 1; argno < (ub4)argc; argno++) {
     arg = argv[argno];
@@ -539,8 +548,11 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
         if (rv) return rv;
       }
     } else {
-      cv.sval = (char *)arg;
-      (*plainap->fn)(&cv);
+      if (streq(arg,"help")) usage(&cv);
+      else {
+        cv.sval = (char *)arg;
+        (*plainap->fn)(&cv);
+      }
     }
   }
   return 0;

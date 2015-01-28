@@ -16,6 +16,7 @@ extern long osread(int fd,void *buf,size_t len);
 extern long oswrite(int fd, const void *buf,ub4 len);
 extern int oscreate(const char *name);
 extern int osfdinfo(struct myfile *mf,int fd);
+extern int osfileinfo(struct myfile *mf,const char *name);
 extern int osclose(int fd);
 extern int osdup2(int oldfd,int newfd);
 extern int osrewind(int fd);

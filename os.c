@@ -74,6 +74,18 @@ int osfdinfo(struct myfile *mf,int fd)
   return 0;
 }
 
+int osfileinfo(struct myfile *mf,const char *name)
+{
+  struct stat ino;
+
+  if (stat(name,&ino)) return 1;
+  mf->mtime = ino.st_mtime;
+  mf->len = ino.st_size;
+  mf->isdir = S_ISDIR(ino.st_mode);
+  mf->isfile = S_ISREG(ino.st_mode);
+  return 0;
+}
+
 int osrewind(int fd)
 {
   off_t rv;
@@ -449,7 +461,7 @@ ub8 gettime_usec(void)
   return usec;
 }
 
-static int rlimit(int res,rlim_t lim,const char *desc)
+static int rlimit(int res,rlim_t lim,const char *desc,int show)
 {
   struct rlimit rlim;
 
@@ -457,15 +469,16 @@ static int rlimit(int res,rlim_t lim,const char *desc)
 
   rlim.rlim_cur = min(lim,rlim.rlim_max);
   if (setrlimit(res,&rlim)) return oserror(0,"cannot set resource limit for %s",desc);
-  return info(0,"resource limit for %s set to \ah%lu",desc,lim);
+  return infovrb(show,0,"resource limit for %s set to \ah%lu",desc,lim);
 }
 
 int oslimits(void)
 {
   int rv = 0;
+  rlim_t maxvm = (ub8)(globs.maxvm + 4) * 1024 * 1024 * 1024;
 
-//  rv |= rlimit(RLIMIT_AS,Maxmem,"virtual memory");
-  rv |= rlimit(RLIMIT_CORE,0,"core size");
+  rv |= rlimit(RLIMIT_AS,maxvm,"virtual memory +4 GB margin",1);
+  rv |= rlimit(RLIMIT_CORE,0,"core size",0);
   return rv;
 }
 

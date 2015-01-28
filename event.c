@@ -29,7 +29,7 @@ static ub4 msgfile;
 
 static const ub4 daymin = 60 * 24;   // convenience
 
-static const ub4 evlimit = 10000;
+static const ub4 evlimit = 40000;
 
 #include "watch.h"
 
@@ -86,23 +86,27 @@ void showxtime(struct timepatbase *tp,ub8 *xp,ub4 xlim)
 }
 
 // expand gtfs-style entries into a minute-time axis over validity range
+// input and sid in localtime, events in utc
 // returns number of unique departures
 ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid)
 {
-  ub4 t,n = 0;
-  ub4 t0,t1,tt,tlo,thi,rdep,dayid,tday;
+  ub4 t,n = 0,ndup = 0;
+  ub4 t00,t01,t0,t1,tt,tlo,thi,rdep,dayid,tday,mday;
   ub4 hop = tp->hop;
-  ub4 t0map = sp->t0map;
   ub4 mapofs = sp->mapofs;
   ub4 rsid = sp->rsid;
-
-  if (t0map != gt0) {
-    info(0,"rsid %u map period \ad%u-\ad%u",rsid,sp->t0,sp->t1);
-    error(Exit,"rsid %u map daystart \ad%u mismatches \ad%u",rsid,t0map,gt0);
-  }
+  ub4 sid = sp->sid;
+  ub4 utcofs = sp->utcofs;
+  int dbg = (hop == 259 && rsid == 28);
 
   t0 = sp->t0;
   t1 = sp->t1;  // exclusive
+
+//  warncc(t0 % 1440,0,"t0 \ad%u",t0);
+//  warncc(t1 % 1440,0,"t1 \ad%u",t1);
+
+  t00 = sp->lt0day;
+  t01 = sp->lt1day;
 
   error_zz(t0,t1);
 
@@ -113,7 +117,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 
   error_nz(tid >> 24,tid);
 
-  hoplog(hop,0,"rsid \ax%u deptime %u t0 %u t1 %u",rsid,tdep,t0,t1);
+  infocc(dbg,0,"r.sid %u.%u deptime %u t0 %u t1 %u daymap %p",rsid,sid,tdep,t0,t1,daymap);
 
   if (tdep > daymin * 2) warning(0,"deptime > %u days",tdep / daymin);
   else if (tdep >= daymin) {
@@ -122,45 +126,51 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
   }
   if (tdep >= t1 - t0 + daymin) return warning(0,"hop %u deptime %u above schedule period \ad%u-\ad%u",hop,tdep,t0,t1);
 
-  dayid = t0 - gt0;
-  if (dayid % daymin) warning(0,"hop %u dayid %u",hop,t0 - gt0);
-  dayid /= daymin;
+  dayid = (t0 - gt0) / daymin;
 
-  t = t0;
+  if (tp->evcnt == evlimit) return warning(0,"hop %u exceeding event limit %u",hop,evlimit);
+
+  tday = t0 / daymin;
+  error_lt(tday,t00);
+  error_ge(t1 / daymin,t01);
+//  error_lt(tday * daymin + tdep,t0);
 
 //  info(0,"t %u t1 %u",t,t1);
 
-  while (t < t1 && n + tp->evcnt < evlimit) {
+  while (tday < t1 / daymin && n + tp->evcnt < evlimit) {
 //    info(0,"t %u",t);
-    tday = (t - t0map) / daymin;
-    if (tday >= sp->maplen) { warning(0,"tday %u maplen %u",tday,sp->maplen); break; }
-    if (daymap[tday]) {
-      error_ge(t + tdep,t1);
-      tt = t - gt0 + tdep;
-      if (tt >= xlen) {
-        warning(0,"t %u tdep %u xlen %u n %u",t,tdep,xlen,n);
-        return n;
-      }
-      if ( (xp[tt] & hi32) == hi32) {
-        xp[tt] = tid | (dayid << 24);
-        tlo = min(tlo,tt);
-        thi = max(thi,tt);
-        n++;
-        xpacc[tt >> 4] = 1;
-//        hoplog(hop,1,"day at t %u \ad%u map %u",t,t,mapofs + tday);
-      } // else hoplog(hop,0,"dup at t %u",t); // duplicate/overlap
-    } else {
-//      addhopwatch(hop,FLN);
-//      hoplog(hop,1,"no day at t %u \ad%u map %u",t,t,mapofs + tday);
+    mday = tday - t00;
+    if (mday >= sp->maplen) { warning(0,"tday %u maplen %u",mday,sp->maplen); break; }
+    if (daymap[mday] == 0) { infocc(dbg,0,"no day at \ad%u",tday); tday++; continue; }
+
+    t = tday * daymin;
+
+    warncc(t + tdep >= t1 + daymin,0,"t \ad%u + tdep %u >= \ad%u",t,tdep,t1);
+    error_ge(t + tdep,t1 + daymin);
+    tt = t - gt0 + tdep;
+    if (tt >= xlen) {
+      warning(0,"t %u tdep %u xlen %u n %u",t,tdep,xlen,n);
+      return n;
     }
-    t += daymin;
+    if (tt < utcofs) { tday++; continue; }
+    tt -= utcofs;
+    if ( (xp[tt] & hi32) == hi32) {
+      xp[tt] = tid | (dayid << 24);
+      tlo = min(tlo,tt);
+      thi = max(thi,tt);
+      n++;
+      xpacc[tt >> 4] = 1;
+      infocc(dbg,0,"day at t %u \ad%u map %u rsid %u",t,t,mapofs + tday,rsid);
+    } else { ndup++; infocc(dbg,0,"dup at t %u \ad%u rsid %u",t,t,rsid); } // duplicate/overlap
+    tday++;
   }
 
   if (n) {
     if (n + tp->evcnt == evlimit) warning(0,"hop %u exceeding event limit %u",hop,evlimit);
     tp->t0 = tlo; tp->t1 = thi;   // keep track of first and last actual departure
     hoplog(hop,0,"%u event\as tlo %u thi %u",n,tlo,thi);
-  } else hoplog(hop,0,"no events in range %u-%u",tlo,thi);
+  } else if (ndup) vrb0(0,"all events duplicate for rsid %u range %u-%u",rsid,tlo,thi);
+  else info(0,"no events for r.sid %u.%u range %u-%u",rsid,sid,t0,t1);
   return n;
 }
 
@@ -168,14 +178,16 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid,ub4 dur)
 {
   ub4 t,n = 0;
-  ub4 t0,t1,tt,tlo,thi,tday;
+  ub4 t00,t01,t0,t1,tt,tlo,thi,tday,mday;
   ub4 dayid = 0;
   ub8 x;
   ub4 hop = tp->hop;
-  ub4 t0map = sp->t0map;
+  ub4 utcofs = sp->utcofs;
 
   t0 = sp->t0;
   t1 = sp->t1;
+
+  t00 = sp->lt0day;
 
   tlo = tp->t0; thi = tp->t1;
 
@@ -191,18 +203,16 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
     info(Iter,"day > 255 for \ad%u",t0); // todo rearrange
     dayid = 255;
   }
-  t = t0;
-  while (t < t1 && n + tp->evcnt < evlimit) {
-    tday = (t - t0map) / daymin;
-    if (tday >= sp->maplen) break;
-    if (daymap[tday]) {
-      tt = t - gt0 + tdep;
-      if (tt >= xlen) {
-        warning(0,"tdep %u xlen %u n %u",tdep,xlen,n);
-        return n;
-      }
+
+  tday = t0 / daymin;
+  while (tday < t1 / daymin && n + tp->evcnt < evlimit) {
+    t = tday * daymin;
+    mday = tday - t00;
+    if (daymap[mday]) {
+      tt = t - gt0 + tdep - utcofs;
+      error_ge(tt,xlen);
       if ( (xp[tt] & hi32) == hi32) {
-        hoplog(hop,0,"evt %u at t %u dayid %x",n,tt,dayid);
+//        hoplog(hop,0,"evt %u at t %u dayid %x",n,tt,dayid);
         x = tid | (dayid << 24);
         x |= (ub8)dur << 32;
         xp[tt] = x;
@@ -210,7 +220,7 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
         xpacc[tt >> 4] = 1;
       }
     }
-    t += daymin;
+    tday++;
   }
   infocc(n + tp->evcnt == evlimit,0,"%u + %u events at limit",n,tp->evcnt);
   return n;
@@ -284,7 +294,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
   if (hirep == 0) {
     warning(0,"hop %u hirep 0 for %u event\as",hop,evcnt);
     return evcnt;
-  } else if (hirep < 3000) { // not worth to compress. todo: criteria
+  } else if (hirep < evlimit) { // not worth to compress. todo: criteria
     genmsg(evcnt > 10000 ? Info : Vrb,Iter,"hirep %u for %u events",hirep,evcnt);
     tp->genevcnt = evcnt;
     return evcnt;

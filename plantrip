@@ -21,8 +21,8 @@ use integer;
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 13;
-my $lastchanged = "20 jan 2015";
+my $version_min = 14;
+my $lastchanged = "28 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -474,7 +474,7 @@ if (@ARGV > 0) {
       if (@args > 4) { $dayrange = $args[4]; }
       else { $dayrange = 3; }
       if (@args > 5) { $startday = $args[5]; }
-      else { $startday = 20150110; } # eng provision: typ 
+      else { $startday = 0; } # implies start of service 
       plan($dep,$arr,$stops,$dayrange,$startday);
       agedir($querydir,time() - $agelimit);
     } elsif ($cmd eq 'iplan') {
@@ -485,7 +485,7 @@ if (@ARGV > 0) {
       if (@args > 4) { $dayrange = $args[4]; }
       else { $dayrange = 3; }
       if (@args > 5) { $startday = $args[5]; }
-      else { $startday = 20150110; } # eng provision: typ 
+      else { $startday = 0; }
       iplan($dep,$arr,$stops,$dayrange,$startday);
       agedir($querydir,time() - $agelimit);
     } else { info("unknown command"); }

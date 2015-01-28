@@ -337,6 +337,7 @@ struct gnetwork {
   block *evmapmem;
   ub8 *events;
   ub2 *evmaps;
+  ub4 t0,t1;
 
   struct chainhop *chainhops;
 
@@ -367,7 +368,7 @@ extern int mknet(ub4 maxstop);
 extern struct network *getnet(ub4 part);
 extern struct gnetwork *getgnet(void);
 extern int triptoports_fln(ub4 fln,struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports);
-extern int gtriptoports(struct gnetwork *net,struct trip *ptrip,char *buf,ub4 *pbuflen);
+extern int gtriptoports(struct gnetwork *net,struct trip *ptrip,char *buf,ub4 buflen,ub4 *ppos);
 
 #define checktrip(net,legs,nleg,dep,arr,dist) checktrip_fln((net),(legs),(nleg),(dep),(arr),(dist),FLN)
 #define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)

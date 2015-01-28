@@ -23,6 +23,8 @@ typedef int sb4;
 #define Version_maj 0
 #define Version_min 15
 #define Version_phase "initial"
+#define Program_name "tripover"
+#define Program_desc "broad-search journey planner"
 
 // handful of useful macros
 #define hi16 0xffff
@@ -62,11 +64,14 @@ enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runmknet,Runcompound,Runne
 
 // program-wide global vars go here
 extern struct globs {
-  char *progname;
+  const char *progname;
 
   ub1 doruns[Runcnt];
   enum Runlvl stopat,stopatcl;
   char stopatstr[64];
+
+  ub4 argc;
+  char args[16][1024];
 
   char cfgfile[1024];
   char netfile[1024];
@@ -80,10 +85,13 @@ extern struct globs {
   ub4 maxhops;
   ub4 maxstops;
 
+  ub4 maxvm;
+
   int netok;
 
   ub4 writext;
   ub4 writpdf;
+  ub4 writgtfs;
   ub4 extdec;
 
   int msg_fd;
@@ -95,10 +103,16 @@ extern struct globs {
   ub4 testa,testb;
   ub4 testcnt;
   ub4 testset[16];
+
+  ub4 engvars[64];   // checked for Eng_cnt in cfg
+
+  int nomsgsum;
+
 } globs;
 
 struct myfile {
   int exist,direxist,alloced;
+  int isdir,isfile;
   ub4 basename;
   size_t len;
   unsigned long mtime;

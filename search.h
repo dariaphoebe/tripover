@@ -18,10 +18,10 @@
 struct srcctx {
   char desc[256];
 
-  char resbuf[Nxleg * 128];
+  char resbuf[2 * Nxleg * 256];
   ub4 reslen;
 
-  struct trip trip;
+  struct trip trips[2];
 
   ub4 dep,arr;
   ub4 vias[Nvia];

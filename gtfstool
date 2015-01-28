@@ -11,15 +11,15 @@
 
 # primary use is to import gtfs feeds into tripover format.
 # see usage below
-# basic provisions for feed merge : no timezone handling
+# basic provisions for feed merge : add agencyID to all IDs, have tiumezone per agency in routes, trips and calendar
 # basic filtering on transport mode
 
 use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 24;
-my $lastchanged = "21 jan 2015";
+my $version_min = 25;
+my $lastchanged = "28 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -143,10 +143,13 @@ sub dinfo($) {
   return msg($_[0] . " fn $sub ln $line");
 }
 
+my (%warnings,%warncnts);
 sub warning($) {
   my ($package,$filename,$line,$sub,$hasargs) = caller(0);
 #  msg("warning: " . $_[0] . "  at fn $sub.$line");
   msg("warning: " . $_[0]);
+  $warnings{$line} = $_[0] unless exists $warnings{$line};
+  $warncnts{$line}++;
   $warningcnt++;
   return 1;
 }
@@ -285,12 +288,16 @@ my $opt_inferred = 4;
 
 # store field results here
 
-my $utcofs12 = 1000 + 1200;  # todo from feed
+my $defutcofs12;
 
+# defaults
 my $agencyname;
+my $agencyid;
 my $feedpublisher = '';
 
 my @agencies;
+my %agencytz;
+my %agencyutcofs;
 
 my %stopids;    # ext to int
 my %stop_ids;   # int to ext
@@ -327,6 +334,7 @@ my %servicesub;
 my $sidcnt = 0;
 my %sidrefs;
 my %sids2ignore;
+my %sidutcofs;
 
 my %tripids;
 my %trip_ids;
@@ -352,6 +360,7 @@ my @routes;
 my %routeids;
 my %norouteids;
 my %routebyids;
+my %routeagency;
 my %rtypes;
 
 my $hirrid = 0;
@@ -371,7 +380,7 @@ my $tripcnt = 0;
 my $routecnt = 0;
 my $noroutecnt = 0;
 
-# overall date range : coded decimal localtime yyyymmdd 
+# overall date range : coded decimal yyyymmdd
 my $mint0 = 20200101;
 my $maxt1 = 0;
 
@@ -508,17 +517,110 @@ sub rdgtfscfg($$)
   info('');
 }
 
+my (%tzofs,%tzdstofs);
+
 sub init()
 {
+  my $tzname = 'tzinfo.txt';
+  my $tzfile;
+  my $col = 0;
+  my ($line,$tzstr,$tz,$ofs,$dstofs,$a,$b,$c,$alt);
+  my @tzs;
+  my $tzcol = 3;
+  my $ofscol = 5;
+  my $dstofscol = 6;
+
   rdwatches() if $anaout;
+
+  # read timezone info from wikipedia export, in turn from iana TZ database 
+  open($tzfile,'<:encoding(UTF-8)',$tzname) or return warning("cannot open $tzname:$!");
+  my @lines = readline($tzfile);
+  close($tzfile);
+  for $line (@lines) {
+    next unless length($line);
+    next if index($line,'#') == 0;
+#    info($line);
+
+    @tzs = ();
+    if (index($line,'|-') == 0) {
+      $col = 0;
+    } elsif (index($line,'|') == 0) {
+      $line = substr($line,1);
+      $col++;
+    }
+
+    if ($col == $tzcol) {
+      $a = index($line,'[[');
+      $b = index($line,']]');
+      $tzstr = substr($line,$a+2,$b-3);
+    } elsif ($col == $ofscol) {
+      $a = index($line,'[[');
+      $c = index($line,'|');
+      $ofs = substr($line,$a+5,$c-6);
+    } elsif ($col == $dstofscol) {
+      $a = index($line,'[[');
+      $c = index($line,'|');
+      if ($a < 0) { vrb("no dstofs for $tz abc $line"); $dstofs = $ofs; }
+      else { $dstofs = substr($line,$a+5,$c-6); }
+    } elsif ($col > $dstofscol) {
+      while (length($tzstr)) {
+        $alt = index($tzstr,'|');
+        if ($alt < 0) {
+          push @tzs,$tzstr;
+          $tzstr = '';
+        } else {
+          $tz = substr($tzstr,0,$alt);
+          vrb("tz '$tz' ofs '$ofs'");
+          push @tzs,$tz;
+          $tzstr = substr($tzstr,$alt + 1);
+          vrb("tzstr '$tzstr'");
+        }
+      }
+      foreach $tz (@tzs) {
+        $tzofs{$tz} = $ofs;
+        $tzdstofs{$tz} = $dstofs;
+        vrb("tz '$tz' ofs '$ofs'");
+      }
+      $col = 0;
+    }
+  }
+  return 1;
+}
+
+sub tz2ofs($)
+{
+  my ($str) = @_;
+  my ($hh,$mm,$hhmm);
+
+  unless (exists($tzofs{$str})) { warning("no timezone info for $str"); return (0,0); }
+
+  $hhmm = $tzofs{$str};
+  $a = index($hhmm,':');
+  $hh = substr($hhmm,0,$a);
+  $mm = substr($hhmm,$a+1);
+  vrb("utc offset hh $hh mm $mm");
+  return ($hh,$mm);
+}
+
+sub opengtfs($)
+{
+  my ($name) = @_;
+  my ($fh,$headline);
+
+  open($fh,'<:encoding(UTF-8)',$name) or return error("cannot open $name:$!");
+  $headline = readline($fh);
+  return error("$name is empty") unless defined $headline and length($headline);
+  $headline =~ s/^\x{FEFF}//;  # remove BOM
+  $headline =~ s/[\r\n]+$//;
+  return (1,$fh,$headline);
 }
 
 sub readagency($)
 {
   my ($dir) = @_;
 
-  my ($agency,$agencyfname);
-  my ($col,$colname,$line);
+  my ($rv,$agency,$agencyfname);
+  my ($col,$colname,$line,$headline);
   my ($col_id,$col_name,$col_tz,$col_url);
 
   return error("missing dir arg for import") unless defined $dir and length($dir);
@@ -531,10 +633,8 @@ sub readagency($)
   info("reading $agencyfname");
   return info("dryrun") if $dryrun;
 
-  open($agency,'<:encoding(UTF-8)',$agencyfname) or return error("cannot open $agencyfname:$!");
-  my $headline = readline($agency);
-  return error("$agencyfname") unless defined $headline and length($headline);
-  $headline = trimws($headline);
+  ($rv,$agency,$headline) = opengtfs($agencyfname);
+  return 0 unless $rv;
 
   my @colnames = split(',',$headline);
   my @cols;
@@ -556,6 +656,7 @@ sub readagency($)
   my $linecnt = scalar(@lines);
 
   my ($id,$name,$url,$tzstr);
+  my ($utchh,$utcmm,$utcofs12);
 
   info("$linecnt lines") if $linecnt > 1;
 
@@ -572,10 +673,31 @@ sub readagency($)
     $tzstr = $cols[$col_tz] if defined $col_tz;
     $url = $cols[$col_url] if defined $col_url;
 
-    $agencyname = $name unless defined $agencyname;  # todo: use first one as overall feed ID
+    $id = substr($id,1,-1) if index($id,'"') == 0;
+    $name = substr($name,1,-1) if index($name,'"') == 0;
+    $tzstr = substr($tzstr,1,-1) if index($tzstr,'"') == 0;
+    $url = substr($url,1,-1) if index($url,'"') == 0;
 
+    # take first one to identify overall feed if feed_info missing
+    $agencyname = $name unless defined $agencyname;
+    $agencyid = $id unless defined $agencyid;
+
+    if (length($tzstr)) {
+      ($utchh,$utcmm) = tz2ofs($tzstr);
+    }
+
+    $agencytz{$id} = $tzstr;
+    ($utchh,$utcmm) = (0,0) unless defined $utchh;
+    $utcofs12 = int(($utchh + 12) * 100) + $utcmm;
+    info("agency $id utcofs $utcofs12");
+    $agencyutcofs{$id} = $utcofs12;
     push @agencies,join("\t",$id,$name,$url,$tzstr);
   }
+
+  ($utchh,$utcmm) = (0,0) unless defined $utchh;
+  $defutcofs12 = int(($utchh + 12) * 100) + $utcmm;
+
+  $agencyid = $agencyname unless defined $agencyid;
   info("Agency: '$agencyname'") if $linecnt == 1;
   return 1;
 }
@@ -584,7 +706,7 @@ sub readfeedinfo($)
 {
   my ($dir) = @_;
 
-  my ($file,$fname);
+  my ($rv,$file,$fname,$headline);
   my ($col,$colname,$line);
   my ($col_id,$col_name,$col_tz);
 
@@ -598,13 +720,8 @@ sub readfeedinfo($)
   info("reading $fname");
   return info("dryrun") if $dryrun;
 
-  open($file,'<:encoding(UTF-8)',$fname) or return error("cannot open $fname:$!");
-  my $headline = readline($file);
-  unless (defined $headline and length($headline)) {
-    close($file);
-    return warning("$fname is empty");
-  }
-  $headline = trimws($headline);
+  ($rv,$file,$headline) = opengtfs($fname);
+  return 0 unless $rv;
 
   my @colnames = split(',',$headline);
   my @cols;
@@ -729,7 +846,7 @@ sub readstops($)
 {
   my ($dir) = @_;
 
-  my ($stopfile,$stopsname,$anafile);
+  my ($stopfile,$stopsname,$anafile,$rv,$headline);
   my ($col,$colid,$colname,$line,$comma,$endq,$c,$req,$val);
   my ($id,$stopid,$stopid2,$rstopid,$xname);
   my ($code,$name,$sname,$desc,$lat,$lon,$zone_id,$url,$loctype,$parent,$platform,$opt);
@@ -737,7 +854,7 @@ sub readstops($)
   my ($uniparent,$parentid,$parent1,$rparent,$isparent,$hasparent,$newparent,$newparentid);
   my ($ilat,$ilon);
   my ($simlst,$simstr,$simstop,$stopstr);
-  my ($slat,$slon,$dist,$nearby);
+  my ($slat,$slon,$dist,$diststr,$nearby);
   my (%simlats,%simlons);
   my ($ilatcell,$iloncell,$acell,$ocell,$candidate,$candidates);
   my %sims;
@@ -750,15 +867,8 @@ sub readstops($)
   info("reading $stopsname");
   return info("dryrun") if $dryrun;
 
-  open($stopfile,'<:encoding(UTF-8)',$stopsname) or return error("cannot open stops.txt:$!");
-  my $headline = readline($stopfile);
-  error_exit("stops.txt is empty") unless defined $headline and length($headline);
-  $c = chop $headline;
-  $headline .= $c if $c ne "\n"; 
-  $c = chop $headline;
-  $headline .= $c if $c ne "\r"; 
-
-  vrb("'$headline'");
+  ($rv,$stopfile,$headline) = opengtfs($stopsname);
+  return 0 unless $rv;
 
   my @colnames = split(',',$headline);
   my @cols;
@@ -822,9 +932,12 @@ sub readstops($)
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
       $val = trimws(substr($line,0,$comma));
+      if (index($val,'"') == 0) {
+        $val = substr($val,1,-1);
+      }
 
       if ($col == $col_stopid) {
-        $id = substr($line,0,$comma);
+        $id = $val;
 
       } elsif ($col == $col_stopcode) {
         $code = $val;
@@ -843,7 +956,7 @@ sub readstops($)
           error_exit("line $linno: missing ,") if $comma < 0;
 
         } else { # unquoted
-          $name = substr($line,0,$comma);
+          $name = $val;
         }
 
       } elsif ($col == $col_stopdesc) {
@@ -858,7 +971,7 @@ sub readstops($)
           error_exit("line $linno: missing ,") if $comma < 0;
 
         } else {
-          $desc = substr($line,0,$comma);
+          $desc = $val;
         }
 
       } elsif ($col == $col_stoplat) {
@@ -917,18 +1030,18 @@ sub readstops($)
           $mergedupcnt++;
         } else {
           $dist = geodist($lat,$lon,$lat2,$lon2);
+          $diststr = sprintf ("distance %.3f",$dist);
           if ($dist < $dup_limit) {
-            $dist = sprintf ("%.3f",$dist);
             if ( ($parent eq $parent2) or length($parent) == 0) {
-              infovrb($showmerge,"merge $name id $rstopid to $stopid2 on distance $dist");
+              infovrb($showmerge,"merge $name id $rstopid to $stopid2 on $diststr");
               $stopmerge{$rstopid} = $stopid2;
             } else {
-              infovrb($showmerge,"merge $name id $stopid2 to $rstopid on distance $dist");
+              infovrb($showmerge,"merge $name id $stopid2 to $rstopid on $diststr");
               $stopmerge{stopid2} = $rstopid;
             }
             $mergedupcnt2++;
           } else {
-            info("not merge $name id $rstopid to $stopid2 on distance $dist");
+            info("not merge $name id $rstopid to $stopid2 on $diststr");
             $mergedupcnt3++;
           }
         }
@@ -955,7 +1068,7 @@ sub readstops($)
     if ($hasparent) {
       unless (exists($rstopids{$rparent})) {
         if ($omit_noparent) {
-          info("omitting emmber stop id $id $name on no parent $rparent line $rstopid");
+          info("omitting member stop id $id $name on no parent $rparent line $rstopid");
         } else {
           warning("$id $name has nonexistent parent $rparent on line $rstopid");
         }
@@ -1212,24 +1325,17 @@ sub readroutes($)
 {
   my ($dir) = @_;
 
-  my ($routefile,$routefname);
-  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$agency_id,$routeid,$name,$slname,$rtype,$modename);
+  my ($routefile,$routefname,$rv,$headline);
+  my ($val,$col,$colid,$colname,$line,$comma,$endq,$c,$req);
+  my ($route_id,$agency_id,$routeid,$utcofs12,$name,$slname,$desc,$rtype,$modename);
 
   $routefname = $dir . '/' . 'routes.txt';
 
   info("reading $routefname");
   return info("dryrun") if $dryrun;
 
-  open($routefile,'<',$routefname) or return error("cannot open routes.txt:$!");
-  my $headline = readline($routefile);
-  error_exit("routes.txt is empty") unless defined $headline and length($headline);
-  $c = chop $headline;
-  $headline .= $c if $c ne "\n"; 
-  $c = chop $headline;
-  $headline .= $c if $c ne "\r"; 
-
-#  info("'$headline'");
+  ($rv,$routefile,$headline) = opengtfs($routefname);
+  return 0 unless $rv;
 
   my @colnames = split(',',$headline);
   my @cols;
@@ -1271,16 +1377,21 @@ sub readroutes($)
     $linno++;
 
     $line .= ',';
-    $name = ''; $slname = ''; $route_id = ''; $rtype = ''; $agency_id = '';
+    $name = ''; $slname = ''; $route_id = ''; $rtype = ''; $agency_id = $agencyid;
     foreach $col (@cols) {
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
 
+      $val = trimws(substr($line,0,$comma));
+      if (index($val,'"') == 0) {
+        $val = substr($val,1,-1);
+      }
+
       if ($col == $col_routeid) {
-        $route_id = substr($line,0,$comma);
+        $route_id = $val;
 
       } elsif ($col == $col_agencyid) {
-        $agency_id = substr($line,0,$comma);
+        $agency_id = $val;
 
       } elsif ($col == $col_routesname or $col == $col_routelname) {
         if (substr($line,0,1) eq '"') { # quoted
@@ -1295,13 +1406,29 @@ sub readroutes($)
           error_exit("line $linno: missing ,") if $comma < 0;
 
         } else { # unquoted
-          $name = substr($line,0,$comma);
+          $name = $val;
         }
         $slname .= ' ' if length($slname);
         $slname .= $name if length($name);
 
+      } elsif ($col == $col_routedesc) {
+        if (substr($line,0,1) eq '"') { # quoted
+          $line = substr($line,1);
+          $endq = index($line,'"');
+          error_exit("line $linno: missing endquote") if $endq < 0;
+          $desc = substr($line,0,$endq);
+          $desc =~ $unquoter;
+          $line = substr($line,$endq+1);
+
+          $comma = index($line,',');
+          error_exit("line $linno: missing ,") if $comma < 0;
+
+        } else { # unquoted
+          $desc = $val;
+        }
+
       } elsif ($col == $col_routetype) {
-        $rtype = substr($line,0,$comma);
+        $rtype = $val;
       }
 
       $line = substr($line,$comma+1);
@@ -1316,12 +1443,25 @@ sub readroutes($)
       next;
     }
 
+    unless ($rtype =~ qr'^[0-9]+$') {
+      error_exit("line $linno: route_type $rtype not numerical");
+      next;
+    }
     $routebyids{$routeid} = $route_id;
     $routeids{$route_id} = $routeid;
+    $routeagency{$routeid} = $agency_id;
     $rtypes{$routeid} = $rtype;
 
+    if (exists($agencyutcofs{$agency_id})) {
+      $utcofs12 = $agencyutcofs{$agency_id};
+#      info("route $route_id utcofs $utcofs12");
+    } else {
+      $utcofs12 = $defutcofs12;
+      info("route $route_id agency $agency_id has no timezone, fallback utcofs $utcofs12");
+    }
+
     if (filtermode($rtype)) {
-      push(@routes,join("\t",$route_id,$agency_id,'',$slname,$rtype));
+      push(@routes,join("\t",$route_id,$agency_id,$utcofs12,'',$slname,$rtype));
       $hirrid = max($hirrid,$routeid);
     } else {
       $noroutecnt++;
@@ -1343,24 +1483,17 @@ sub readtrips($)
 {
   my ($dir) = @_;
 
-  my ($tripfile,$tripfname);
-  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$routeid,$trip_id,$tripid,$service_id,$headsign,$dirid);
+  my ($tripfile,$tripfname,$rv,$headline);
+  my ($val,$col,$colid,$colname,$line,$comma,$endq,$c,$req);
+  my ($route_id,$routeid,$trip_id,$tripid,$service_id,$sid,$agency_id,$headsign,$dirid,$utcofs);
 
   $tripfname = $dir . '/' . 'trips.txt';
 
   info("reading $tripfname");
   return info("dryrun") if $dryrun;
 
-  open($tripfile,'<',$tripfname) or return error("cannot open trips.txt:$!");
-  my $headline = readline($tripfile);
-  error_exit("trips.txt is empty") unless defined $headline and length($headline);
-  $c = chop $headline;
-  $headline .= $c if $c ne "\n"; 
-  $c = chop $headline;
-  $headline .= $c if $c ne "\r"; 
-
-#  info("'$headline'");
+  ($rv,$tripfile,$headline) = opengtfs($tripfname);
+  return 0 unless $rv;
 
   my @colnames = split(',',$headline);
   my @cols;
@@ -1385,6 +1518,7 @@ sub readtrips($)
   close($tripfile);
   error_exit("trips.txt is empty") unless (@lines > 0);
 
+  my $filtercnt = 0;
   my $linno = 1;
   my $linecnt = scalar(@lines);
 
@@ -1405,12 +1539,17 @@ sub readtrips($)
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
 
+      $val = trimws(substr($line,0,$comma));
+      if (index($val,'"') == 0) {
+        $val = substr($val,1,-1);
+      }
+
       if ($col == $col_routeid) {
-        $route_id = substr($line,0,$comma);
+        $route_id = $val;
       } elsif ($col == $col_serviceid) {
-        $service_id = substr($line,0,$comma);
+        $service_id = $val;
       } elsif ($col == $col_tripid) {
-        $trip_id = substr($line,0,$comma);
+        $trip_id = $val;
       } elsif ($col == $col_headsign) {
 
         if (substr($line,0,1) eq '"') { # quoted
@@ -1425,11 +1564,11 @@ sub readtrips($)
           error_exit("line $linno: missing ,") if $comma < 0;
 
         } else { # unquoted
-          $headsign = substr($line,0,$comma);
+          $headsign = $val;
         }
 
       } elsif ($col == $col_direction) {
-        $dirid = substr($line,0,$comma);
+        $dirid = $val;
       }
 
       $line = substr($line,$comma+1);
@@ -1449,33 +1588,47 @@ sub readtrips($)
       next;
     }
 
+    unless (exists($routeids{$route_id})) {
+      $filtercnt++;
+      warning("$linno: unknown route id $route_id");
+      next;
+    }
+
+    if (exists($norouteids{$route_id})) {
+      $filtercnt++;
+    } elsif (exists($noserviceids{$service_id})) {
+      $filtercnt++;
+      next;
+    }
+    unless (exists($serviceids{$service_id})) {
+      $filtercnt++;
+      warning("$linno: unknown service id $service_id");
+      next;
+    }
+
     $tripid = $linno;
     $tripids{$trip_id} = $tripid;
     $trip_ids{$tripid} = $trip_id;
     $hitripid = $linno;
 
-    unless (exists($routeids{$route_id})) {
-      warning("$linno: unknown route id $route_id");
-      next;
-    }
-
     $routeid = $routeids{$route_id};
 #    info("route $route_id id $routeid");
     $triproutes{$tripid} = $routeid;
 
-    if (exists($norouteids{$route_id})) {  # filtered
-    } elsif (exists($routeids{$route_id})) {
-      push(@trips,join("\t",$route_id,$service_id,$trip_id,$headsign,$dirid));
-      $tripservice{$trip_id} = $service_id;
-    } else {
-      warning("$linno: undefined route id $route_id");
-    }
+    $sid = $serviceids{$service_id};
+    warning("no agency for route $routeid $route_id") unless exists $routeagency{$routeid};
+    $agency_id = $routeagency{$routeid};
+    warning("no timezone for agency $agency_id") unless exists $agencyutcofs{$agency_id};
+    $utcofs = $agencyutcofs{$agency_id};
+    $sidutcofs{$sid} = $utcofs;
+    push(@trips,join("\t",$route_id,$service_id,$trip_id,$headsign,$dirid));
+    $tripservice{$trip_id} = $service_id;
 
   } # each line
 
   $tripcnt = scalar(@trips);
 
-  info("$tripcnt trips highest ID $hitripid");
+  info("$tripcnt trips $filtercnt filtered highest ID $hitripid");
 
   return 1;
 }
@@ -1484,9 +1637,9 @@ sub readcalendar($)
 {
   my ($dir) = @_;
 
-  my ($calfile,$calfname);
-  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($service_id,$sid,$t0,$t1,$day,$dayno,$dows,$dow);
+  my ($calfile,$calfname,$rv,$headline);
+  my ($val,$col,$colid,$colname,$line,$comma,$endq,$c,$req,$fln);
+  my ($service_id,$sid,$t0,$t1,$day,$dayno,$dows,$dow,$utcofs);
   my $filtercnt = 0;
   my @dow;
 
@@ -1495,16 +1648,8 @@ sub readcalendar($)
   info("reading $calfname");
   return info("dryrun") if $dryrun;
 
-  open($calfile,'<',$calfname) or return info("optional $calfname not present");
-  my $headline = readline($calfile);
-  return info("optional $calfname is empty") unless defined $headline and length($headline);
-
-  $c = chop $headline;
-  $headline .= $c if $c ne "\n"; 
-  $c = chop $headline;
-  $headline .= $c if $c ne "\r"; 
-
-#  info("'$headline'");
+  ($rv,$calfile,$headline) = opengtfs($calfname);
+  return 0 unless $rv;
 
   my @colnames = split(',',$headline);
   my @cols;
@@ -1548,59 +1693,75 @@ sub readcalendar($)
     $line .= $c if $c ne "\r"; 
 
     $linno++;
-
+    $fln = "calendar.txt:$linno";
     $line .= ',';
 
     $service_id = ''; $t0 = ''; $t1 = '';
     $dow[0] = $dow[1] = $dow[2] = $dow[3] = $dow[4] = $dow[5] = $dow[6] = 0;
     foreach $col (@cols) {
       $comma = index($line,',');
-      return error("line $linno: missing field") if $comma < 0;
+      return error("$fln: missing field") if $comma < 0;
+
+      $val = trimws(substr($line,0,$comma));
+      if (index($val,'"') == 0) {
+        $val = substr($val,1,-1);
+      }
 
       if ($col == $col_serviceid) {
-        $service_id = substr($line,0,$comma);
+        $service_id = $val;
       } elsif ($col == $col_monday) {
-        $dow[6] = substr($line,0,$comma);
+        $dow[6] = $val;
       } elsif ($col == $col_tuesday) {
-        $dow[5] = substr($line,0,$comma);
+        $dow[5] = $val;
       } elsif ($col == $col_wednesday) {
-        $dow[4] = substr($line,0,$comma);
+        $dow[4] = $val;
       } elsif ($col == $col_thursday) {
-        $dow[3] = substr($line,0,$comma);
+        $dow[3] = $val;
       } elsif ($col == $col_friday) {
-        $dow[2] = substr($line,0,$comma);
+        $dow[2] = $val;
       } elsif ($col == $col_saturday) {
-        $dow[1] = substr($line,0,$comma);
+        $dow[1] = $val;
       } elsif ($col == $col_sunday) {
-        $dow[0] = substr($line,0,$comma);
+        $dow[0] = $val;
 
       } elsif ($col == $col_startdate) {
-        $t0 = substr($line,0,$comma);
+        $t0 = $val;
       } elsif ($col == $col_enddate) {
-        $t1 = substr($line,0,$comma);
+        $t1 = $val;
       }
 
       $line = substr($line,$comma+1);
 
     } # each col
 
+    $sid = $linno;
+
     if (length($service_id) == 0) {
-      warning("$linno: missing service id");
+      warning("$fln: missing service id");
       next;
     } elsif (exists($serviceids{$service_id})) {
-      warning("$linno: service id $service_id previously defined on line $serviceids{$service_id}");
+      warning("$fln: service id $service_id previously defined on line $serviceids{$service_id}");
       $filtercnt++;
       next;
     } elsif (exists($sids2ignore{$service_id})) {
-      $noserviceids{$service_id} = $linno;
-      info("$linno: filter service id $service_id : $sids2ignore{$service_id}");
+      $noserviceids{$service_id} = $sid;
+      info("$fln: filter service id $service_id : $sids2ignore{$service_id}");
       $filtercnt++;
       next;
     }
+    unless (length $t0) {
+      warning("$fln: no start date");
+      next;
+    }
+    unless (length $t1) {
+      warning("$fln: no end date");
+      $t1 = $t0;
+    }
+
     $dows = '..............'; $dow = 0; $dayno = 0;
     for $dayno (0 .. 6) {
       $day = $dow[$dayno];
-      return error("$linno: $day not 0 or 1") if $day ne '0' and $day ne '1';
+      return error("$fln: $day not 0 or 1") if $day ne '0' and $day ne '1';
       $dow <<= 1;
       if ($day) {
         $dow |= 1;
@@ -1608,9 +1769,15 @@ sub readcalendar($)
       }
     }
 
-    warning("$linno: end time $t1 before start time $t0") if $t1 < $t0;
+    if ($dow == 0) {
+      $noserviceids{$service_id} = $sid;
+      info("$fln: filter empty service id $service_id");
+      $filtercnt++;
+      next;
+    }
 
-    $sid = $linno;
+    warning("$fln: end time $t1 before start time $t0") if $t1 < $t0;
+
     $hisid = max($sid,$hisid);
     $serviceids{$service_id} = $sid;
     $servicedow{$sid} = $dow;
@@ -1649,8 +1816,8 @@ sub readcaldates($)
 {
   my ($dir) = @_;
 
-  my ($calfile,$calfname);
-  my ($col,$colid,$colname,$line,$comma,$endq,$c,$req);
+  my ($calfile,$calfname,$rv,$headline);
+  my ($val,$col,$colid,$colname,$line,$comma,$endq,$c,$req);
   my ($service_id,$sid,$date,$extype,$t0,$t1);
   my $filtercnt = 0;
 
@@ -1659,15 +1826,8 @@ sub readcaldates($)
   info("reading $calfname");
   return info("dryrun") if $dryrun;
 
-  open($calfile,'<',$calfname) or return info("no $calfname");
-  my $headline = readline($calfile);
-  error_exit("$calfname is empty") unless defined $headline and length($headline);
-  $c = chop $headline;
-  $headline .= $c if $c ne "\n"; 
-  $c = chop $headline;
-  $headline .= $c if $c ne "\r"; 
-
-#  info("'$headline'");
+  ($rv,$calfile,$headline) = opengtfs($calfname);
+  return 0 unless $rv;
 
   my @colnames = split(',',$headline);
   my @cols;
@@ -1710,13 +1870,18 @@ sub readcaldates($)
       $comma = index($line,',');
       return error("line $linno: missing field") if $comma < 0;
 
+      $val = trimws(substr($line,0,$comma));
+      if (index($val,'"') == 0) {
+        $val = substr($val,1,-1);
+      }
+
       if ($col == $col_serviceid) {
-        $service_id = substr($line,0,$comma);
+        $service_id = $val;
       } elsif ($col == $col_date) {
-        $date = substr($line,0,$comma);
+        $date = $val;
 
       } elsif ($col == $col_extype) {
-        $extype = substr($line,0,$comma);
+        $extype = $val;
       }
 
       $line = substr($line,$comma+1);
@@ -1731,12 +1896,17 @@ sub readcaldates($)
       warning("$linno: exception_type $extype not 1 or 2");
       $filtercnt++;
       next;
+    } elsif (exists($sids2ignore{$service_id})) {
+      info("$linno: filter service id $service_id : $sids2ignore{$service_id}");
+      $filtercnt++;
+      next;
     } elsif (exists($serviceids{$service_id})) {  # modify existing regular sid
       $sid = $serviceids{$service_id};
 
       $t0 = $servicet0{$sid};
       $t1 = $servicet1{$sid};
       if ($extype == 1) {
+        delete $noserviceids{$service_id};
         if ($date < $t0) {
           $servicet0{$sid} = $date;
         } elsif ($date > $t1) {
@@ -1746,6 +1916,10 @@ sub readcaldates($)
         $mint0 = min($date,$mint0);
         $maxt1 = max($date,$maxt1);
       } elsif ($extype == 2) {
+        if (exists($noserviceids{$service_id})) {  # filtered in calendar.txt
+          $filtercnt++;
+          next;
+        }
         if ($date < $t0) {
           warning("$linno: excluding day $date below $service_id range $t0 .. $t1");
         } elsif ($date > $t1) {
@@ -1757,10 +1931,6 @@ sub readcaldates($)
       push @caldates,join("\t",$service_id,$date,$extype);
     } elsif (exists($noserviceids{$service_id})) {
       vrb("$linno: service id $service_id previously filtered at calendar : $noserviceids{$service_id}");
-      next;
-    } elsif (exists($sids2ignore{$service_id})) {
-      info("$linno: filter service id $service_id : $sids2ignore{$service_id}");
-      $filtercnt++;
       next;
     } else {            # not in calendar.txt
       $sid = $hisid + $linno;
@@ -1888,11 +2058,13 @@ sub do_conn()
   return 1;
 }
 
+my %ridsidtimes;
+
 sub readstoptimes($)
 {
   my ($dir) = @_;
 
-  my ($stoptimes,$stoptimesname);
+  my ($stoptimes,$stoptimesname,$rv,$headline);
   my ($col,$colname,$line,$fldend,$endq,$c,$req,$tmpcol,$lastline);
 
   my ($route_id,$trip_id,$arr_time,$dep_time,$stop_id,$headsign);
@@ -1907,15 +2079,8 @@ sub readstoptimes($)
   info("reading $stoptimesname");
   return info("dryrun") if $dryrun;
 
-  open($stoptimes,'<',$stoptimesname) or return error("cannot open stop_times.txt:$!");
-  my $headline = readline($stoptimes);
-  error_exit("stoptimes.txt is empty") unless defined $headline and length($headline);
-  $c = chop $headline;
-  $headline .= $c if $c ne "\n"; 
-  $c = chop $headline;
-  $headline .= $c if $c ne "\r"; 
-
-  info("$headline");
+  ($rv,$stoptimes,$headline) = opengtfs($stoptimesname);
+  return 0 unless $rv;
 
   my @colnames = split(',',$headline);
   my @knowncols;
@@ -1953,8 +2118,8 @@ sub readstoptimes($)
   my $prvroute = 0;
   $tripid = 0; $routeid = 0;
 
-  my ($uniqid,$name,$tripline);
-  my ($thh,$tmm,$tss,$tahh,$tamm,$tass,$tdepsec,$tarrsec);
+  my ($uniqid,$name,$tripline,$ridsidtime);
+  my ($thh,$tmm,$tss,$tahh,$tamm,$tass,$tdepsec,$tarrsec,$tbias);
   my ($htdep,$htarr,$htdeparr);
 
   my ($prvseq,$prvid,$prvtdep,$prvtarr);
@@ -1962,6 +2127,9 @@ sub readstoptimes($)
   info("$linecnt lines");
 
   foreach $line (@lines) {
+
+    chop $line;
+    chop $line if index($line,"\r") > 0;
 
     $lastline = ($linno >= @lines);
     $linno++;
@@ -1974,12 +2142,20 @@ sub readstoptimes($)
     $seq = $cols[$col_stopseq];
     $dep_time = $cols[$col_deptime];
     $arr_time = $cols[$col_arrtime];
+    $dep_time = '' unless defined $dep_time;
+    $arr_time = '' unless defined $arr_time;
+
+    $trip_id = substr($trip_id,1,-1) if index($trip_id,'"') == 0;
+    $rstop_id = substr($rstop_id,1,-1) if index($rstop_id,'"') == 0;
+    $seq = substr($seq,1,-1) if index($seq,'"') == 0;
+    $dep_time = substr($dep_time,1,-1) if length($dep_time) and index($dep_time,'"') == 0;
+    $arr_time = substr($arr_time,1,-1) if length($arr_time) and index($arr_time,'"') == 0;
 
     if ($col_headsign != 0) {
       $headsign = $cols[$col_headsign];
-      if (substr($headsign,0,1) eq '"') {
-        $headsign = substr $headsign,1;
-        if (substr($headsign,-1) ne '"') {  # need to rescan the line if comma in name
+      if (index($headsign,'"') == 0) {
+        if (index($headsign,',') == 0) {   # need to rescan the line if comma in name
+          $headsign = substr $headsign,1;
           $tmpcol = $col_headsign + 1;
           while (substr($cols[$tmpcol],-1) eq '"') { $headsign .= ',' . $cols[$tmpcol++]; }
           chop $headsign;
@@ -1990,14 +2166,20 @@ sub readstoptimes($)
           $seq = $cols[$col_stopseq];
           $dep_time = $cols[$col_deptime];
           $arr_time = $cols[$col_arrtime];
-        } else { $headsign = substr($headsign,0,-1); }
+          $dep_time = '' unless defined $dep_time;
+          $arr_time = '' unless defined $arr_time;
+          $trip_id = substr($trip_id,1,-1) if index($trip_id,'"') == 0;
+          $rstop_id = substr($rstop_id,1,-1) if index($rstop_id,'"') == 0;
+          $seq = substr($seq,1,-1) if index($seq,'"') == 0;
+          $dep_time = substr($dep_time,1,-1) if index($dep_time,'"') == 0;
+          $arr_time = substr($arr_time,1,-1) if index($arr_time,'"') == 0;
+        } else { $headsign = substr($headsign,1,-1); }
         $headsign =~ $unquoter;
       }
-      $headsign =~ tr/\t/ /;
     }
 
     unless (exists($tripids{$trip_id})) {
-      warning("$linno: undefined trip id $trip_id");
+      vrb("line $linno: undefined trip id $trip_id");
       next;
     }
     $prvtrip = $tripid;
@@ -2005,7 +2187,7 @@ sub readstoptimes($)
     $tripid = $tripids{$trip_id};
 
     unless (exists($triproutes{$tripid})) {
-      warning("$linno: undefined route for trip $trip_id");
+      warning("line $linno: undefined route for trip $trip_id");
       next;
     }
 
@@ -2017,7 +2199,7 @@ sub readstoptimes($)
     }
 
     unless (exists $rstopids{$rstop_id}) {
-      warning("unknown stop ID $rstop_id");
+      warning("line $linno: unknown stop ID $rstop_id");
       next;
     }
     $rstopid = $rstopids{$rstop_id};
@@ -2033,6 +2215,19 @@ sub readstoptimes($)
       next;
     }
 
+    if ($prvtrip != $tripid) {
+      $service_id = $tripservice{$trip_id};
+      $sid = $serviceids{$service_id};
+      $sidrefs{$sid} = 1 unless exists $sidrefs{$sid};
+      $tripsids{$tripid} = $sid;
+    }
+    $ridsidtime = join('_',$routeid,$sid,$stopid,$dep_time);
+    if (exists $ridsidtimes{$ridsidtime}) { # todo
+#      $prvtrip = $tripid;
+#      next;
+    }
+    $ridsidtimes{$ridsidtime} = 1;
+
     push(@stop_times, join("\t",$tripid,$stopid,$seq,$dep_time,$arr_time)) if $canonout;
 
     if (exists($parentbyid{$stopid})) {
@@ -2040,13 +2235,6 @@ sub readstoptimes($)
       $parentid = $parentids{$parent};
       $id = $parentid;
     } else { $id = $stopid; }
-
-    if ($prvtrip != $tripid) {
-      $service_id = $tripservice{$trip_id};
-      $sid = $serviceids{$service_id};
-      $sidrefs{$sid} = 1 unless exists $sidrefs{$sid};
-      $tripsids{$tripid} = $sid;
-    }
 
     if ($prvtrip == 0) {
       @newtrip = ();
@@ -2064,7 +2252,7 @@ sub readstoptimes($)
 
       vrb("processing last line $newstrip[0]") if $lastline;
 
-      $tdepsec = 0; $tarrsec = 0;
+      $tdepsec = 0; $tarrsec = 0; $tbias = 0;
       ($seq,$xtripid,$id,$dep_time,$arr_time,$xlinno) = split("\t",$newstrip1[0]);
 
       foreach $tripline (@newstrip1) {
@@ -2081,6 +2269,7 @@ sub readstoptimes($)
           warning("trip ID '$xtripid' mismatches '$prvtrip' $tripline");
           last;
         }
+
         return error("trip ID '$xtripid' unsorted sequence $seq") if $seq < $prvseq;
 
         if (length($dep_time) and length($arr_time)) {
@@ -2091,6 +2280,7 @@ sub readstoptimes($)
           $tass = 0 unless defined $tass;
           $tdepsec = ($thh * 3600) + ($tmm * 60) + $tss;
           $tarrsec = ($tahh * 3600) + ($tamm * 60) + $tass;
+          $tbias = 0 if ($tdepsec > $prvtdep and $tarrsec > $prvtarr);
         } elsif (length($dep_time)) {
           $tss = 0 unless defined $tss;
           ($thh,$tmm,$tss) = ($dep_time =~ $hhmmpat);
@@ -2098,15 +2288,19 @@ sub readstoptimes($)
           $tarrsec = $tdepsec;
         } elsif (length($arr_time)) {
           ($tahh,$tamm,$tass) = ($arr_time =~ $hhmmpat);
+          unless (defined $tahh) {
+            warning("line $xlinno: unrecognised tarr '$arr_time' in '$tripline'");
+          }
           $tass = 0 unless defined $tass;
           $tarrsec = ($tahh * 3600) + ($tamm * 60) + $tass;
           $tdepsec = $tarrsec;
         } elsif ($prvtdep > 0 and $prvtarr > 0) {
           $tdepsec = $prvtdep;
           $tarrsec = $prvtarr;
-          if ($seq > $prvseq) { $tdepsec += 2; $tarrsec += 2; }
-          else { $tdepsec -= 2; $tarrsec -= 2; }
-          info("trip $xtripid has no time for seq $seq at line $xlinno : interpolated");
+          if ($seq > $prvseq) { $tbias += 2; }
+          else { $tbias -= 2; }
+# todo: common in e.q nsw
+#          info("trip $xtripid has no time for seq $seq at line $xlinno : interpolated");
         } else {
           info("trip $xtripid stop $stopnames{$id} has no time");
           $sid = $nosid;
@@ -2114,8 +2308,12 @@ sub readstoptimes($)
           $tarrsec = $prvtarr;
           next;
         }
-#        info("skip hop $id line $linno") if $id == $prvid;
+
+        $tdepsec += $tbias;
+        $tarrsec += $tbias;
+#        info("skip hop $id line $xlinno") if $id == $prvid;
         next if $id == $prvid;
+
         return error("trip ID '$xtripid' duplicate sequence $seq") if $seq == $prvseq;
 
         if ( ($tdepsec / 3600) > 72 or ($tarrsec / 3600) > 72) {
@@ -2125,7 +2323,11 @@ sub readstoptimes($)
         $htdep = int $prvtdep;
         $htarr = int $tarrsec;
 
-        warning("tdep $htdep after tarr $htarr trip $tripid d $thh:$tmm a $tahh:$tamm") if $htdep > $htarr;
+        if ($htdep > $htarr) {
+          info("line $xlinno bias $tbias $tripline");
+          warning("line $xlinno tdep $htdep after tarr $htarr trip $trip_id d $thh:$tmm:$tss a $tahh:$tamm:$tass");
+        }
+
         printf("d %u:%u a %u:%u\n",$htdep / 3600,($htdep % 3600) / 60,$htarr / 3600,($htarr % 3600) / 60) if $htdep > $htarr;
         $htarr++ if $htdep == $htarr;
         warning("tdep $htdep equals tarr $htarr") if $htdep == $htarr;
@@ -2165,7 +2367,7 @@ sub readstoptimes($)
     $ridrefs{$rid}++;
   }
   while (($rid,$cnt) = each %ridrefs) {
-    info("rid $rid has $cnt hops");
+    vrb("rid $rid has $cnt hops");
   }
   return 1;
 }
@@ -2208,6 +2410,18 @@ sub iniext($$)
   my $bckname = $name . '.bak';
 
   info("writing $cnt items to $name");
+
+  unlink($bckname) if -f $bckname;
+  rename($name,$bckname) if -f $name;
+}
+
+sub inican($)
+{
+  my ($name) = @_;
+
+  my $bckname = $name . '.bak';
+
+  info("writing $name");
 
   unlink($bckname) if -f $bckname;
   rename($name,$bckname) if -f $name;
@@ -2287,7 +2501,7 @@ sub writext($$)
 
   my $timefile;
   my $timename = $outdir . '/times.txt';
-  my ($service_id,$sid,$t0,$t1,$day,$dow,$addcnt,$subcnt,$addtimes,$subtimes);
+  my ($service_id,$sid,$t0,$t1,$utcofs,$day,$dow,$addcnt,$subcnt,$addtimes,$subtimes);
   my @sidsubs;
   my @sidadds;
 
@@ -2300,12 +2514,16 @@ sub writext($$)
 
   printf($timefile ".dowstart\t'%s\t# day a week starts at : lsb in mask\n",$dowstart);
   printf($timefile ".timebox\t.%u\t.%u\t# time span in days\n",$mint0,$maxt1);
-  printf($timefile ".utcofs\t.%u\t# minutes east of UTC +12h\n\n",$utcofs12);
 
   print($timefile "# service_id\tsid\tdow\tstart\tend\t# \n\n");
 
   while (($service_id,$sid) = each %serviceids) {
     next unless exists $sidrefs{$sid};
+    unless (exists $sidutcofs{$sid}) {
+      warning("service service_id has unknown timezone");
+      $utcofs = 1200;
+    } else { $utcofs = $sidutcofs{$sid}; }
+
     $dow = $servicedow{$sid};
     $t0 = $servicet0{$sid};
     $t1 = $servicet1{$sid};
@@ -2319,11 +2537,12 @@ sub writext($$)
     } else { $subcnt = 0; }
     $addtimes = $addcnt ? join("\t",@sidadds) : '';
     $subtimes = $subcnt ? join("\t",@sidsubs) : '';
-    printf($timefile "%s\t.%u\t%x\t..%u\t%u\t%u\t%u\t%s\t%s\tx\n",$service_id,$sid,$dow,$t0,$t1,$addcnt,$subcnt,$addtimes,$subtimes);
+    printf($timefile "%s\t.%u\t%x\t..%u\t%u\t%u\t%u\t%u\t%s\t%s\tx\n",$service_id,$sid,$dow,$utcofs,$t0,$t1,$addcnt,$subcnt,$addtimes,$subtimes);
   }
   close($timefile);
 
   my $routename = $outdir . '/to_routes.txt';
+  my $utcofs12;
   iniext($routename,$routecnt);
 
   open($routefile,'>:encoding(UTF-8)',$routename) or error_exit("cannot create $routename:$!");
@@ -2332,11 +2551,12 @@ sub writext($$)
   printf($routefile ".ridrange\t..%u\t%u\n\n",$routecnt,$hirrid);
 
   foreach $line (@routes) {
-    ($route_id,$agency_id,$shortname,$longname,$rtype) = split("\t",$line);
+    ($route_id,$agency_id,$utcofs12,$shortname,$longname,$rtype) = split("\t",$line);
     next unless exists $routeids{$route_id};
     $rid = $routeids{$route_id};
+
     $name = join(' ',$agency_id,$shortname,$longname);
-    printf($routefile "%s\t%u\t%u\n",$name,$rid,$rtype);
+    printf($routefile "%s\t%u\t%u\t%u\n",$name,$rid,$rtype,$utcofs12);
   }
   close($routefile);
   info("wrote to_routes.txt");
@@ -2439,6 +2659,9 @@ sub writext($$)
   return 1;
 }
 
+# write input to canonical gtfs:
+# prefix all IDs with an agency-unique ID
+# only includes required fields, and fields needed for proper merging
 sub writegtfs()
 {
   my ($stopsfile,$calendarfile,$caldatesfile,$routesfile,$tripsfile,$stoptimfile,$agencyfile);
@@ -2449,7 +2672,7 @@ sub writegtfs()
 
   my ($mon,$tue,$wed,$thu,$fri,$sat,$sun,$startdate,$enddate,$date,$extype);
 
-  my ($route_id,$shortname,$longname,$rtype);
+  my ($route_id,$shortname,$longname,$rtype,$utcofs);
 
   my ($service_id,$headsign,$dir);
 
@@ -2459,7 +2682,7 @@ sub writegtfs()
 
 # agency
 
-  info("writing canonical agency.txt");
+  inican($canondir . '/agency.txt');
   open($agencyfile,'>:encoding(UTF-8)',$canondir . '/agency.txt') or return 0;
   print($agencyfile "agency_id,agency_name,agency_url,agency_timezone\n");
 
@@ -2473,7 +2696,7 @@ sub writegtfs()
 
 # stops
 
-  info("writing canonical stops.txt");
+  inican($canondir . '/stops.txt');
   open($stopsfile,'>:encoding(UTF-8)',$canondir . '/stops.txt') or return 0;
   print($stopsfile "stop_id,location_type,parent_station,stop_name,stop_lat,stop_lon,stop_desc\n");
   while (($stopid,$stopstr) = each %stops) {
@@ -2507,7 +2730,7 @@ sub writegtfs()
 # calendar
 
   if (@calendar > 0) {
-    info("writing canonical calendar.txt");
+    inican($canondir . '/calendar.txt');
     open($calendarfile,'>:encoding(UTF-8)',$canondir . '/calendar.txt') or return 0;
     print($calendarfile "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n");
 
@@ -2521,7 +2744,7 @@ sub writegtfs()
   }
 
   if (@caldates > 0) {
-    info("writing canonical calendar_dates.txt");
+    inican($canondir . '/calendar_dates.txt');
     open($caldatesfile,'>:encoding(UTF-8)',$canondir . '/calendar_dates.txt') or return 0;
     print($caldatesfile "service_id,date,exception_type\n");
 
@@ -2535,13 +2758,12 @@ sub writegtfs()
   }
 
 # routes
-
-  info("writing canonical routes.txt");
+  inican($canondir . '/routes.txt');
   open($routesfile,'>:encoding(UTF-8)',$canondir . '/routes.txt') or return 0;
   print($routesfile "route_id,agency_id,route_short_name,route_long_name,route_type\n");
 
   foreach $line (@routes) {
-    ($route_id,$agency_id,$shortname,$longname,$rtype) = split("\t",$line);
+    ($route_id,$agency_id,$utcofs,$shortname,$longname,$rtype) = split("\t",$line);
     $route_id = $idprefix . $route_id;
     $shortname =~ tr','`';
     $longname =~ tr','`';
@@ -2551,8 +2773,7 @@ sub writegtfs()
   info("wrote canonical routes.txt");
 
 #trips
-
-  info("writing canonical trips.txt");
+  inican($canondir . '/trips.txt');
   open($tripsfile,'>:encoding(UTF-8)',$canondir . '/trips.txt') or return 0;
   print($tripsfile "route_id,service_id,trip_id,trip_headsign,direction_id\n");
 
@@ -2568,8 +2789,7 @@ sub writegtfs()
   info("wrote canonical trips.txt");
 
 # stop times
-
-  info("writing canonical stop_times.txt");
+  inican($canondir . '/stop_times.txt');
   open($stoptimfile,'>:encoding(UTF-8)',$canondir . '/stop_times.txt') or return 0;
   print($stoptimfile "trip_id,stop_id,stop_sequence,departure_time,arrival_time\n");
 
@@ -2681,6 +2901,10 @@ else { info("elapsed time $usertime seconds"); }
 
 info("1 warning") if $warningcnt == 1;
 info("$warningcnt warnings") if $warningcnt > 1;
+while (my ($line,$cnt) = each %warncnts) {
+  info("line $line $warnings{$line} * $cnt");
+}
+
 info("1 error") if $errorcnt == 1;
 info("$errorcnt errors") if $errorcnt > 1;
 

@@ -99,7 +99,7 @@ static ub4 himsgcnts[Maxmsgfile * Maxmsgline];
 
 // temporary choice. unbuffered is useful for console messages,
 // yet debug logging may ask for buffering
-static void msgwrite(const char *buf,ub4 len)
+static void msgwrite(const char *buf,ub4 len,int notty)
 {
   int nw;
 
@@ -111,10 +111,10 @@ static void msgwrite(const char *buf,ub4 len)
 
   if (nw == -1) nw = (int)oswrite(2,"\nI/O error on msg write\n",24);
   if (nw == -1) oserrcnt++;
-  if (msg_fd > 2) oswrite(1,buf,len);
+  if (msg_fd > 2 && !notty) oswrite(1,buf,len);
 }
 
-void msg_write(const char *buf,ub4 len) { msgwrite(buf,len); }
+void msg_write(const char *buf,ub4 len) { msgwrite(buf,len,0); }
 
 // make errors appear on stderr
 static void myttywrite(char *buf, ub4 len)
@@ -249,14 +249,57 @@ static ub4 ecnv(char *dst, double x)
   return n;
 }
 
+// simple %f
+static ub4 fcnv(char *dst, double x)
+{
+  double fexp,exp;
+  ub4 iexp;
+  ub4 nmant,ix,n = 0;
+  char *org = dst;
+  char mantissa[32];
+
+  // trivia
+  if (isnan(x)) { memcpy(dst,"#NaN",4); return 4; }
+  else if (isinf(x)) { memcpy(dst,"#Inf",4); return 4; }
+  else if (x > -1e-7 && x < 1e-7) { *dst = '0'; return 1; }
+  else if (x < -4e9) { *dst++ = '-'; n = 1 + ucnv(dst,hi32,0,' '); return n; }
+  else if (x > 4e9) return ucnv(dst,hi32,0,' ');
+
+  if (x < 0) { *dst++ = '-'; x = -x; }
+
+  fexp = log10(x);
+  if (fexp < 0) {     // |x| < 1.0
+    if (fexp < -7) { *dst = '0'; return n + 1; }
+
+    exp = floor(fexp);
+    iexp = (ub4)exp;
+    *dst++ = '0'; *dst++ = '.';
+    while (iexp--) *dst++ = '0';
+    x *= 1e7;
+    if (x > 1) {
+      ix = (ub4)x;
+      dst += ucnv(dst,ix,0,'0');
+    }
+  } else { // |x| >= 1.0
+    ix = (ub4)x;
+    dst += ucnv(dst,ix,0,'0');
+    *dst++ = '.';
+    x = (x - ix) * 1e+7;
+    ix = (ub4)x;
+    dst += ucnv(dst,ix,7,'0');
+  }
+  return (ub4)(dst - org);
+}
+
 /* supports a basic subset of printf plus compatible extensions :
-   %c %d %u %x %e %s %p %03u %-12.6s %ld %*s
+   %c %d %u %x %e %f %s %p %03u %-12.6s %ld %*s
    extensions are led in by '\a' preceding a conversion :
-   h+%u  makes the integer formatted 'human readable' like 123.8 M for 123800000
-   d+%u  minute utc to date 20140912
-   u+%d  utc offset +0930   -1100
-   x+%u  %x.%u
-   v+%u%p interprets the pointer arg '%p' as an array of '%u' integers. thus :  
+   h + %u  makes the integer formatted 'human readable' like 123.8 M for 123800000
+   d + %u  minute utc to date 20140912
+   u + %d  utc offset +0930   -1100
+   x + %u  %x.%u
+   ` + %s  replace , with `
+   v + %u%p interprets the pointer arg '%p' as an array of '%u' integers. thus :  
    int arr[] = { 23,65,23,54 };  printf("\av%u%p", 4, arr ); 
     shows  '[23 65 23 54]'
  */
@@ -269,10 +312,11 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
   unsigned int uval=0,vlen=0,cdval,*puval;
   unsigned long luval,lx;
   int ival,alt,padleft,do_U = 0,do_vec = 0,do_mindate = 0,do_utcofs = 0,do_xu = 0,do_dot = 0;
+  int do_comma = 0;
   long lival;
   double dval;
   char *pval;
-  char c1,c2;
+  char c,c1,c2;
   char pad;
 
   if (!p || pos >= len || len - pos < 2) return 0;
@@ -280,6 +324,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
 
   while (*p && len - n > 2) {
     c1 = *p++;
+
+    // extensions
     if (c1 == '\a') {
       switch(*p++) {
         case 'h': do_U = 1; break;
@@ -290,6 +336,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         case 'd': do_mindate = 1; break;
         case 'D': do_mindate = 2; break;
         case 'x': do_xu = 1; break;
+        case '`': do_comma = 1; break;
         case 's': if (uval != 1) dst[n++] = 's'; break;
         case '%': dst[n++] = c1; c1 = '%'; break;
         default: dst[n++] = c1;
@@ -319,6 +366,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
           c2 = *p++;
         }
       }
+
+      // all long formats
       if (c2 == 'l') {
         c2 = *p++;
         switch(c2) {
@@ -354,11 +403,15 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   break;
         default: dst[n++] = c2;
         }
+
+      // all non-long formats, including extensions
       } else {
         switch(c2) {
         case 'u': uval = va_arg(ap,unsigned int);
                   if (len - n <= 10) break;
-                  if (do_vec) { vlen = uval; break; }
+                  if (do_vec) { vlen = uval; break; }  // save len for vector fmt
+
+                  // dotted 123.454
                   else if (do_dot) {
                     do_dot = 0;
                     if (uval >= 1000 * 1000) {
@@ -373,27 +426,35 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     }
                     n += ucnv(dst + n,uval,wid,'0');
                     break;
+
+                  // coded decimal date
                   } else if (do_mindate) {
                     if (do_mindate == 2) {
                       n += ucnv(dst + n,uval,wid,pad);
                       dst[n++] = ' ';
                     }
                     do_mindate = 0;
-                    if (uval >= 30000000) { // minutes
+                    if (uval > 1440 * 356 * 10) { // minutes
                       cdval = lmin2cd(uval);
                       n += ucnv(dst + n,cdval,4,'0');
                       uval %= 1440;
-                      if (uval) dst[n++] = '.';
-                    } else if (uval > 1440) { // yyyymmdd
-                      cdval = lmin2cd(uval);
+                      if (uval) {
+                        dst[n++] = '.';
+                        hh = uval / 60; mm = uval % 60;
+                        x = hh * 100 + mm;
+                        n += ucnv(dst + n,x,0,' ');
+                      }
+                    } else if (uval > 356 * 10) { // yyyymmdd
+                      cdval = day2cd(uval);
                       n += ucnv(dst + n,cdval,wid,pad);
-                      uval %= 1440;
-                      if (uval) dst[n++] = '.';
+                    } else { // minutes
+                      hh = uval / 60; mm = uval % 60;
+                      x = hh * 100 + mm;
+                      n += ucnv(dst + n,x,0,' ');
                     }
-                    hh = uval / 60; mm = uval % 60;
-                    x = hh * 100 + mm;
-                    n += ucnv(dst + n,x,0,' ');
                     break;
+
+                  // utc (timezone) offset
                   } else if (do_utcofs) {
                     do_utcofs = 0;
                     if (uval > (14 + 12) * 60) { dst[n++] = '!'; uval = (14+12) * 60; }
@@ -409,6 +470,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     if (len - n <= 10) break;
                     dst[n++] = '.';
                   }
+
+                  // human-readable 12.3M
                   if (do_U && uval >= 1024U * 10) {
                     x = uval;
                     if (x == hi32) n += Ucnv(dst + n,4,0,'G');
@@ -434,6 +497,10 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   if (len - n <= 12) break;
                   n += ecnv(dst + n,dval);
                   break;
+        case 'f': dval = va_arg(ap,double);
+                  if (len - n <= 16) break;
+                  n += fcnv(dst + n,dval);
+                  break;
         case 'c': uval = va_arg(ap,unsigned int);
                   if (isprint(uval)) dst[n++] = (char)uval;
                   else {
@@ -449,7 +516,9 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     errcnt++;
                   }
                   plen = 0; while (plen < prec && pval[plen]) plen++;
-                  if (padleft) {
+                  if (do_comma) {
+                    while ( (c = *pval++) && n < len && prec--) dst[n++] = (c == ',' ? '`' : c);
+                  } else if (padleft) {
                     while (*pval && n < len && prec--) dst[n++] = *pval++;
                     while (wid > plen) { dst[n++] = pad; wid--; }
                   } else {
@@ -479,7 +548,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   } else {
                     if (len - n <= 10) break;
                     luval = (unsigned long)puval;
-                    if (sizeof(puval) > 4) n += xcnv(dst + n,(unsigned int)(luval >> 32));
+                    if (sizeof(char *) > 4) n += xcnv(dst + n,(unsigned int)(luval >> 32));
                     n += xcnv(dst + n,(unsigned int)(luval & hi32));
                   }
                   break;
@@ -536,7 +605,7 @@ static void showstack(void)
   while (cpos) {
     pos = msgfln(buf,0,sizeof(buf)-1,callstack[--cpos],9);
     buf[pos++] = '\n';
-    msgwrite(buf,pos);
+    msgwrite(buf,pos,0);
   }
 }
 
@@ -622,7 +691,7 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
       n = mysnprintf(ccbuf2,0,maxlen, "CC           %s ",ccbuf);
       n += msgfln(ccbuf2,n,maxlen,ccfln,0);
       n += mysnprintf(ccbuf2,n,maxlen, "\n");
-      msgwrite(ccbuf2,n);
+      msgwrite(ccbuf2,n,0);
     }
     cclen = 0;
   }
@@ -683,8 +752,8 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   }
   else if (lvl < Warn && !(code & Exit)) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
   msgbuf[pos++] = '\n';
-  msgwrite(msgbuf,pos);
-  if ( (opts & Msg_ccerr) && lvl <= Warn && msg_fd != 2) myttywrite(msgbuf,pos);
+  msgwrite(msgbuf,pos,code & Notty);
+  if ( (code & Msg_ccerr) && lvl <= Warn && msg_fd != 2) myttywrite(msgbuf,pos);
 }
 
 void vmsg(enum Msglvl lvl,ub4 fln,const char *fmt,va_list ap)
@@ -955,11 +1024,11 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
   return infofln(fln,0,"%s",buf);
 }
 
-void setmsglog(const char *dir,const char *name)
+int setmsglog(const char *dir,const char *name)
 {
   char logname[256];
   int fd,oldfd = msg_fd;
-  int c;
+  int c,rv = 0;
   char *oldlines;
   long nr;
   ub4 n;
@@ -973,14 +1042,14 @@ void setmsglog(const char *dir,const char *name)
   osrotate(logname,0,'0');
   fd = oscreate(logname);
 
-  if (fd == -1) { oserror(0,"cannot create logfile %s",logname); fd = 2; }
+  if (fd == -1) { rv = oserror(0,"cannot create logfile %s",logname); fd = 2; }
   else if (oldfd > 2 && msgwritten) {
-    if (osrewind(oldfd)) oserror(0,"cannot rewind %s",globs.logname);
+    if (osrewind(oldfd)) rv = oserror(0,"cannot rewind %s",globs.logname);
     n = msgwritten;
     oldlines = malloc(n);
     memset(oldlines,' ',n);
     nr = osread(oldfd,oldlines,n);
-    if (nr != (long)n) oserror(0,"cannot read %s: %ld",globs.logname,nr);
+    if (nr != (long)n) rv = oserror(0,"cannot read %s: %ld",globs.logname,nr);
     oswrite(fd,oldlines,n);
     osclose(oldfd);
   }
@@ -989,6 +1058,7 @@ void setmsglog(const char *dir,const char *name)
   globs.msg_fd = msg_fd = fd;
   if (oldfd) info(0,"opened new log in %s from %s",logname,globs.logname);
   strcopy(globs.logname,logname);
+  return rv;
 }
 
 static int dia_fd;
@@ -996,6 +1066,7 @@ static int dia_fd;
 // level to be set beforehand
 void inimsg(char *progname, const char *logname, ub4 opts)
 {
+  // redirect stderr to file : prevent clang/gcc sanitizer output mix with our logging
   dia_fd = oscreate("tripover.dia");
   if (dia_fd != -1) osdup2(dia_fd,2);
 
@@ -1006,10 +1077,10 @@ void inimsg(char *progname, const char *logname, ub4 opts)
 
   setmsglog(NULL,logname);
 
-  infofln(0,User,"pid\t%d\tfd\t%d", globs.pid,globs.msg_fd); //on line 1:  used by dbg script
+  infofln(0,Notty|User,"pid\t%d\tfd\t%d", globs.pid,globs.msg_fd); //on line 1:  used by dbg script
 
-  if (msg_fd > 2 && (opts & Msg_init)) {
-    infofln(0,User,"opening log %s for %s\n", logname,progname);
+  if (msg_fd > 2) {
+    infofln(FLN,Notty,"opening log %s for %s\n", logname,progname);
   }
   iniassert();
 }
@@ -1043,7 +1114,7 @@ void eximsg(void)
 
   prefixlen = 0;
 
-  if (errcnt == 0 && assertcnt == 0) {
+  if (errcnt == 0 && assertcnt == 0 && globs.nomsgsum == 0) {
 
     showhi(Warn,5);
     showhi(Info,100);

@@ -41,10 +41,9 @@ static ub4 lon2pdf(ub4 lon,ub4 lolon,ub4 dlon) { return (lon - lolon) * pdfscale
 
 static const ub4 pdfmaxports = 1000;
 static const ub4 pdfmaxhops = 1000;
+static const ub4 daymin = 60 * 24;
 
 static const ub4 timecntlimit = hi32;
-
-static const ub4 timespanlimit = 30; // in days. todo: in config
 
 static const ub4 hop2watch = 0;
 
@@ -128,7 +127,7 @@ static ub4 linecnt(const char *name,const char *buf, ub4 len)
   const char nl = '\n';
 
   while (pos < len) {
-    if (buf[pos] == '#') { while (pos < len && buf[pos] != nl) pos++; }
+    if (buf[pos] == '#' || (pos + 1 < len && buf[pos] == '.' && buf[pos+1] != '.')  ) { while (pos < len && buf[pos] != nl) pos++; }
     else if (buf[pos] == nl) pos++;
     else {
       cnt++;
@@ -247,7 +246,7 @@ static enum extresult nextchar(struct extfmt *ef)
   state = ef->state;
   valndx = ef->valndx;
   val = ef->val;
-  linno = ef->linno;
+  linno = ef->linno + 1;
   colno = ef->colno;
   namelen = ef->namelen;
   iscmd = ef->iscmd;
@@ -388,7 +387,7 @@ static enum extresult nextchar(struct extfmt *ef)
 
   ef->valndx = valndx;
   ef->val = val;
-  ef->linno = linno;
+  ef->linno = linno - 1;
   ef->colno = colno;
   ef->namelen = namelen;
   ef->iscmd = iscmd;
@@ -417,15 +416,12 @@ static struct cmdvars hopvars[] = {
   {"",0,0,NULL,0}
 };
 
-static ub4 timebox[2];  // coded decimal local yyyymmdd inclusive
-static ub4 utcofs12 = 1000 + 1200; // coded decimal + 12h
-static ub4 utcofs;  // minutes east from utc + 12h
+static ub4 timebox[2];  // coded decimal local yyyymmdd inclusive todo timezone
 static ub4 dummy;
 
 static struct cmdvars timevars[] = {
   {"timebox",7,2,timebox,0},
   {"dowstart",8,0,&dummy,0},
-  {"utcofs",6,1,&utcofs12,0},
   {"",0,0,NULL,0}
 };
 
@@ -881,12 +877,15 @@ static int rdextports(netbase *net,const char *dir)
 }
 
 // expand regular sid part into localtime day map. times in days
-static void expandsid(ub1 *map,ub4 maplen,ub4 t00,ub4 t0,ub4 t1,ub4 dow,ub4 t0day)
+static void expandsid(ub4 rsid,ub1 *map,ub4 maplen,ub4 t00,ub4 t0,ub4 t1,ub4 dow,ub4 t0day)
 {
   ub4 t = t0 - t00;
   ub4 daymask = (1 << t0day);
 
-  while (t < t1 - t00 && t < maplen) {
+  infocc(rsid == 2,0,"map %p base %u \ad%u start %u len %u",map + t0,t00,t00,t0,t1 - t0);
+  while (t < t1 - t00) {
+    error_ge(t,maplen);
+//    infocc(rsid == 70,0,"t %u %u day %x mask %x",t,day2cd(t + t00),daymask,dow);
     if (daymask & dow) map[t] = 2;
     if (daymask == (1 << 6)) daymask = 1;
     else daymask <<= 1;
@@ -901,7 +900,7 @@ static int rdexttimes(netbase *net,const char *dir)
   struct extfmt eft;
   const char *fname;
 
-  ub4 rawsidcnt,sidcnt;
+  ub4 rawsidcnt,sidcnt,vsidcnt;
   struct sidbase *sids,*sp;
   ub4 rsid,sid,*rsid2sids;
   int rv;
@@ -910,15 +909,19 @@ static int rdexttimes(netbase *net,const char *dir)
   ub4 dow,t0,t1,t0_cd,t1_cd,t_cd,tbox0,tbox1,dtbox,t0wday;
   ub4 daybox0,daybox1,t0days,t1days,tday,cnt,daycnt;
   ub4 hh,mm;
+  ub4 utcofs12,utcofs;
   ub4 t0lo = hi32,t1hi = 0;
   char *name;
   ub4 *vals;
   ub1 *sidmaps,*map;
   ub4 mapofs,addcnt,subcnt,addndx,subndx;
   ub4 namemax = sizeof(sids->name) - 1;
+  ub4 timespanlimit = globs.engvars[Eng_periodlim];
   int initvars = 0;
 
   oclear(eft);
+
+  error_z(timespanlimit,0);
 
   fmtstring(eft.mf.name,"%s/times.txt",dir);
   fname = eft.mf.name;
@@ -931,7 +934,7 @@ static int rdexttimes(netbase *net,const char *dir)
   rawsidcnt = linecnt(fname,buf, len);
 
   if (rawsidcnt == 0) return warning(0,"%s is empty",fname);
-  sidcnt = 0;
+  sidcnt = vsidcnt = 0;
 
   rawsidcnt++;
   sids = sp = mkblock(&net->sidmem,rawsidcnt,struct sidbase,Init0,"");
@@ -940,6 +943,8 @@ static int rdexttimes(netbase *net,const char *dir)
   tbox0 = tbox1 = dtbox = daybox0 = daybox1 = 0;
   sidmaps = NULL;
   mapofs = 0;
+
+  net->timespanlimit = timespanlimit;
 
   vals = eft.vals;
   name = eft.name;
@@ -964,8 +969,8 @@ static int rdexttimes(netbase *net,const char *dir)
           timebox[1] = timebox[0] + 1;
         }
         tbox0 = timebox[0]; tbox1 = timebox[1];
-        daybox0 = cd2day(tbox0);
-        daybox1 = cd2day(tbox1) + 1;
+        daybox0 = cd2day(tbox0) - 2;
+        daybox1 = cd2day(tbox1) + 2;
         dtbox = daybox1 - daybox0;
         if (dtbox > timespanlimit) {
           warning(0,"timebox %u-%u limited to %u days",tbox0,tbox1,timespanlimit);
@@ -974,12 +979,6 @@ static int rdexttimes(netbase *net,const char *dir)
           dtbox = daybox1 - daybox0 + 1;
         }
         info(0,"timebox %u-%u = %u days",tbox0,tbox1,daybox1 - daybox0);
-        if (utcofs12 < 1200) { warning(0,"UTCoffset %d below lowest -1100", utcofs12 - 1200); utcofs12 = 1200; }
-        else if (utcofs12 > 1400 + 1200) { warning(0,"UTCoffset %u above highest +1400", utcofs12 - 1200); utcofs12 = 1200; }
-        hh = utcofs12 / 100;
-        mm = utcofs12 % 100;
-        utcofs = hh * 60 + mm;
-        info(0,"UTC offset %u from %u:%u - 12:00",utcofs - 12 * 60,hh,mm);
         sidmaps = alloc(rawsidcnt * (dtbox+1),ub1,0,"time sidmap",dtbox);
         initvars = 1;
       }
@@ -988,21 +987,29 @@ static int rdexttimes(netbase *net,const char *dir)
       linno = eft.linno;
       colno = eft.colno;
       error_gt(sidcnt+1,rawsidcnt,linno);
-      if (valcnt < 6) return parserr(FLN,fname,linno,colno,"expect svcid,sid,dow,start,end,n+,n- args, found only %u args",valcnt);
+      if (valcnt < 7) return parserr(FLN,fname,linno,colno,"expect svcid,sid,dow,utcofs,start,end,n+,n- args, found only %u args",valcnt);
       rsid = vals[0];
       dow = vals[1];
-      t0_cd = vals[2];
-      t1_cd = vals[3];
-      addcnt = vals[4];
-      subcnt = vals[5];
-      valndx = 6;
+      utcofs12 = vals[2];
+      t0_cd = vals[3];
+      t1_cd = vals[4];
+      addcnt = vals[5];
+      subcnt = vals[6];
+      valndx = 7;
 
       // overall date range in localtime days is daybox0 .. daybox1
       // sids are based on this
       vrb(0,"rsid %x dow %x %u..%u +%u -%u",rsid,dow,t0_cd,t1_cd,addcnt,subcnt);
 
+      if (utcofs12 < 1200) { warning(0,"UTCoffset %d below lowest -1100", utcofs12 - 1200); utcofs12 = 1200; }
+      else if (utcofs12 > 1400 + 1200) { warning(0,"UTCoffset %u above highest +1400", utcofs12 - 1200); utcofs12 = 1200; }
+      hh = utcofs12 / 100;
+      mm = utcofs12 % 100;
+      utcofs = hh * 60 + mm;
+      vrb0(0,"UTC offset %u from %u:%u - 12:00",utcofs - 12 * 60,hh,mm);
+
       if (addcnt > dtbox) {
-        infovrb(timespanlimit == hi32,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,addcnt,dtbox);
+        warninfo(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,addcnt,dtbox);
         addcnt = dtbox;
       }
       if (subcnt > dtbox) {
@@ -1032,8 +1039,8 @@ static int rdexttimes(netbase *net,const char *dir)
       // expand the regular calendar
       if (dow) {
         t0days = cd2day(t0_cd);
-        t1days = cd2day(t1_cd);
-        expandsid(map,dtbox,daybox0,t0days,t1days,dow,t0wday);
+        t1days = cd2day(t1_cd) + 1; // make exclusive
+        expandsid(rsid,map,dtbox,daybox0,t0days,t1days,dow,t0wday);
       }
 
       // add and remove individual items
@@ -1057,7 +1064,7 @@ static int rdexttimes(netbase *net,const char *dir)
       while (subndx++ < subcnt && valndx < valcnt) {
         t_cd = vals[valndx++];
         if (t_cd < tbox0) {
-          warning(0,"line %u: sid %u has date %u before %u",linno,rsid,t0_cd,tbox0);
+          warning(0,"line %u: sid %u has date %u before %u",linno,rsid,t_cd,tbox0);
           continue;
         }
         if (t_cd > tbox1) {
@@ -1088,10 +1095,11 @@ static int rdexttimes(netbase *net,const char *dir)
         tday = dtbox - 1;
         while (tday && map[tday] == 0) tday--;
         t1_cd = day2cd(tday + daybox0 + 1);
+        vsidcnt++;
       }
 
-      t0 = yymmdd2min(t0_cd,utcofs);
-      t1 = yymmdd2min(t1_cd,utcofs) + 1440;
+      t0 = yymmdd2min(t0_cd,1200);
+      t1 = yymmdd2min(t1_cd,1200) + 1440;
 
       t0lo = min(t0lo,t0);
       t1hi = max(t1hi,t1);
@@ -1105,7 +1113,7 @@ static int rdexttimes(netbase *net,const char *dir)
       sp->t0 = t0;
       sp->t1 = t1;
       sp->utcofs = utcofs;
-      sp->t0map = yymmdd2min(tbox0,utcofs);
+//      sp->t0map = yymmdd2min(tbox0,1200);
       sp->lt0day = daybox0;
       sp->lt1day = daybox1;
       sp->maplen = dtbox + 1;
@@ -1137,7 +1145,7 @@ static int rdexttimes(netbase *net,const char *dir)
   sp->rsid = 0;
   sp->t0 = t0lo;
   sp->t1 = t1hi;
-  sp->utcofs = utcofs;
+  sp->utcofs = 12 * 60;
 
   if (maxsid > 100 * 1000 * 1000) warning(0,"max service id %u",maxsid);
   rsid2sids = alloc(maxsid+1,ub4,0xff,"sid2tids",maxsid);
@@ -1149,7 +1157,7 @@ static int rdexttimes(netbase *net,const char *dir)
   }
   net->rsid2sids = rsid2sids;
 
-  info(0,"read %u sids from %s, overall period \ad%u to \ad%u", sidcnt, fname,t0lo,t1hi);
+  info(0,"read %u sids from %s, %u valid, range \ad%u to \ad%u", sidcnt,fname,vsidcnt,t0lo,t1hi);
   net->sidcnt = sidcnt;
   net->sids = sids;
   net->sidmaps = sidmaps;
@@ -1157,12 +1165,13 @@ static int rdexttimes(netbase *net,const char *dir)
 
   ub4 gt0,gt1;
 
+  utcofs = 12 * 60;
   if (tbox0 && tbox1) {
-    gt0 = yymmdd2min(tbox0,utcofs);
-    gt1 = yymmdd2min(tbox1,utcofs);
-    if (gt0 != t0lo) { warning(0,"overall start %u != %u",gt0,t0lo); gt0 = t0lo; }
-     if (gt1 != t1hi) { warninfo(timespanlimit > 365,0,"overall end \ad%u != \ad%u",gt1,t1hi); gt1 = t1hi; }
-    if (gt1 <= gt0) { warning(0,"overall start %u beyond end %u",gt0,gt1); gt1 = gt0 + 1; }
+    gt0 = daybox0 * daymin;
+    gt1 = daybox1 * daymin;
+    if (gt0 > t0lo) { warning(0,"overall start \ad%u > \ad%u",gt0,t0lo); gt0 = t0lo; }
+    if (gt1 < t1hi) { warninfo(timespanlimit > 365,0,"overall end \ad%u != \ad%u",gt1,t1hi); gt1 = t1hi; }
+    if (gt1 <= gt0) { warning(0,"overall start %u beyond end %u",gt0,gt1); gt1 = gt0 + daymin; }
   } else { gt0 = t0lo; gt1 = t1hi; }
   net->t0 = gt0; net->t1 = gt1;
 
@@ -1192,6 +1201,7 @@ static int rdextroutes(netbase *net,const char *dir)
   char *buf;
   ub4 len,linno = 0,colno = 0,namelen,valndx,valcnt;
   ub4 rtype;
+  ub4 utcofs;
   char *name;
   ub4 *vals;
   enum txkind tx;
@@ -1247,9 +1257,10 @@ static int rdextroutes(netbase *net,const char *dir)
       linno = eft.linno;
       colno = eft.colno;
       error_gt(ridcnt+1,rawridcnt,linno);
-      if (valcnt < 2) return parserr(FLN,fname,linno,colno,"expect svcid,sid,dow,start,end,n+,n- args, found only %u args",valcnt);
+      if (valcnt < 3) return parserr(FLN,fname,linno,colno,"expect rrid,rtype,utcofs args, found only %u args",valcnt);
       rrid = vals[0];
       rtype = vals[1];
+      utcofs = vals[2];
 
       if (namelen > namemax) {
         parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
@@ -1267,6 +1278,7 @@ static int rdextroutes(netbase *net,const char *dir)
       tx = rt2tx(rtype);
       rp->rrid = rrid;
       rp->rtype = rtype;
+      rp->utcofs = utcofs;
       rp->kind = tx;
       rp++;
       ridcnt++;
@@ -1311,7 +1323,7 @@ static int rdexthops(netbase *net,const char *dir)
   struct sidbase *sids,*sp;
   struct chainbase *chains = NULL,*cp;
   struct routebase *rp,*routes;
-  ub4 *rtid2tid = NULL,*rtidrefs = NULL;
+  ub4 *rtid2tid = NULL,*tid2rtid = NULL,*rtidrefs = NULL;
   ub4 *id2ports, *subid2ports;
   ub4 rsid,sid,sidcnt,*rsid2sids;
   int rv;
@@ -1400,6 +1412,7 @@ static int rdexthops(netbase *net,const char *dir)
         } else chaincnt = 0;
         if (rawtripcnt) {
           rtid2tid = alloc(hitripid + 1,ub4,0xff,"chain tripids",hitripid);
+          tid2rtid = alloc(rawtripcnt,ub4,0xff,"chain tripids",rawtripcnt);
           rtidrefs = alloc(hitripid + 1,ub4,0,"chain triprefs",hitripid);
         }
         inited = 1;
@@ -1458,7 +1471,7 @@ static int rdexthops(netbase *net,const char *dir)
         break;
       }
 
-      infocc(routeid == 69,0,"rrid %u hop id %u %u-%u %s to %s route %s",routeid,id,depid,arrid,dname,aname,name);
+//      infocc(routeid == 69,0,"rrid %u hop id %u %u-%u %s to %s route %s",routeid,id,depid,arrid,dname,aname,name);
 
       if (routeid != hi32) hirrid = max(hirrid,routeid);
       else info(0,"hop %u has no route id %s to %s",hop,dname,aname);
@@ -1524,6 +1537,7 @@ static int rdexthops(netbase *net,const char *dir)
             error_ge(chaincnt,rawtripcnt);
             tid = chaincnt++;
             rtid2tid[rtid] = tid;
+            tid2rtid[tid] = rtid;
           }
           rtidrefs[rtid]++;
         } else tid = hi32;
@@ -1677,7 +1691,7 @@ static int rdexthops(netbase *net,const char *dir)
   for (sid = 0; sid < sidcnt; sid++) {
     sp = sids + sid;
     if (sp->refcnt) sidrefs++;
-    else warninfo(timespanlimit > 365,0,"sid %x not referenced %s",sp->sid,sp->name);
+    else warninfo(net->timespanlimit > 365,0,"sid %x not referenced %s",sp->sid,sp->name);
   }
   if (sidrefs < sidcnt) info(0,"%u sid\as not referenced",sidcnt - sidrefs); // todo filter ?
 
@@ -1701,6 +1715,7 @@ static int rdexthops(netbase *net,const char *dir)
   net->hops = hops;
   net->hirrid = hirrid;
 
+  net->tid2rtid = tid2rtid;
   net->hitripid = hitripid;
 
   if (chaincnt == 0) {

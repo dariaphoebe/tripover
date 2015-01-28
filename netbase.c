@@ -271,7 +271,7 @@ int prepbasenet(void)
   ub4 gdt = gt1 - gt0;
 
   ub4 *tbp,*timesbase = basenet.timesbase;
-  ub4 tndx,timecnt,timespos,evcnt,zevcnt,cnt;
+  ub4 tndx,vndx,timecnt,timespos,evcnt,zevcnt,cnt;
   ub4 sid,rsid,tid,rtid,rid,rrid;
   ub4 tdep,tarr,tripseq,tdepsec,tarrsec,prvtdep;
   ub4 chcnt,i;
@@ -313,6 +313,8 @@ int prepbasenet(void)
   ub4 hirrid = basenet.hirrid;
 
   ub4 ridcnt = basenet.ridcnt;
+
+  ub4 *tid2rtid = basenet.tid2rtid;
 
   double fdist;
   ub4 dist;
@@ -361,7 +363,7 @@ int prepbasenet(void)
     rrid = hp->rrid;
     rid = hp->rid;
 
-    if (rrid == rrid2watch || rrid == 15) info(0,"hop %u rrid %u rid %u %s to %s route %s",hop,rrid,rid,pdep->name,parr->name,hp->name);
+    if (rrid == rrid2watch) info(0,"hop %u rrid %u rid %u %s to %s route %s",hop,rrid,rid,pdep->name,parr->name,hp->name);
 
     hoplog(hop,0,"rrid %x %u-%u %s to %s",rrid,dep,arr,pdep->name,parr->name);
 
@@ -391,6 +393,8 @@ int prepbasenet(void)
     for (tndx = 0; tndx < timecnt; tndx++) {
       sid = tbp[0];
       tid = tbp[1];
+      error_ge(tid,rawchaincnt);
+      rtid = tid2rtid[tid];
       tdepsec = tbp[2];
       tarrsec = tbp[3];
       tripseq = tbp[4];
@@ -417,14 +421,16 @@ int prepbasenet(void)
       mapofs = sp->mapofs;
       daymap = sidmaps + mapofs;
 
-      hoplog(hop,0,"tndx %u rsid %x tid %x dep %u t0 %u t1 %u days %u",tndx,sp->rsid,tid,tdep,t0,t1,(t1 - t0) / 1440);
+      int dbg = (hop == 3062 && sp->rsid == 17);
+
+      infocc(dbg,0,"tndx %u rsid %u r.tid %u.%u dep %u t0 %u t1 %u days %u",tndx,sp->rsid,rtid,tid,tdep,t0,t1,(t1 - t0) / 1440);
 
 //      rsidlog(rsid,"hop %u tndx %u tid %x dep %u t0 %u t1 %u days %u",hop,tndx,tid,tdep,t0,t1,(t1 - t0) / 1440);
 
       cnt = fillxtime(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid);
-      hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",tid,sp->rsid,t0,t1,tdep,tarr,cnt);
+      hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",tid,rsid,t0,t1,tdep,tarr,cnt);
       if (cnt == 0) {
-        vrbcc(vrbena,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u no events",tid,sp->rsid,t0,t1,tdep,tarr);
+        vrb0(0,"tid %u r.sid %u.%u \ad%u \ad%u dep \ad%u arr \ad%u no events",tid,rsid,sid,t0,t1,tdep,tarr);
 //        return 1;
         tbp[0] = sidcnt; // disable for next pass
         tbp += 5;
@@ -445,7 +451,7 @@ int prepbasenet(void)
         chp = chainhops + ofs + chcnt;
         pp = ports + cp->dep;
         error_z(tripseq,tid);
-        infocc(tid == 57021,0,"xxx tid %u seq %u idx %u at %p",tid,tripseq,chcnt,chip);
+//        infocc(tid == 57021,0,"xxx tid %u seq %u idx %u at %p",tid,tripseq,chcnt,chip);
         error_ge(chcnt,cp->hoprefs);
         if (chcnt == 0) {
           chip[0] = (ub8)tripseq << 32;
@@ -457,13 +463,14 @@ int prepbasenet(void)
           cp->rid = rid;
           cp->dep = dep;
           cp->hopcnt = 1;
+          cp->lotdep = tdep;
           cumhoprefs2++;
         } else {
           if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
           chp2 = chainhops + ofs;
           for (i = 0; i < chcnt; i++) {
             if (chp2[i].hop == hop) {
-              warn(Iter,"rrid %u r.tid %u.%u skip equal hop %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,i,pdep->name,parr->name,pp->name,hp->name);
+              vrb0(Iter,"rrid %u r.tid %u.%u skip equal hop %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,i,pdep->name,parr->name,pp->name,hp->name);
               break;
             } else if ( (chip[i] >> 32) == tripseq) {
               warn(Iter,"rrid %x tid %u skip equal seq %u at %u %s to %s start %s",rrid,tid,tripseq,i,pdep->name,parr->name,pp->name);
@@ -478,6 +485,7 @@ int prepbasenet(void)
             chp->tarr = tarr;
             error_ge(chcnt,cp->hoprefs);
             cp->hopcnt = chcnt + 1;
+            cp->lotdep = min(cp->lotdep,tdep);
             cumhoprefs2++;
             if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u at %u %s to %s",rrid,rid,tid,hop,i,pdep->name,parr->name);
           }
@@ -681,7 +689,7 @@ int prepbasenet(void)
   for (rid = 0; rid < ridcnt; rid++) {
     rp = routes + rid;
     cnt = rp->chaincnt;
-    info(0,"rid %u rrid %u has %u chains",rid,rp->rrid,cnt);
+    vrb0(0,"rid %u rrid %u has %u chains",rid,rp->rrid,cnt);
     rp->chainofs = ridchainofs;
     ridchainofs += cnt;
   }
@@ -758,11 +766,12 @@ int prepbasenet(void)
     tp->evcnt = 0;
     memset(xp,0xff,hdt * sizeof(*xp));
     memset(xpacc,0,(hdt >> 4) + 1);
-    ht0 = hi32; ht1 = 0;
+    ht0 = hi32; ht1 = 0; vndx = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
       sid = tbp[0];
       if (sid >= sidcnt) { tbp += 5; continue; }  // skip non-contributing entries disabled above
 
+      vndx++;
       tid = tbp[1];
       tdepsec = tbp[2];
       tarrsec = tbp[3];
@@ -793,8 +802,9 @@ int prepbasenet(void)
       tbp += 5;
     }
     if (timecnt == 0) continue;
-    if (evcnt == 0) {
-      genmsg(timecnt > 20 ? Info : Vrb,0,"hop %u no events for %u time entries",hop,timecnt);
+
+    if (evcnt == 0 && vndx) {
+      info(0,"no events for %u time entries",timecnt);
       continue;
     }
     error_ne(evcnt,hp->evcnt);

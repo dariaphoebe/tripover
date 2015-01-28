@@ -55,16 +55,16 @@ static int memeq(const char *s,const char *q,ub4 n) { return !memcmp(s,q,n); }
 enum Cmds { Cmd_nil,Cmd_plan,Cmd_stop,Cmd_cnt };
 
 // to be elaborated: temporary simple interface
-static int cmd_plan(struct myfile *req,struct myfile *rep)
+static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
 {
   char *vp,*lp = req->buf;
   ub4 n,pos = 0,len = (ub4)req->len;
   ub4 ival;
   ub4 varstart,varend,varlen,valstart,valend,type;
-  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 20150110,tspan = 3;
+  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,tspan = 3;
   int rv;
   enum Vars { Cnone,Cdep,Carr,Ctdep,Ctspan,Clostop,Chistop } var;
-  search src;
+  ub4 *evpool;
 
   if (len == 0) return 1;
 
@@ -114,22 +114,24 @@ static int cmd_plan(struct myfile *req,struct myfile *rep)
   }
 
   if (dep == arr) warning(0,"dep %u equal to arr",dep);
-  oclear(src);
+  evpool = src->evpool;
+  clear(src);
+  src->evpool = evpool;
 
-  src.deptmin_cd = tdep;
-  src.tspan = tspan;
+  src->deptmin_cd = tdep;
+  src->tspan = tspan;
 
   // invoke actual plan here
   info(0,"plan %u to %u in %u to %u stop\as from %u for %u days",dep,arr,lostop,histop,tdep,tspan);
 
-  rv = plantrip(&src,req->name,dep,arr,lostop,histop);
+  rv = plantrip(src,req->name,dep,arr,lostop,histop);
 
   // prepare reply
   rep->buf = rep->localbuf;
   if (rv) len = fmtstring(rep->localbuf,"reply plan %u-%u error code %d\n",dep,arr,rv);
-  else if (src.trip.cnt && src.reslen) {
-    len = src.reslen;
-    memcpy(rep->localbuf,src.resbuf,len);
+  else if (src->reslen) {
+    len = src->reslen;
+    memcpy(rep->localbuf,src->resbuf,len);
   } else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
   vrb0(0,"reply len %u",len);
   rep->len = len;
@@ -146,8 +148,11 @@ int serverloop(void)
   ub4 prvseq = 0,seq = 0;
   char c;
   const char *region = "glob"; // todo
+  search src;
 
   info(0,"entering server loop for id %u",globs.serverid);
+
+  oclear(src);
 
   do {
     infovrb(seq > prvseq,0,"wait for new cmd %u",seq);
@@ -168,7 +173,7 @@ int serverloop(void)
       }
       if (cmd == Cmd_plan) {
         oclear(rep);
-        rv = cmd_plan(&req,&rep);
+        rv = cmd_plan(&req,&rep,&src);
         if (rv) info(0,"plan returned %d",rv);
         if (req.alloced) afree(req.buf,"client request");
         setqentry(&req,&rep,".rep");

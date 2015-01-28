@@ -377,7 +377,7 @@ int partition(gnet *gnet)
 
     for (hop = 0; hop < hopcnt; hop++) {
 
-      progress(&eta,"assign initial parts hop \ah%u of \ah%u iter %u %u-stop sum \ah%u",hop,hopcnt,iter,nstop,sumcnt);
+      if (progress(&eta,"assign initial parts hop \ah%u of \ah%u iter %u %u-stop sum \ah%u",hop,hopcnt,iter,nstop,sumcnt)) return 1;
 
       hp = hops + hop;
       dep = hp->dep;
