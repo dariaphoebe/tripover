@@ -93,36 +93,43 @@ static void exit0(void)
   eximsg();
 }
 
-// read or generate base network
-static int getbasenet(void)
+// init network
+static int initnet(void)
 {
   ub4 portcnt = globs.maxports;
   ub4 hopcnt = globs.maxhops;
   netbase *basenet = getnetbase();
   gnet *gnet;
-  int rv;
+  int rv = 0;
 
   error_ovf(portcnt,ub2);
 
   if (*globs.netdir == 0) return 1;
 
-  if (dorun(FLN,Runread)) {
-    rv = readextnet(basenet,globs.netdir);
-    if (rv) return rv;
-    if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
-    else return 0;
-    if (rv) return rv;
-    if (globs.writgtfs) rv = writegtfs(basenet,globs.netdir);
-    if (rv) return rv;
-    if (dorun(FLN,Runprep)) rv = prepnet(basenet);
-    else return 0;
-    if (rv) return rv;
-    gnet = getgnet();
-    rv = partition(gnet);
-    info(0,"rv %d",rv);
-    return rv;
-  } else return 0;
+  if (dorun(FLN,Runread)) rv = readextnet(basenet,globs.netdir);
+  else return 0;
+  if (rv) return rv;
 
+  if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
+  else return 0;
+  if (rv) return rv;
+
+  if (globs.writgtfs) rv = writegtfs(basenet,globs.netdir);
+  if (rv) return rv;
+
+  if (dorun(FLN,Runprep)) rv = prepnet(basenet);
+  else return 0;
+  if (rv) return rv;
+
+  gnet = getgnet();
+
+  rv = compound(gnet);
+  if (rv) return rv;
+
+  rv = partition(gnet);
+  if (rv) return rv;
+
+  return rv;
 }
 
 static int do_main(void)
@@ -164,7 +171,7 @@ static int do_main(void)
 
   oslimits();
 
-  if (getbasenet()) return 1;
+  if (initnet()) return 1;
 
   if (mknet(globs.maxstops)) return 1;
 

@@ -713,8 +713,9 @@ int prepbasenet(void)
 
   for (rid = 0; rid < ridcnt; rid++) {
     rp = routes + rid;
+    rrid = rp->rrid;
     cnt = rp->hichainlen;
-    vrb(0,"rid %u cnt %u",rid,cnt);
+    info(0,"r.rid %u.%u hilen %u cnt %u",rrid,rid,cnt,rp->hopcnt);
   }
 
   basenet.hichainlen = hichlen;

@@ -110,7 +110,7 @@ static struct cfgvar {
   {"maxports",Uint,Maxports,0,0,Portcnt,100000,"maximum number of ports"},
   {"maxstops",Uint,Maxstops,0,0,Nstop-1,8,"maximum number of stops"},
 
-  {"maxvm",Uint,Maxvm,0,1,256,12,"virtual memory limit in GB"},
+  {"maxvm",Uint,Maxvm,0,1,hi24,hi24,"virtual memory limit in GB"},
 
   {"run",Bool,Section,0,0,0,0,"determines which stages to run"},
 
@@ -128,6 +128,7 @@ static struct cfgvar {
 
   {"engineering",Bool,Section,0,0,0,0,"engineering settings"},
   {"eng.periodlim",Uint,Eng_gen,Eng_periodlim,0,365*2,365,"schedule period limit"},
+  {"eng.partsize",Uint,Eng_gen,Eng_partsize,1,50000,3000,"aimed partition size"},
   {"eng.options",String,Eng_opt,0,0,0,0,"engineering options"},
   {NULL,0,0,0,0,0,0,NULL}
 };
@@ -315,7 +316,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
   var = vp->var;
   error_ge(var,Cfgcnt);
 
-  if (var != Enable && var != Disable && var != Eng_opt) {
+  if (var != Enable && var != Disable && var != Eng_opt && var != Eng_gen) {
     prvline = varseen[var];
     if (prvline) return warning(0,"%s: previously defined at line %u",fln,prvline);
   }

@@ -55,6 +55,7 @@ static int marklocal(struct network *net)
 
     dep = hp->dep;
     arr = hp->arr;
+    if (dep == hi32 || arr == hi32) continue;
     error_ge(dep,portcnt);
     error_ge(arr,portcnt);
     error_eq(dep,arr);
@@ -102,6 +103,9 @@ static void cpfromgnet(gnet *gnet,net *net)
   net->hichainlen = gnet->hichainlen;
 
   net->ghopcnt = gnet->hopcnt;
+
+//  net->hopdist = gnet->hopdist;
+//  net->hopdur = gnet->hopdur;
 }
 
 struct hisort {
@@ -126,21 +130,22 @@ int partition(gnet *gnet)
   struct hop *hops,*phops,*hp,*ghp;
   struct route *routes,*rp;
 
-  ub4 *portsbyhop;
   char *dname,*aname;
 
   ub4 portcnt,tportcnt;
-  ub4 hopcnt,nilhopcnt,pridcnt;
+  ub4 hopcnt,chopcnt,nilhopcnt,pridcnt;
   ub4 dep,arr,depp,arrp;
   ub4 ridcnt;
   ub4 nlen,cnt,acnt,dcnt,tcnt,sid,rid,rrid,part,tpart,xmaplen;
-  ub4 pportcnt,zpportcnt,phopcnt,partcnt,part2,newpartcnt;
+  ub4 pportcnt,zpportcnt,phopcnt,pchopcnt,pxhopcnt,partcnt,part2,newpartcnt;
   enum txkind kind;
   ub4 hop,port,zport,zpport,chain,phop,pport;
   ub4 hirrid;
-  ub4 *hopcnts,*portcnts;
+  ub4 *hopcnts,*xhopcnts,*portcnts;
   ub4 *g2p,*p2g,*g2phop,*p2ghop;
   ub4 *p2zp,*zp2p,*port2zport;
+  ub4 *pportsbyhop;
+  ub4 *pchoporg;
   ub4 t0,t1,evcnt;
   struct partition *parts,*partp;
 
@@ -148,29 +153,34 @@ int partition(gnet *gnet)
   hops = gnet->hops;
   portcnt = gnet->portcnt;
   hopcnt = gnet->hopcnt;
+  chopcnt = gnet->chopcnt;
 
   ridcnt = gnet->ridcnt;
   routes = gnet->routes;
 
-  ub4 *gportsbyhop = gnet->portsbyhop;
+  ub4 *portsbyhop = gnet->portsbyhop;
+  ub4 *choporg = gnet->choporg;
+  ub4 *phopdist,*hopdist = gnet->hopdist;
+  ub4 *phopdur,*hopdur = gnet->hopdur;
 
   ub4 hpcnt2,hxcnt2;
-  ub4 dist,*hopdist;
-  ub4 midur,*hopdur;
+  ub4 dist;
+  ub4 midur;
 
   if (portcnt < 2 || hopcnt == 0) return 0;
 
   // prepare partitioning
   hopcnts = gnet->hopcnts;
+  xhopcnts = gnet->xhopcnts;
   portcnts = gnet->portcnts;
   parts = gnet->parts;
 
   ub1 *gportparts;
 
-  // todo configurable
-  ub4 aimpartsize = 3000;
+  ub4 aimpartsize = globs.engvars[Eng_partsize];
   ub4 aimcnt = max(1,portcnt / aimpartsize);
 
+  info(0,"aimed partition size %u",aimpartsize);
   if (aimcnt > 1) info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
   else {
     info(0,"skip partitioning %u ports %u routes net",portcnt,ridcnt);
@@ -193,9 +203,6 @@ int partition(gnet *gnet)
     g2phop = alloc(hopcnt,ub4,0xff,"part g2p-hops",hopcnt);
     p2ghop = alloc(hopcnt,ub4,0xff,"part pgg2p-hops",hopcnt);
 
-    hopdist = alloc(hopcnt,ub4,0,"net hopdist",hopcnt);
-    hopdur = alloc(hopcnt,ub4,0,"net hopdur",hopcnt);
-
     pportcnt = 0;
     for (port = 0; port < portcnt; port++) {
       gportparts[port] = 1;
@@ -209,14 +216,13 @@ int partition(gnet *gnet)
       ghp = hops + hop;
       dist = ghp->dist;
       midur = ghp->tp.midur;
-      hopdist[hop] = dist;
-      hopdur[hop] = midur;
       g2phop[hop] = hop;
       p2ghop[hop] = hop;
     }
 
     net->portcnt = portcnt;
     net->hopcnt = hopcnt;
+    net->chopcnt = gnet->chopcnt;
     net->ports = ports;
     net->hops = hops;
 
@@ -225,14 +231,16 @@ int partition(gnet *gnet)
     net->g2phop = g2phop;
     net->p2ghop = p2ghop;
 
-    net->portsbyhop = gportsbyhop;
-    net->hopdist = hopdist;
-    net->hopdur = hopdur;
+    net->portsbyhop = portsbyhop;
+    net->choporg = choporg;
 
     net->routes = routes;  // not partitioned
     net->ridcnt = ridcnt;
 
     net->pridcnt = ridcnt;
+
+    net->hopdist = gnet->hopdist;
+    net->hopdur = gnet->hopdur;
 
     // global
     cpfromgnet(gnet,net);
@@ -298,6 +306,7 @@ int partition(gnet *gnet)
   ub4 mi,dmi,ami,cnt2,lcnt,sumcnt,orgacnt,orgdcnt,prvsumcnt,nstop,iter;
   ub4 rid1,rid2;
   ub4 ppartcnt,fullcnt;
+  ub4 h1,h2,ph1,ph2;
 
   /* start with each port as member of rid any hop is on
    * todo: group into small number of nearby rids ?
@@ -1062,8 +1071,8 @@ int partition(gnet *gnet)
 
       dcnt = acnt = hidcon = hiacon = 0; hicondep = hiconarr = hi32;
       for (hop = 0; hop < hopcnt; hop++) {
-        dep = gportsbyhop[hop * 2];
-        arr = gportsbyhop[hop * 2 + 1];
+        dep = portsbyhop[hop * 2];
+        arr = portsbyhop[hop * 2 + 1];
         if (port == dep || port == arr) {
           if (gportparts[dep * partcnt + part] && gportparts[arr * partcnt + part]) {
             if (port == dep) dcnt++; else acnt++;
@@ -1101,26 +1110,25 @@ int partition(gnet *gnet)
   }
 
   // count part hops
-  for (hop = 0; hop < hopcnt; hop++) {
-    dep = gportsbyhop[hop * 2];
-    arr = gportsbyhop[hop * 2 + 1];
+  for (hop = 0; hop < chopcnt; hop++) {
+    dep = portsbyhop[hop * 2];
+    arr = portsbyhop[hop * 2 + 1];
     if (dep == arr) continue;
 
-    // make sure no hop gets lost
     cnt = 0;
     for (part = 0; part < partcnt; part++) {
       if (gportparts[dep * partcnt + part] && gportparts[arr * partcnt + part]) {
         hopcnts[part]++;
         cnt++;
+      } else if (gportparts[dep * partcnt + part] || gportparts[arr * partcnt + part]) {
+        xhopcnts[part]++;
       }
     }
-    error_z(cnt,hop);
+    error_z(cnt,hop);  // make sure no hop gets lost
   }
 
   for (part = 0; part < partcnt; part++) {
-    pportcnt = portcnts[part];
-    phopcnt = hopcnts[part];
-    info(0,"part %u ports %u hops %u",part,pportcnt,phopcnt);
+    info(0,"part %u: %u ports %u hops + %u interpart",part,portcnts[part],hopcnts[part],xhopcnts[part]);
   }
 
   tportcnt = portcnts[tpart];
@@ -1142,6 +1150,7 @@ int partition(gnet *gnet)
 
     pportcnt = portcnts[part];
     phopcnt = hopcnts[part];
+    pxhopcnt = xhopcnts[part];
     pridcnt = ridcnts[part];
 
     if (part == tpart) {
@@ -1162,20 +1171,24 @@ int partition(gnet *gnet)
 
     msgprefix(0,"s%u ",part);
 
-    info(0,"partition %u: %u ports %u hops",part,pportcnt,phopcnt);
+    pchopcnt = phopcnt + pxhopcnt;  // now intra- and interpart: to be separated into proper 'plain' and compound
+    info(0,"partition %u: %u ports %u+%u hops",part,pportcnt,phopcnt,pxhopcnt);
 
     pports = alloc(pportcnt,struct port,0,"ports",pportcnt);
-    phops = alloc(phopcnt,struct hop,0,"phops",phopcnt);
+    phops = alloc(pchopcnt,struct hop,0,"phops",pchopcnt);
 
     g2p = alloc(portcnt,ub4,0xff,"g2p-ports",portcnt);
     p2g = alloc(pportcnt,ub4,0xff,"p2g-ports",pportcnt);
-    g2phop = alloc(hopcnt,ub4,0xff,"g2p-hops",hopcnt);
-    p2ghop = alloc(phopcnt,ub4,0xff,"part p2g-hops",phopcnt);
+    g2phop = alloc(chopcnt,ub4,0xff,"g2p-hops",chopcnt);
+    p2ghop = alloc(pchopcnt,ub4,0xff,"part p2g-hops",pchopcnt);
 
     p2zp = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
     zp2p = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
 
-    portsbyhop = alloc(phopcnt * 2, ub4,0xff,"net portsbyhop",portcnt);
+    pportsbyhop = alloc(pchopcnt * 2, ub4,0xff,"net portsbyhop",pchopcnt);
+    pchoporg = alloc(pchopcnt * 2, ub4,0xff,"cmp choporg",pchopcnt);
+    phopdist = alloc(pchopcnt, ub4,0xff,"net hopdist",pchopcnt);
+    phopdur = alloc(pchopcnt, ub4,0xff,"net hopdur",pchopcnt);
 
     // assign ports : members of this part
     pp = pports;
@@ -1216,14 +1229,14 @@ int partition(gnet *gnet)
 
     // separate and resequence hops
     hp = phops;
-    phop = hpcnt2 = hxcnt2 = 0;
-    hopdist = alloc(phopcnt,ub4,0,"net hopdist",phopcnt);
-    hopdur = alloc(phopcnt,ub4,0,"net hopdur",phopcnt);
+    phop = hpcnt2 = hxcnt2 = phopcnt = 0;
 
-    for (hop = 0; hop < hopcnt; hop++) {
-      ghp = hops + hop;
-      dep = ghp->dep;
-      arr = ghp->arr;
+    info(0,"part %u from %u+%u hops",part,hopcnt,chopcnt);
+    for (hop = 0; hop < chopcnt; hop++) {
+
+      dep = portsbyhop[hop * 2];
+      arr = portsbyhop[hop * 2 + 1];
+
       if (dep == arr) {
         warn(0,"hop %u dep %u equals arr",hop,dep);
         continue;
@@ -1232,52 +1245,87 @@ int partition(gnet *gnet)
       error_ge(dep,portcnt);
       error_ge(arr,portcnt);
 
-      if (gportparts[dep * partcnt + part] == 0) continue;
-      if (gportparts[arr * partcnt + part] == 0) continue;
+      if (gportparts[dep * partcnt + part] == 0 && gportparts[arr * partcnt + part] == 0) continue;
+
+      error_ge(phop,pchopcnt);
+
+      if (phopcnt == 0 && hop >= hopcnt) {
+        info(0,"hopcnt %u",hop);
+        phopcnt = phop;
+      }
+
+      if (hop < hopcnt) ghp = hops + hop;
+      else {
+        h1 = choporg[hop * 2];
+        h2 = choporg[hop * 2 + 1];
+        error_ge(h1,hopcnt);
+        error_ge(h2,hopcnt);
+        ghp = hops + h1;
+        ph1 = g2phop[h1];
+        ph2 = g2phop[h2];
+        if (ph1 != hi32) error_ge(ph1,phopcnt);
+        if (ph2 != hi32) error_ge(ph2,phopcnt);
+        pchoporg[phop * 2] = ph1;
+        pchoporg[phop * 2 + 1] = ph2;
+      }
 
       pdep = ports + dep;
       parr = ports + arr;
       dname = pdep->name;
       aname = parr->name;
 
-      dist = ghp->dist;
+      // let interpart links have one local port only
+      if (gportparts[dep * partcnt + part]) {
+        depp = g2p[dep];
+        error_ge(depp,pportcnt);
+      } else depp = hi32;
 
-      if (phop >= phopcnt) warning(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
-      error_ge(phop,phopcnt);
+      if (gportparts[arr * partcnt + part]) {
+        arrp = g2p[arr];
+        error_ge(arrp,pportcnt);
+      } else arrp = hi32;
+
+      error_eq_cc(depp,arrp,"hop %u dep %u arr %u",hop,dep,arr);
+
+      pportsbyhop[phop * 2] = depp;
+      pportsbyhop[phop * 2 + 1] = arrp;
+
+      dist = hopdist[hop];
+      midur = hopdur[hop];
+      phopdist[phop] = dist;
+      phopdur[phop] = midur;
+
+      if (phop >= pchopcnt) warning(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
+      error_ge(phop,pchopcnt);
       g2phop[hop] = phop;
       error_ne(p2ghop[phop],hi32);
       p2ghop[phop] = hop;
-      memcpy(hp,ghp,sizeof(*hp));
-      hp->gid = hop;
-      t0 = hp->tp.t0;
-      t1 = hp->tp.t1;
-      midur = hp->tp.midur;
-      hopdur[phop] = midur;
 
+      if (hop < hopcnt) {
+        memcpy(hp,ghp,sizeof(*hp));
+        hp->dep = depp;
+        hp->arr = arrp;
+        hp->gid = hop;
+        t0 = hp->tp.t0;
+        t1 = hp->tp.t1;
+        midur = hp->tp.midur;
 //      info(0,"hop %u tt range %u-%u",hop,t0,t1);
-      depp = g2p[dep];
-      error_ge(depp,pportcnt);
-      arrp = g2p[arr];
-      error_ge(arrp,pportcnt);
-      error_eq_cc(depp,arrp,"hop %u dep %u arr %u",hop,dep,arr);
 
-      hp->dep = depp;
-      hp->arr = arrp;
-      portsbyhop[phop * 2] = depp;
-      portsbyhop[phop * 2 + 1] = arrp;
-      hopdist[phop] = dist;
-      hp->dist = dist;
-      hp++;
+        hp->dist = dist;
+        hp++;
+      }
       phop++;
     }
-    warncc(phop < phopcnt,0,"%u out of %u hops",phop,phopcnt);
-    phopcnt = phop;
+    warncc(phop < pchopcnt,0,"%u out of %u hops",phop,pchopcnt);
+    pchopcnt = phop;
+    error_z(phopcnt,pchopcnt);
 
     net->part = part;
     net->istpart = (part == tpart && partcnt > 1);
 
     net->portcnt = pportcnt;
     net->hopcnt = phopcnt;
+    net->chopcnt = pchopcnt;
     net->ports = pports;
     net->hops = phops;
     net->g2pport = g2p;
@@ -1285,9 +1333,11 @@ int partition(gnet *gnet)
     net->g2phop = g2phop;
     net->p2ghop = p2ghop;
 
-    net->portsbyhop = portsbyhop;
-    net->hopdist = hopdist;
-    net->hopdur = hopdur;
+    net->portsbyhop = pportsbyhop;
+    net->choporg = pchoporg;
+
+    net->hopdist = phopdist;
+    net->hopdur = phopdur;
 
     net->routes = routes;  // not partitioned
     net->ridcnt = ridcnt;

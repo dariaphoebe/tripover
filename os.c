@@ -475,9 +475,13 @@ static int rlimit(int res,rlim_t lim,const char *desc,int show)
 int oslimits(void)
 {
   int rv = 0;
-  rlim_t maxvm = (ub8)(globs.maxvm + 4) * 1024 * 1024 * 1024;
+  rlim_t maxvm;
 
-  rv |= rlimit(RLIMIT_AS,maxvm,"virtual memory +4 GB margin",1);
+  if (globs.maxvm != hi32) {
+    maxvm = (ub8)(globs.maxvm + 4) * 1024 * 1024 * 1024;
+    rv |= rlimit(RLIMIT_AS,maxvm,"virtual memory +4 GB margin",1);
+  }
+
   rv |= rlimit(RLIMIT_CORE,0,"core size",0);
   return rv;
 }

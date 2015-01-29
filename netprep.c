@@ -151,6 +151,7 @@ int prepnet(netbase *basenet)
     rp->kind = brp->kind;
     rp->chainofs = brp->chainofs;
     rp->chaincnt = brp->chaincnt;
+    rp->hopcnt = brp->hopcnt;
     rp->hichainlen = brp->hichainlen;
     nlen = brp->namelen;
     if (nlen) {
@@ -161,6 +162,9 @@ int prepnet(netbase *basenet)
   info(0,"%u routes",ridcnt);
 
   ub4 *gportsbyhop = alloc(bhopcnt * 2, ub4,0xff,"net portsbyhop",bhopcnt);
+  ub4 dist,*hopdist = alloc(bhopcnt,ub4,0,"net hopdist",bhopcnt);
+  ub4 midur,*hopdur = alloc(bhopcnt,ub4,0,"net hopdur",bhopcnt);
+
   ub4 *drids,*arids,*deps,*arrs;
   ub4 t0,t1,tdep,prvtdep,evcnt;
 
@@ -223,7 +227,8 @@ int prepnet(netbase *basenet)
 
     tp->lodur = btp->lodur;
     tp->hidur = btp->hidur;
-    tp->midur = btp->midur;
+    midur = tp->midur = btp->midur;
+    hopdur[hop] = midur;
     tp->duracc = btp->duracc;
 
     // mark local links
@@ -264,7 +269,8 @@ int prepnet(netbase *basenet)
     kind = bhp->kind;
     hp->kind = kind;
 
-    hp->dist = bhp->dist;
+    dist = hp->dist = bhp->dist;
+    hopdist[hop] = dist;
 
     hp->dep = dep;
     hp->arr = arr;
@@ -352,6 +358,8 @@ int prepnet(netbase *basenet)
   gnet->routes = routes;
 
   gnet->portsbyhop = gportsbyhop;
+  gnet->hopdist = hopdist;
+  gnet->hopdur = hopdur;
 
   gnet->chainhops = chainhops;
   gnet->chainhopcnt = chainhopcnt;

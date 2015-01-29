@@ -299,7 +299,7 @@ struct partition {
 
 struct gnetwork {
   ub4 portcnt,zportcnt;
-  ub4 hopcnt,zhopcnt;
+  ub4 hopcnt,chopcnt,zhopcnt;
   ub4 sidcnt;
   ub4 ridcnt;
   ub4 chaincnt;
@@ -317,12 +317,17 @@ struct gnetwork {
 
   ub4 *portsbyhop; // [hopcnt * 2] <dep,arr>
 
+  ub4 *hopdist;    // [chopcnt] distance
+  ub4 *hopdur;     // [chopcnt] duration
+  ub4 *choporg;    // [chopcnt * 2] <first,last>
+
   ub4 partcnt,tpart;
 
   struct partition parts[Npart];
 
   ub4 portcnts[Npart];  // only proper ports
   ub4 hopcnts[Npart];
+  ub4 xhopcnts[Npart];
 //  ub4 ridcnts[Npart];
 
   ub1 *portparts;  // [partcnt * portcnt] port memberships
@@ -356,6 +361,8 @@ struct trip {
   ub4 t[Nxleg];
   ub4 tid[Nxleg];
   ub4 dur[Nxleg];
+
+  char desc[256];
 
   ub4 len;
   ub4 cnt;

@@ -19,7 +19,7 @@ use strict;
 
 my $version_maj = 0;
 my $version_min = 25;
-my $lastchanged = "28 jan 2015";
+my $lastchanged = "29 jan 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -606,6 +606,9 @@ sub opengtfs($)
 {
   my ($name) = @_;
   my ($fh,$headline);
+
+  return error("required $name not present") unless -f $name;
+  return error("required $name is empty") unless -s $name;
 
   open($fh,'<:encoding(UTF-8)',$name) or return error("cannot open $name:$!");
   $headline = readline($fh);
@@ -1648,6 +1651,9 @@ sub readcalendar($)
   info("reading $calfname");
   return info("dryrun") if $dryrun;
 
+  return info("optional $calfname not present") unless -f $calfname;
+  return info("optional $calfname is empty") unless -s $calfname;
+
   ($rv,$calfile,$headline) = opengtfs($calfname);
   return 0 unless $rv;
 
@@ -1825,6 +1831,9 @@ sub readcaldates($)
 
   info("reading $calfname");
   return info("dryrun") if $dryrun;
+
+  return info("optional $calfname not present") unless -f $calfname;
+  return info("optional $calfname is empty") unless -s $calfname;
 
   ($rv,$calfile,$headline) = opengtfs($calfname);
   return 0 unless $rv;
@@ -2154,8 +2163,10 @@ sub readstoptimes($)
     if ($col_headsign != 0) {
       $headsign = $cols[$col_headsign];
       if (index($headsign,'"') == 0) {
-        if (index($headsign,',') == 0) {   # need to rescan the line if comma in name
-          $headsign = substr $headsign,1;
+        $headsign = substr $headsign,1;
+        $c = chop $headsign;
+        if ($c ne '"') {   # need to rescan the line if comma in name
+          $headsign .= $c;
           $tmpcol = $col_headsign + 1;
           while (substr($cols[$tmpcol],-1) eq '"') { $headsign .= ',' . $cols[$tmpcol++]; }
           chop $headsign;
@@ -2173,7 +2184,7 @@ sub readstoptimes($)
           $seq = substr($seq,1,-1) if index($seq,'"') == 0;
           $dep_time = substr($dep_time,1,-1) if index($dep_time,'"') == 0;
           $arr_time = substr($arr_time,1,-1) if index($arr_time,'"') == 0;
-        } else { $headsign = substr($headsign,1,-1); }
+        }
         $headsign =~ $unquoter;
       }
     }
@@ -2221,12 +2232,15 @@ sub readstoptimes($)
       $sidrefs{$sid} = 1 unless exists $sidrefs{$sid};
       $tripsids{$tripid} = $sid;
     }
+
     $ridsidtime = join('_',$routeid,$sid,$stopid,$dep_time);
     if (exists $ridsidtimes{$ridsidtime}) { # todo
 #      $prvtrip = $tripid;
 #      next;
     }
     $ridsidtimes{$ridsidtime} = 1;
+
+    info("$linno $line") unless $arr_time =~ qr'^[0-9:]+$';
 
     push(@stop_times, join("\t",$tripid,$stopid,$seq,$dep_time,$arr_time)) if $canonout;
 

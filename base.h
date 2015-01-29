@@ -21,7 +21,7 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 15
+#define Version_min 16
 #define Version_phase "initial"
 #define Program_name "tripover"
 #define Program_desc "broad-search journey planner"
@@ -47,6 +47,7 @@ typedef int sb4;
 
 #define clear(p) memset((p),0,sizeof(*(p)))
 #define nclear(p,n) memset((p),0,(n) * sizeof(*(p)))
+#define nsethi(p,n) memset((p),0xff,(n) * sizeof(*(p)))
 
 // c11 langage only
 #if defined  __STDC_VERSION__ && __STDC_VERSION__ >= 201101
@@ -60,7 +61,7 @@ typedef int sb4;
  #define strcopy(dst,src) strncpy((dst),(src),sizeof(dst)-1 );
 #endif
 
-enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runmknet,Runcompound,Runnet0,Runnetn,Runserver,Runend,Runcnt };
+enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runcompound,Runmknet,Runnet0,Runnetn,Runserver,Runend,Runcnt };
 
 // program-wide global vars go here
 extern struct globs {

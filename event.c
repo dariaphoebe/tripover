@@ -91,7 +91,7 @@ void showxtime(struct timepatbase *tp,ub8 *xp,ub4 xlim)
 ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid)
 {
   ub4 t,n = 0,ndup = 0;
-  ub4 t00,t01,t0,t1,tt,tlo,thi,rdep,dayid,tday,mday;
+  ub4 t00,t01,t0,t1,tt,tlo,thi,rdep,dayid,tday,t1day,mday;
   ub4 hop = tp->hop;
   ub4 mapofs = sp->mapofs;
   ub4 rsid = sp->rsid;
@@ -132,12 +132,12 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 
   tday = t0 / daymin;
   error_lt(tday,t00);
-  error_ge(t1 / daymin,t01);
+  t1day = min(t1 / daymin,t01);
 //  error_lt(tday * daymin + tdep,t0);
 
 //  info(0,"t %u t1 %u",t,t1);
 
-  while (tday < t1 / daymin && n + tp->evcnt < evlimit) {
+  while (tday < t1day && n + tp->evcnt < evlimit) {
 //    info(0,"t %u",t);
     mday = tday - t00;
     if (mday >= sp->maplen) { warning(0,"tday %u maplen %u",mday,sp->maplen); break; }
@@ -170,7 +170,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
     tp->t0 = tlo; tp->t1 = thi;   // keep track of first and last actual departure
     hoplog(hop,0,"%u event\as tlo %u thi %u",n,tlo,thi);
   } else if (ndup) vrb0(0,"all events duplicate for rsid %u range %u-%u",rsid,tlo,thi);
-  else info(0,"no events for r.sid %u.%u range %u-%u",rsid,sid,t0,t1);
+  else vrb0(0,"no events for r.sid %u.%u range %u-%u",rsid,sid,t0,t1);
   return n;
 }
 
@@ -178,7 +178,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid,ub4 dur)
 {
   ub4 t,n = 0;
-  ub4 t00,t01,t0,t1,tt,tlo,thi,tday,mday;
+  ub4 t00,t01,t0,t1,tt,tlo,thi,tday,t1day,mday;
   ub4 dayid = 0;
   ub8 x;
   ub4 hop = tp->hop;
@@ -188,6 +188,7 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
   t1 = sp->t1;
 
   t00 = sp->lt0day;
+  t01 = sp->lt1day;
 
   tlo = tp->t0; thi = tp->t1;
 
@@ -204,8 +205,10 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
     dayid = 255;
   }
 
+  t1day = min(t1 / daymin,t01);
+
   tday = t0 / daymin;
-  while (tday < t1 / daymin && n + tp->evcnt < evlimit) {
+  while (tday < t1day && n + tp->evcnt < evlimit) {
     t = tday * daymin;
     mday = tday - t00;
     if (daymap[mday]) {

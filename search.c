@@ -583,7 +583,7 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
   ub4 *lodevs = src->devcurs;
   net *net;
   ub4 rtid,*tid2rtid;
-  ub4 hop1,hop2,hopcnt,whopcnt,tidcnt;
+  ub4 hop1,hop2,hopcnt,chopcnt,whopcnt,tidcnt;
 
   error_z(nleg,0);
 
@@ -599,6 +599,7 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
     error_ge(part,gnet->partcnt);
     net = getnet(part);
     hopcnt = net->hopcnt;
+    chopcnt = net->chopcnt;
     whopcnt = net->whopcnt;
 
     tid2rtid = net->tid2rtid;
@@ -606,9 +607,9 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
 
     hop1 = src->hop1s[l];
     hop2 = src->hop2s[l];
-    error_ge(hop1,whopcnt);
+    warncc(hop1 >= hopcnt && hop1 < chopcnt,0,"hop %u is compound",hop1);
     if (hop2 != hi32) {
-      error_ge(hop2,whopcnt);
+      warncc(hop2 >= hopcnt && hop1 < chopcnt,0,"hop %u is compound",hop2);
     }
     lodev = lodevs[l];
     error_eq(lodev,hi32);
@@ -661,14 +662,15 @@ static ub4 addevs(ub4 callee,search *src,net *net, ub4 *legs,ub4 nleg,ub4 nxleg,
 
   if (nxleg == 0) {
     hop = legs[0];
+    error_ge(hop,whopcnt);
     midur = hopdur[hop];
     if (hop < hopcnt) cnt = mkdepevs(src,net,hop,hi32,midur);  // plain
-    else if (hop < whopcnt) cnt = frqevs(src,net,0,hop,hi32,midur,walkiv_min,dthi);    // walk links
-    else { // compound
-      error_ge(hop,chopcnt);
+    else if (hop < chopcnt) {  // compound
       hop1 = choporg[hop * 2];
       hop2 = choporg[hop * 2 + 1];
       cnt = mkdepevs(src,net,hop1,hop2,midur);
+    } else {
+      cnt = frqevs(src,net,0,hop,hi32,midur,walkiv_min,dthi);    // walk links
     }
     dtcur = src->dtcurs[0];
     *pdtcur = dtcur;
@@ -678,17 +680,17 @@ static ub4 addevs(ub4 callee,search *src,net *net, ub4 *legs,ub4 nleg,ub4 nxleg,
 
   for (leg = leg0; leg < nleg; leg++) {
     hop = legs[leg];
+    error_ge(hop,whopcnt);
     midur = hopdur[hop];
     stopcost = costperstop * (leg + nxleg);
     if (hop < hopcnt) {
       cnt = nxtevs(src,net,leg + nxleg,hop,hi32,midur,dthi);
-    } else if (hop < whopcnt) {  // walk links
-      cnt = fwdevs(src,net,leg + nxleg,hop,hi32,midur,hi32);
-    } else { // compound
-      error_ge(hop,chopcnt);
+    } else if (hop < chopcnt) {  // compound
       hop1 = choporg[hop * 2];
       hop2 = choporg[hop * 2 + 1];
       cnt = nxtevs(src,net,leg + nxleg,hop1,hop2,midur,dthi);
+    } else { // walk links
+      cnt = fwdevs(src,net,leg + nxleg,hop,hi32,midur,hi32);
     }
     dtcur = src->dtcurs[nleg + nxleg - 1];
     *pdtcur = dtcur;
@@ -726,8 +728,8 @@ static ub4 srclocal(ub4 callee,gnet *gnet,net *net,ub4 part,ub4 dep,ub4 arr,ub4 
 
   ub4 portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
-  ub4 whopcnt = net->whopcnt;
   ub4 chopcnt = net->chopcnt;
+  ub4 whopcnt = net->whopcnt;
   ub4 *choporg = net->choporg;
   ub4 midur,*hopdur = net->hopdur;
   struct trip *stp;
@@ -766,7 +768,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,net *net,ub4 part,ub4 dep,ub4 arr,ub4 
     // distance-only
     for (leg = 0; leg < nleg; leg++) {
       l = vp[leg];
-      error_ge(l,chopcnt);
+      error_ge(l,whopcnt);
       dist += hopdist[l];
     }
 //    infovrb(dist == 0,0,"dist %u for var %u",dist,v0);
@@ -778,6 +780,8 @@ static ub4 srclocal(ub4 callee,gnet *gnet,net *net,ub4 part,ub4 dep,ub4 arr,ub4 
       for (leg = 0; leg < nleg; leg++) {
         stp->trip[leg * 2 + 1] = vp[leg];
         stp->trip[leg * 2] = part;
+        stp->t[leg] = 0;
+        fmtstring(stp->desc,"shortest route-only, distance %u",dist);
       }
       stp->cnt = 1;
       stp->len = nleg;
@@ -805,6 +809,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,net *net,ub4 part,ub4 dep,ub4 arr,ub4 
       for (leg = 0; leg < nleg; leg++) {
         stp->trip[leg * 2 + 1] = vp[leg];
         stp->trip[leg * 2] = part;
+        fmtstring(stp->desc,"fastest, time %u distance %u",dtcur,dist);
 
         error_z(src->curts[leg],leg);
         stp->t[leg] = src->curts[leg];
@@ -999,7 +1004,7 @@ static ub4 srcxpart2(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
       dist = 0;
       for (leg = 0; leg < nleg; leg++) {
         l = vp[leg];
-        error_ge(l,chopcnt);
+        error_ge(l,whopcnt);
         dist += hopdist[l];
       }
       dist = max(dist,lodist);
@@ -1050,7 +1055,7 @@ static ub4 srcxpart2(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
 
           for (tleg = 0; tleg < ntleg; tleg++) {
             l = tvp[tleg];
-            error_ge(l,tchopcnt);
+            error_ge(l,twhopcnt);
             dist += thopdist[l];
           }
           dist = max(dist,tlodist + lodist);
@@ -1102,7 +1107,7 @@ static ub4 srcxpart2(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,
                   error(Exit,"arr part %u port %u-%u stop %u var %u leg %u at %p %s",apart,amid,arr,astop,avar,aleg,avp,alstblk->desc);
                   break;
                 }
-                error_ge(l,achopcnt);
+                error_ge(l,awhopcnt);
                 dist += ahopdist[l];
               }
               dist = max(dist,lodist + tlodist + alodist);
@@ -1337,7 +1342,7 @@ static ub4 srcxpart2t(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
       dist = 0;
       for (leg = 0; leg < nleg; leg++) {
         l = vp[leg];
-        error_ge(l,chopcnt);
+        error_ge(l,whopcnt);
         dist += hopdist[l];
       }
       dist = max(dist,lodist);
@@ -1392,7 +1397,7 @@ static ub4 srcxpart2t(gnet *gnet,net *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
                   error(Exit,"arr part %u port %u-%u stop %u var %u leg %u at %p %s",apart,amid,arr,astop,avar,aleg,avp,alstblk->desc);
                   break;
                 }
-                error_ge(l,achopcnt);
+                error_ge(l,awhopcnt);
                 dist += ahopdist[l];
               }
               dist = max(dist,lodist + alodist);
@@ -1810,11 +1815,21 @@ static ub4 dosrc(struct gnetwork *gnet,ub4 nstoplo,ub4 nstophi,search *src,char 
   return conn;
 }
 
+static int sametrip(struct trip *tp1,struct trip *tp2)
+{
+  ub4 len = tp1->len;
+
+  if (len != tp2->len) return 0;
+  if (memcmp(tp1->trip,tp2->trip,len * 2 * sizeof(ub4))) return 0;
+  if (tp1->t[0] && tp2->t[0] && memcmp(tp1->t,tp2->t,len * sizeof(tp1->t[0]))) return 0;
+  return 1;
+}
+
 // handle criteria and reporting
 int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 {
   ub4 port;
-  ub4 stop,nleg,portno,t;
+  ub4 stop,nleg,portno,t,t2;
   ub4 conn;
   struct gnetwork *net = getgnet();
   ub4 portcnt = net->portcnt;
@@ -1822,7 +1837,8 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   ub4 deptmin,deptmax;
   ub8 t0,dt;
   ub4 resmax = sizeof(src->resbuf);
-  struct trip *stp;
+  struct trip *stp,*stp2;
+  int same;
 
   if (dep >= portcnt) return error(0,"departure %u not in %u portlist",dep,portcnt);
   if (arr >= portcnt) return error(0,"arrival %u not in %u portlist",arr,portcnt);
@@ -1874,6 +1890,14 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 
   for (t = 0; t < Elemcnt(src->trips); t++) {
     stp = src->trips + t;
+    if (stp->cnt == 0) continue;
+    same = 0;
+    for (t2 = 0; t2 < t; t2++) {
+      stp2 = src->trips + t2;
+      same = sametrip(stp,stp2);
+      if (same) break;
+    }
+    if (same) continue;
     if (gtriptoports(net,stp,src->resbuf,resmax,&src->reslen)) return 1;
   }
   return 0;

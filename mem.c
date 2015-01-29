@@ -130,8 +130,10 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
 
   if (curainfo + 1 == Ablocks) errorfln(fln,Exit,FLN,"exceeding limit of %u memblocks allocating %s",Ablocks,desc);
 
-  if (Maxmem_mb == 0) Maxmem_mb = globs.maxvm * 1024;
-
+  if (Maxmem_mb == 0) {
+    info(0,"setting soft VM limit to %u GB",globs.maxvm);
+    Maxmem_mb = (globs.maxvm == hi24 ? hi32 : globs.maxvm * 1024);
+  }
   vrbfln(fln,V0|CC,"alloc %s:\ah%u * %s:\ah%u for %s-%u",slen,elems,sel,elsize,desc,arg);
 
   // check for zero and overflow
@@ -218,6 +220,7 @@ int afree_fln(void *p,ub4 fln, const char *desc)
     errorfln(fln,0,FLN,"double free of pointer %p '%s'",p,desc);
     return errorfln(ai->freefln,0,ai->allocfln,"allocated and previously freed %s",desc);
   }
+  infofln(ai->allocfln,0,"free %u mb from %s",ai->mb,desc);
   ai->freefln = fln;
   ai->alloced = 0;
   nm = ai->mb;

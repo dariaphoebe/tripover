@@ -10,4 +10,4 @@
  */
 
 extern void inicompound(void);
-extern int compound(struct network *net);
+extern int compound(gnet *net);

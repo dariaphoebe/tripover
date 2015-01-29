@@ -1052,6 +1052,7 @@ int setmsglog(const char *dir,const char *name)
     if (nr != (long)n) rv = oserror(0,"cannot read %s: %ld",globs.logname,nr);
     oswrite(fd,oldlines,n);
     osclose(oldfd);
+    free(oldlines);
   }
   msgwritten = 0;
 
