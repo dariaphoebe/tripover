@@ -33,9 +33,10 @@ static ub4 msgfile;
 #include "netbase.h"
 #include "netio.h"
 #include "gtfs.h"
-#include "net.h"
-#include "netprep.h"
 #include "event.h"
+#include "net.h"
+// #include "netev.h" in progress
+#include "netprep.h"
 #include "condense.h"
 #include "compound.h"
 #include "partition.h"
@@ -50,8 +51,12 @@ static int streq(const char *s,const char *q) { return !strcmp(s,q); }
 static int init0(char *progname)
 {
   char mtimestr[64];
+  char *p;
 
   setsigs();
+
+  p = strrchr(progname,'/');
+  globs.progname = (p ? p + 1 : progname);
 
   inimsg(progname,"tripover.log",Msg_stamp|Msg_pos|Msg_type);
   msgfile = setmsgfile(__FILE__);
@@ -76,6 +81,7 @@ static int init0(char *progname)
   inigtfs();
   ininet();
   ininetio();
+//  ininetev();
   ininetprep();
   inievent(0);
   inicondense();
@@ -291,7 +297,7 @@ int main(int argc, char *argv[])
   setmsglvl(globs.msglvl,0,0);
   if (init0(argv[0])) return 1;
 
-  if (cmdline(argc,argv,cmdargs)) return 1;
+  if (cmdline(argc,argv,cmdargs,Program_desc)) return 1;
 
   if (inicfgcl()) return 1;
 

@@ -13,10 +13,13 @@ struct cmdval { // matched commandline arg
   ub4 uval;
   ub4 valcnt;
   char *sval;
+  char *valname;
   const char *subarg;
   struct cmdarg *args;
   ub4 argndx;
   int retval;
+  char *progname;
+  char *progdesc;
 };
 
 struct cmdarg { // commandline arg defines
@@ -37,7 +40,7 @@ extern int readfile(struct myfile *mf,const char *name, int mustexist);
 extern ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc);
 extern ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc);
 
-extern int cmdline(int argc, char *argv[], struct cmdarg *cap);
+extern int cmdline(int argc, char *argv[], struct cmdarg *cap,const char *desc);
 extern int shortusage(void);
 
 #define memcopy(d,s,n) memcopyfln((d),(s),(n),FLN)

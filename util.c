@@ -372,8 +372,7 @@ static int showvers(struct cmdval *cv)
 
 int shortusage(void)
 {
-  info(User,"%s - %s",Program_name,Program_desc);
-  info(User,"usage: %s [options] <cmd> <args>\n",Program_name);
+  info(User,"usage: %s [options] <cmd> <args>\n",globs.progname);
   info(User,"'%s help' shows commandline usage",globs.progname);
   return 1;
 }
@@ -388,8 +387,8 @@ static int usage(struct cmdval *cv)
   char argstr[64];
   char optstr[128];
 
-  info(User,"%s - %s",Program_name,Program_desc);
-  info(User,"usage: %s [options] [args]\n",Program_name);
+  info(User,"%s - %s",cv->progname,cv->progdesc);
+  info(User,"usage: %s [options] %s\n",globs.progname,cv->valname);
 
   info0(User,"options:");
 
@@ -470,7 +469,7 @@ static struct cmdarg *findarg(const char *arg,struct cmdarg *cap)
   return cap;
 }
 
-int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
+int cmdline(int argc, char *argv[], struct cmdarg *cmdargs,const char *desc)
 {
   char *eq,*valp,*sub,cnv;
   const char *arg,*vp;
@@ -482,6 +481,8 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
 
   if (!argc) return 0;
 
+  oclear(cv);
+
   while(ap->arg) ap++;
   while(cap->arg) {
     ap->arg = cap->arg;
@@ -491,9 +492,6 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
     cap++; ap++;
   }
   plainap = cap;
-
-  arg = strrchr(argv[0],'/');
-  globs.progname = (arg ? arg + 1 : argv[0]);
 
   for (argno = 1; argno < (ub4)argc; argno++) {
     arg = argv[argno];
@@ -518,7 +516,7 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
         warning(User,"%signoring unknown argument",msg);
         continue;
       }
-      clear(&cv);
+      oclear(cv);
       cv.retval = 1;
       sub = strchr(ap->arg,'-');
       if (sub) cv.subarg = sub + 1;
@@ -543,12 +541,19 @@ int cmdline(int argc, char *argv[], struct cmdarg *cmdargs)
       }
       cv.args = allargs;
       cv.argndx = (ub4)(ap - allargs);
+      cv.valname = cap->val;
+      cv.progname = cap->desc;
+      cv.progdesc = desc;
       if (ap->fn) {
         rv = (*ap->fn)(&cv); 
         if (rv) return rv;
       }
     } else {
-      if (streq(arg,"help")) usage(&cv);
+      cv.args = allargs;
+      cv.valname = cap->val;
+      cv.progname = cap->desc;
+      cv.progdesc = desc;
+      if (streq(arg,"help")) return usage(&cv);
       else {
         cv.sval = (char *)arg;
         (*plainap->fn)(&cv);

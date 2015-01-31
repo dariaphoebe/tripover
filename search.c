@@ -299,7 +299,7 @@ static ub4 nxtevs(search *src,net *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 d
 
     // search first candidate departure
     gndx = prvgndx;
-    rt = (ub4)ev[gndx];
+    rt = (ub4)ev[gndx * 2];
     while (gndx < gencnt) {
       rt = (ub4)ev[gndx * 2];
       if (rt + gt0 >= atarr) break;

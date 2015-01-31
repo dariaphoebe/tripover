@@ -61,6 +61,8 @@ static block *lruhead = lrupool;
 static struct ainfo ainfos[Ablocks];
 static ub4 curainfo;
 
+static const ub4 blkmagic = 0x3751455d;
+
 static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
 {
   ub4 idlen = 0;
@@ -131,7 +133,7 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   if (curainfo + 1 == Ablocks) errorfln(fln,Exit,FLN,"exceeding limit of %u memblocks allocating %s",Ablocks,desc);
 
   if (Maxmem_mb == 0) {
-    info(0,"setting soft VM limit to %u GB",globs.maxvm);
+    vrb0(0,"setting soft VM limit to %u GB",globs.maxvm);
     Maxmem_mb = (globs.maxvm == hi24 ? hi32 : globs.maxvm * 1024);
   }
   vrbfln(fln,V0|CC,"alloc %s:\ah%u * %s:\ah%u for %s-%u",slen,elems,sel,elsize,desc,arg);
@@ -271,6 +273,8 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   if (elems == 0) errorfln(fln,Exit,FLN,"zero length block %s",desc);
   if (elsize == 0) errorfln(fln,Exit,FLN,"zero element size %s",desc);
 
+  blk->magic = blkmagic;
+
   descpos += mysnprintf(desc,descpos,desclen," - \ah%lu %s of %u %s alloc ",(unsigned long)elems,selems,elsize,selsize);
   descpos += msgfln(desc,descpos,desclen,fln,0);
   blk->desclen = descpos;
@@ -348,6 +352,7 @@ size_t nearblock(size_t adr)
 void bound_fln(block *blk,size_t pos,ub4 elsize,const char *spos,const char *selsize,ub4 fln)
 {
 //  vrbfln(fln,V0|CC,"bounds on block '%s' use ",blk->desc);
+  if (blkmagic != blk->magic) errorfln(fln,Exit,FLN,"uninitialised block in bounds check pos '%s':%lu of %s:%u",spos,(unsigned long)pos,selsize,elsize);
 
   if (elsize != blk->elsize) errorfln(fln,Exit,FLN,"size mismatch: %s size %u on %s size %u block '%s'",selsize,elsize,blk->selsize,blk->elsize,blk->desc);
   if (pos >= blk->elems) errorfln(fln,Exit,FLN,"%s pos %lu %u above %s len %lu block '%s'",spos,pos,(ub4)(pos - blk->elems),blk->selems,blk->elems,blk->desc);

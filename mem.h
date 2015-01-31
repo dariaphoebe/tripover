@@ -17,7 +17,9 @@ struct strpool {
 };
 typedef struct strpool spool;
 
+
 struct memblk {
+  ub4 magic;
   void *base;
   size_t elems;
   ub4 elsize;

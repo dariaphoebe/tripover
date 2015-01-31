@@ -1067,8 +1067,12 @@ static int dia_fd;
 // level to be set beforehand
 void inimsg(char *progname, const char *logname, ub4 opts)
 {
+  char dianame[1024];
+
+  fmtstring(dianame,"%s.dia",globs.progname);
+
   // redirect stderr to file : prevent clang/gcc sanitizer output mix with our logging
-  dia_fd = oscreate("tripover.dia");
+  dia_fd = oscreate(dianame);
   if (dia_fd != -1) osdup2(dia_fd,2);
 
   progstart = gettime_usec();
