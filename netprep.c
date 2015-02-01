@@ -229,6 +229,7 @@ int prepnet(netbase *basenet)
     tp->hidur = btp->hidur;
     midur = tp->midur = btp->midur;
     hopdur[hop] = midur;
+    tp->avgdur = btp->avgdur;
     tp->duracc = btp->duracc;
 
     // mark local links

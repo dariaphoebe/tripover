@@ -41,6 +41,7 @@ static ub4 msgfile;
 #include "util.h"
 #include "bitfields.h"
 #include "net.h"
+#include "netev.h"
 
 #undef hdrstop
 
@@ -125,11 +126,12 @@ static int mkwalks(struct network *net)
       aname = parr->name;
       error_eq_cc(pdep->gid,parr->gid,"%s %s",dname,aname);
       deparr = dep * portcnt + arr;
-      if (pdep->lat == parr->lat &&pdep->lon == parr->lon) {
+      if (pdep->lat == parr->lat && pdep->lon == parr->lon) {
         info(Iter,"ports %u-%u coloc %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
         dist = 0;
       } else {
         dist = fgeodist(pdep,parr);
+//        infocc(dist == 0 || dep == 0,0,"ports %u-%u dist %u %s to %s",dep,arr,dist,dname,aname);
       }
 //      error_z(dist,arr);
       dist0[deparr] = dist;
@@ -154,7 +156,7 @@ static int mkwalks(struct network *net)
       geohist[min(iv,ivcnt-1)]++;
     }
   }
-  for (iv = 0; iv < ivcnt; iv++) if (geohist[iv]) info(0,"geodist bin %u: %u",iv,geohist[iv]);
+  for (iv = 0; iv < ivcnt; iv++) if (geohist[iv]) info(0,"geodist bin %u = %u: %u",iv,lodist + iv * (hidist - lodist),geohist[iv]);
 
   ub1 *net0 = alloc(port2,ub1,0,"net net0",portcnt);
 
@@ -477,8 +479,9 @@ static int mknet0(struct network *net,int maxstop)
   return 0;
 }
 
-#define Distbins 256
-static ub4 distbins[Distbins];
+#define Distbins 128
+#define Durcnt 64
+#define Estdurcnt 16
 
 // create n-stop connectivity matrix and derived info
 static int mknetn(struct network *net,ub4 nstop)
@@ -508,8 +511,13 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 lodist,lodist1,lodist2,lodist12,*lodists,*lodist1s,*lodist2s;
   ub4 hidist,hidist1,hidist2,hidist12,*hidists,*hidist1s,*hidist2s;
   ub4 dist1,dist2,dist12,distlim,distrange;
-  ub4 cntlim,sumcnt,gen,outcnt;
+  ub4 cntlim,cntlimdist,cntlimdur,sumcnt,gen,outcnt;
+  ub4 dur,midur,durndx,durcnt,durlim;
   ub4 constats[16];
+  ub4 distbins[Distbins];
+  ub4 *hopdur,*durlims;
+  ub4 midurs[Durcnt];
+  ub4 estdurs[Estdurcnt];
 
   // only fill n-stop if no (nstop-1) exists
   bool nilonly;
@@ -536,7 +544,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
   // todo configurable
   switch (nstop) {
-  case 1: nilonly = 0; varlimit = 16; var12limit = 64; break;
+  case 1: nilonly = 0; varlimit = 32; var12limit = 128; break;
   case 2: nilonly = 0; varlimit = 8; var12limit = 32; break;
   case 3: nilonly = 1; varlimit = 8; var12limit = 32; break;
   default: nilonly = 1; varlimit = 2; var12limit = 32; break;
@@ -556,11 +564,13 @@ static int mknetn(struct network *net,ub4 nstop)
   hidists = alloc(port2, ub4,0,"net hidist",portcnt);
 
   distlims = alloc(port2, ub4,0,"net distlims",portcnt);
+  durlims = alloc(port2, ub4,0,"net durlims",portcnt);
 
   portdst = alloc(portcnt, ub4,0,"net portdst",portcnt);
 
   dist0 = net->dist0;
   hopdist = net->hopdist;
+  hopdur = net->hopdur;
 
   error_zp(dist0,0);
   error_zp(hopdist,0);
@@ -699,6 +709,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
       lodist = hi32; hidist = 0;
       cnt = cntlim = 0;
+      durlim = hi32;
 
       // for each #stops between dep-via-arr.
       // e.g. trip dep-a-b-via-c-arr has 2 stops before and 1 after via
@@ -770,14 +781,20 @@ static int mknetn(struct network *net,ub4 nstop)
       }
 
       // limits precomputed from file
-      if (distlims[deparr]) continue;
+//      if (distlims[deparr]) continue;
 
       // if too many options, sort on distance.
       if (cnt > varlimit) {
         cntstats[8]++;
+        if (nstop == 1) cntlimdist = cntlimdur = cntlim / 2;
+        else {
+          cntlimdist = cntlim;
+          cntlimdur = 0;
+        }
 
         // subpass 2: create distance histogram and derive threshold
         altcnt = 0;
+        durcnt = 0;
         for (midstop1 = 0; midstop1 < nstop; midstop1++) {
           if (altcnt > altlimit) break;
 
@@ -798,6 +815,7 @@ static int mknetn(struct network *net,ub4 nstop)
           conofs2 = net->conofs[midstop2];
 
           distlim = hi32;
+          durlim = hi32;
 
           for (mid = 0; mid < portcnt; mid++) {
             if (mid == dep || mid == arr) continue;
@@ -841,8 +859,6 @@ static int mknetn(struct network *net,ub4 nstop)
                 trip1ports[leg1 * 2 + 1] = portsbyhop[leg * 2 + 1];
               }
 
-              if (dist1 > distlim) { cntstats[1]++; continue; }
-
               dupcode = 0;
               for (legport1 = 1; legport1 < midstop1 * 2; legport1++) {
                 iport1 = trip1ports[legport1];
@@ -859,7 +875,13 @@ static int mknetn(struct network *net,ub4 nstop)
               for (watch = 0; watch < watches; watch++) {
                 if (dep == watch_dep[watch]) vrb(0,"dep %u arr %u mid %u \av%u%p n1 %u n2 %u",dep,arr,mid,nleg1,lst11,n1,n2);
               }
+
+              midur = prepestdur(net,lst11,nleg1,estdurs,Estdurcnt);
+
+              if (dist1 > distlim && midur > durlim) { cntstats[1]++; continue; }
+
               checktrip(net,lst11,nleg1,dep,mid,dist1);
+
               for (v2 = 0; v2 < n2; v2++) {
                 dist12 = dist1;
                 lst22 = lst2 + v2 * nleg2;
@@ -868,10 +890,13 @@ static int mknetn(struct network *net,ub4 nstop)
                   leg = lst22[leg2];
                   error_ge(leg,whopcnt);
                   dist12 += hopdist[leg];
+                  dur = hopdur[leg];
+                  if (dur != hi32 && midur != hi32) midur += hopdur[leg];
+                  else info(Iter,"hop %u no dur",leg);
                   trip2ports[leg2 * 2] = portsbyhop[leg * 2];
                   trip2ports[leg2 * 2 + 1] = portsbyhop[leg * 2 + 1];
                 }
-                if (dist12 > distlim) { cntstats[2]++; break; }
+                if (dist12 > distlim && midur > durlim) { cntstats[2]++; break; }
 
                 dupcode = 0;
                 for (legport2 = 1; legport2 < nleg2 * 2 - 1; legport2++) {
@@ -909,30 +934,51 @@ static int mknetn(struct network *net,ub4 nstop)
 //                error_gt(dist12,hidist);  // todo: fails
                 iv = (dist12 - min(lodist,dist12)) * Distbins / distrange;
                 if (iv < Distbins) distbins[iv]++;
+
+                // idem for time: insertion sort
+                if (cntlimdur) {
+                  midur = estdur(net,estdurs,Estdurcnt,lst11,nleg1,lst22,nleg2);
+                  if (durcnt == 0) {
+                    midurs[0] = midur;
+                    durcnt = 1;
+                  } else {
+                    if (durcnt < cntlimdur-1) durcnt++;
+                    durndx = 0;
+                    while (durndx < durcnt && midurs[durndx] <= midur) durndx++;
+                    if (durndx >= durcnt - 1 && durcnt < Durcnt) midurs[durndx] = midur;
+                    else memmove(midurs + durndx + 1,midurs + durndx,(durcnt - durndx) * sizeof(*midurs));
+                  }
+                }
               } // each v2
             } // each v1
 
             sumcnt = 0; ivlim = 0;
-            while (sumcnt < cntlim && ivlim < Distbins) {
+            while (sumcnt < cntlimdist && ivlim < Distbins) {
               sumcnt += distbins[ivlim++];
             }
             if (ivlim) ivlim--;
             distlim = lodist + ivlim * distrange / Distbins;
 
+            if (cntlimdur && durcnt) durlim = midurs[durcnt-1];
           } // each mid
 
         } // each midpoint
 
         // derive threshold to aim at desired number of alternatives
         sumcnt = 0; iv = 0;
-        while (sumcnt < cntlim && iv < Distbins) {
+        while (sumcnt < cntlimdist && iv < Distbins) {
           sumcnt += distbins[iv++];
         }
         if (iv) iv--;
         distlim = lodist + iv * distrange / Distbins;
         aclear(distbins);
-      } else distlim = hidist;  // not cnt limited
+
+      } else {   // not cnt limited
+        distlim = hidist;
+        durlim = hi32;
+      }
       distlims[deparr] = distlim;
+      durlims[deparr] = durlim;
 
     } // each arrival port
     portdst[dep] = outcnt;
@@ -1004,6 +1050,7 @@ static int mknetn(struct network *net,ub4 nstop)
       dbg = (part == 0 && dep == 1068 && arr == 0);
 
       distlim = distlims[deparr];
+      durlim = durlims[deparr];
 
       conofs[deparr] = ofs;
       lstv1 = lst + ofs * nleg;
@@ -1067,7 +1114,9 @@ static int mknetn(struct network *net,ub4 nstop)
               trip1ports[leg1 * 2] = portsbyhop[leg * 2];
               trip1ports[leg1 * 2 + 1] = portsbyhop[leg * 2 + 1];
             }
-            if (dist1 > distlim) { v1++; continue; }
+            if (durlim != hi32) midur = prepestdur(net,lst11,nleg1,estdurs,Estdurcnt);
+            else midur = hi32;
+            if (dist1 > distlim && midur > durlim) { v1++; continue; }
 
             error_ne(trip1ports[0],dep);
             error_eq(trip1ports[0],mid);
@@ -1095,9 +1144,13 @@ static int mknetn(struct network *net,ub4 nstop)
                 leg = lst22[leg2];
                 error_ge(leg,whopcnt);
                 dist2 += hopdist[leg];
+                dur = hopdur[leg];
+                if (dur != hi32 && midur != hi32) midur += hopdur[leg];
                 trip2ports[leg2 * 2] = portsbyhop[leg * 2];
                 trip2ports[leg2 * 2 + 1] = portsbyhop[leg * 2 + 1];
               }
+              if (dist1 + dist2 > distlim && midur > durlim) { v2++; continue; }
+
               error_ne(trip2ports[0],mid);
               error_eq(trip2ports[0],dep);
               error_eq(trip2ports[0],arr);
@@ -1132,27 +1185,31 @@ static int mknetn(struct network *net,ub4 nstop)
 
 //              checktrip(lst22,nleg2,mid,arr,dist2);
               dist12 = dist1 + dist2;
-              if (dist12 <= distlim || gen == 0) {
-                gen++;
-                for (leg1 = 0; leg1 < nleg1; leg1++) {
-                  leg = lst11[leg1];
-                  error_ge(leg,whopcnt);
-                  lstv1[leg1] = leg;
-                }
+
+              if (durlim != hi32) midur = estdur(net,estdurs,Estdurcnt,lst11,nleg1,lst22,nleg2);
+
+              if (dist12 > distlim || midur > durlim) { v2++; continue; }
+
+              gen++;
+              for (leg1 = 0; leg1 < nleg1; leg1++) {
+                leg = lst11[leg1];
+                error_ge(leg,whopcnt);
+                lstv1[leg1] = leg;
+              }
 //                memcpy(lstv1,lst11,nleg1 * sizeof(ub4));
 //                vrb(CC,"dep %u arr %u mid %u \av%u%p base %p n1 %u n2 %u",dep,arr,mid,nleg,lstv1,lst,n1,n2);
 //                checktrip(lstv1,nleg1,dep,mid,dist1);
-                lstv2 = lstv1 + nleg1;
-                for (leg2 = 0; leg2 < nleg2; leg2++) {
-                  leg = lst22[leg2];
-                  error_ge(leg,whopcnt);
-                  lstv2[leg2] = leg;
-                }
+              lstv2 = lstv1 + nleg1;
+              for (leg2 = 0; leg2 < nleg2; leg2++) {
+                leg = lst22[leg2];
+                error_ge(leg,whopcnt);
+                lstv2[leg2] = leg;
+              }
 //                memcpy(lstv2,lst22,nleg2 * sizeof(ub4));
 //                vrb(CC,"dep %u arr %u mid %u \av%u%p base %p n1 %u n2 %u",dep,arr,mid,nleg,lstv1,lst,n1,n2);
 //                checktrip3(lstv1,nleg,dep,arr,mid,dist12);
-                lstv1 = lstv2 + nleg2;
-              }
+              lstv1 = lstv2 + nleg2;
+
               v2++;
             }
             v1++;
@@ -1196,7 +1253,7 @@ static int mknetn(struct network *net,ub4 nstop)
       } // each mid stopover port
 
       error_gt(gen,cnt,arr);
-      warncc(cnt && gen == 0,Iter,"dep %u arr %u no conn distlim %u",dep,arr,distlim);
+      warncc(cnt && gen == 0,Iter,"dep %u arr %u no conn distlim %u durlim %u",dep,arr,distlim,durlim);
 
       ofs += gen;
       concnt[deparr] = (ub2)gen;
@@ -1979,24 +2036,28 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
   struct port *gports = gnet->ports,*pdep,*parr = gports;
   struct hop *hops,*hp,*hp2;
   struct route *rp,*routes = gnet->routes;
+  struct chain *chains,*cp;
+  struct chainhop *chp,*chainhops;
   ub4 *trip = ptrip->trip;
   const char *name,*rname,*mode;
-  ub4 rid = hi32,rrid,tid;
-  ub4 part,leg,prvleg,ghop,l,l1 = 0,l2 = 0,dep,arr = hi32,deparr,tdep,tarr,gdep,garr = hi32;
+  ub4 rid = hi32,rrid,tid,ci,chcnt;
+  ub4 part,leg,prvleg,ghop,ghop1,ghop2,l,l1 = 0,l2 = 0,dep,arr = hi32,deparr,gdep,garr = hi32;
+  ub4 tdep,tarr,tcdep,tcarr;
   ub4 dist,dist0;
   ub4 gportcnt = gnet->portcnt;
   ub4 partcnt = gnet->partcnt;
   ub4 ridcnt = gnet->ridcnt;
   ub4 hopcnt,whopcnt,chopcnt;
-  ub4 portcnt;
+  ub4 portcnt,chaincnt;
   ub4 *portsbyhop;
   ub4 *hopdist;
   ub4 *dist0s;
   ub4 *choporg;
-  ub4 *p2g;
+  ub4 *p2g,*p2ghop;
   ub4 pos = *ppos;
   ub4 triplen = ptrip->len;
   ub4 *ports = ptrip->port;
+  ub4 utcofs = 600; // todo
 
   if (triplen == 0) return warning(0,"nil trip for %u port net",gportcnt);
   error_ge(triplen,Nxleg);
@@ -2013,10 +2074,15 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     whopcnt = net->whopcnt;
     chopcnt = net->chopcnt;
     portcnt = net->portcnt;
+    chaincnt = net->chaincnt;
     portsbyhop = net->portsbyhop;
+    chains = net->chains;
+    chainhops = net->chainhops;
     choporg = net->choporg;
     dist0s = net->dist0;
     p2g = net->p2gport;
+    p2ghop = net->p2ghop;
+
     l = trip[leg * 2 + 1];
     if (l >= whopcnt) return error(0,"part %u leg %u hop %u >= %u",part,leg,l,whopcnt);
     dep = portsbyhop[2 * l];
@@ -2028,7 +2094,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     if (l < hopcnt) {
       hp = hops + l;
       name = hp->name; rid = hp->rid; rrid = hp->rrid; ghop = hp->gid;
-    } else if (l < whopcnt) {
+    } else if (l < chopcnt) {
       l1 = choporg[2 * l];
       l2 = choporg[2 * l + 1];
       if (l1 >= hopcnt) return error(0,"part %u compound leg %u = %u-%u >= %u",part,l,l1,l2,hopcnt);
@@ -2071,12 +2137,26 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     else if (l < chopcnt) {
       hp2 = hops + l2;
       error_ne(rid,hp2->rid);
-      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode);
+
+      error_ge(tid,chaincnt);
+      cp = chains + tid;
+      chcnt = cp->hopcnt;
+      chp = chainhops + cp->hopofs;
+      ci = 0;
+      tcdep = tcarr = hi32;
+      ghop1 = p2ghop[l1];
+      ghop2 = p2ghop[l2];
+      while (ci < chcnt && (tcdep == hi32 || tcarr == hi32) ) {
+        if (chp[ci].hop == ghop1) { tcdep = chp[ci].tdep; }
+        else if (chp[ci].hop == ghop2) { tcarr = chp[ci].tarr; }
+        ci++;
+      }
+      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u %u arr %u at \ad%u %u %s to %s route %s r.rid %u.%u tid %u %s",leg,hp->gid,hp2->gid,part,gdep,tdep,tcdep,garr,tarr,tcarr,pdep->name,parr->name,rname,rrid,rid,tid,mode);
     } else info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s walk",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name);
 
-    if (tdep) pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s\n",leg+1,tdep,pdep->name);
+    if (tdep) pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s\n",leg+1,tdep+utcofs,pdep->name);
     else pos += mysnprintf(buf,pos,buflen,"leg %2u %s\n",leg+1,pdep->name);
-    if (tarr) pos += mysnprintf(buf,pos,buflen,"       arr \ad%u %s\n",tarr,parr->name);
+    if (tarr) pos += mysnprintf(buf,pos,buflen,"       arr \ad%u %s\n",tarr+utcofs,parr->name);
     else pos += mysnprintf(buf,pos,buflen,"       %s\n",parr->name);
 
     if (rid == hi32) pos += mysnprintf(buf,pos,buflen,"       %s",name);

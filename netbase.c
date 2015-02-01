@@ -58,8 +58,8 @@ static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rla
     }
   }
   if (lat == 0 && lon == 0) return error(0,"port %u latlon 0",newport);
-  if (lat >= 180 * Latscale) warning(0,"port %u lat %u out of range",newport,lat);
-  if (lon >= 360 * Lonscale) warning(0,"port %u lon %u out of range",newport,lon);
+//  if (lat >= 180 * Latscale) warning(0,"port %u lat %u out of range",newport,lat);
+//  if (lon >= 360 * Lonscale) warning(0,"port %u lon %u out of range",newport,lon);
 
   pp = ports + newport;
   pp->lat = lat;
@@ -87,8 +87,8 @@ static ub4 heightmap[Zmap * Zmap];
 
 static ub4 getz(ub8 lat,ub8 lon)
 {
-  ub8 y = lat * Zmap / (180UL * Latscale);
-  ub8 x = lon * Zmap / (360UL * Lonscale);
+  ub8 y = lat * Zmap / (180UL * 100000);
+  ub8 x = lon * Zmap / (360UL * 100000);
 
   error_ge(y,Zmap);
   error_ge(x,Zmap);
@@ -138,8 +138,8 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   while (railcnt < aimed && iter++ < (1 << 20)) {
     rlat = (frnd(16000) - 9000) * 0.01 * M_PI / 180;
     rlon = (frnd(36000) - 18000) * 0.01 * M_PI / 180;
-    lat = rad2lat(rlat);
-    lon = rad2lon(rlon);
+    lat = rad2lat(rlat,1000);
+    lon = rad2lon(rlon,1000);
     lolat = min(lolat,lat);
     hilat = max(hilat,lat);
     lolon = min(lolon,lon);
@@ -158,8 +158,8 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   while (railcnt + aircnt < portcnt && iter++ < (1 << 20)) {
     rlat = (frnd(16000) - 9000) * 0.01 * M_PI / 180;
     rlon = (frnd(36000) - 18000) * 0.01 * M_PI / 180;
-    lat = rad2lat(rlat);
-    lon = rad2lon(rlon);
+    lat = rad2lat(rlat,1000);
+    lon = rad2lon(rlon,1000);
     lolat = min(lolat,lat);
     hilat = max(hilat,lat);
     lolon = min(lolon,lon);
@@ -214,9 +214,6 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
   basenet.hops = hops;
   basenet.portcnt = portcnt;
   basenet.hopcnt = hopcnt;
-
-  basenet.latscale = Latscale;
-  basenet.lonscale = Lonscale;
 
   basenet.latrange[0] = lolat;
   basenet.latrange[1] = hilat;
@@ -278,7 +275,7 @@ int prepbasenet(void)
   ub4 t0,t1,ht0,ht1,hdt,tdays,mapofs;
   ub8 cumevcnt = 0,cumzevcnt = 0,cumtdays = 0;
   ub4 evhops = 0;
-  ub4 dur,lodur,hidur,midur,prvdur,duracc,eqdur = 0,accdur = 0;
+  ub4 dur,lodur,hidur,midur,prvdur,duracc,sumdur,eqdur = 0,accdur = 0;
   ub4 sumtimes = 0;
 
   info(0,"preparing %u base hops",hopcnt);
@@ -318,6 +315,8 @@ int prepbasenet(void)
 
   double fdist;
   ub4 dist;
+
+  int dbg = 0;
 
   ub4 ofs,chainofs = 0;
   for (chain = 0; chain < rawchaincnt; chain++) {
@@ -389,7 +388,7 @@ int prepbasenet(void)
     if (timecnt == 0) continue;
 
     tp->t0 = hi32;
-    lodur = hi32; hidur = 0;
+    lodur = hi32; hidur = sumdur = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
       sid = tbp[0];
       tid = tbp[1];
@@ -399,6 +398,8 @@ int prepbasenet(void)
       tarrsec = tbp[3];
       tripseq = tbp[4];
 
+//      info(0,"dep %u arr %u",tdepsec,tarrsec);
+
       tdep = tdepsec / 60;
       tarr = tarrsec / 60;
 
@@ -406,6 +407,7 @@ int prepbasenet(void)
       dur = tarr - tdep;
       lodur = min(lodur,dur);
       hidur = max(hidur,dur);
+      sumdur += dur;
       error_ge(sid,sidcnt);
       sp = sids + sid;
       rsid = sp->rsid;
@@ -421,9 +423,9 @@ int prepbasenet(void)
       mapofs = sp->mapofs;
       daymap = sidmaps + mapofs;
 
-      int dbg = (hop == 3062 && sp->rsid == 17);
+//      dbg = (tid == tid2watch || hop == 2654);
 
-      infocc(dbg,0,"tndx %u rsid %u r.tid %u.%u dep %u t0 %u t1 %u days %u",tndx,sp->rsid,rtid,tid,tdep,t0,t1,(t1 - t0) / 1440);
+      infocc(dbg,0,"tndx %u rsid %u r.tid %u.%u dep %u arr %u t0 %u t1 %u days %u",tndx,sp->rsid,rtid,tid,tdep,tarr,t0,t1,(t1 - t0) / 1440);
 
 //      rsidlog(rsid,"hop %u tndx %u tid %x dep %u t0 %u t1 %u days %u",hop,tndx,tid,tdep,t0,t1,(t1 - t0) / 1440);
 
@@ -493,6 +495,7 @@ int prepbasenet(void)
       } else info(Iter,"hop %u no tid",hop);
 
       evcnt += cnt;
+      sumdur += (dur * cnt);
       if (evcnt > maxev4hop) {
         warning(0,"hop %u exceeds event max %u %s",hop,maxev4hop,hp->name);
         hp->timecnt = tndx;
@@ -501,7 +504,7 @@ int prepbasenet(void)
       tp->evcnt = evcnt;
       tbp += 5;
       sumtimes++;
-    }
+    } // each time entry
 
     if (evcnt == 0) {
       genmsg(timecnt > 600 ? Info : Vrb,0,"hop %u no events for %u time entries",hop,timecnt);
@@ -509,11 +512,12 @@ int prepbasenet(void)
       continue;
     }
     evhops++;
-    hoplog(hop,0,"final date range %u-%u",tp->t0,tp->t1);
+    hoplog(hop,0,"final date range \ad%u-\ad%u",tp->t0 + gt0,tp->t1 + gt0);
 
     lodur = min(lodur,hidur);
     tp->lodur = lodur;
     tp->hidur = hidur;
+    tp->avgdur = sumdur / evcnt;
 
     switch (hp->kind) {
       case Air:  duracc = 15; break;

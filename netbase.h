@@ -107,7 +107,7 @@ struct timepatbase {
   ub4 tdays;
   ub4 gt0;
   ub4 t0,t1;   // actual event range in min relative to gt0
-  ub4 lodur,hidur,midur,duracc;
+  ub4 lodur,hidur,midur,avgdur,duracc;
   ub4 evcnt;
   ub4 genevcnt;
   ub4 evofs;
