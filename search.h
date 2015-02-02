@@ -11,7 +11,7 @@
 
 #define Maxevs 2048
 
-#define Topdts 64
+#define Topdts 32
 
 // rudimentary
 // port and hop refs are global
@@ -28,6 +28,7 @@ struct srcctx {
   ub4 viacnt;
   ub4 deptmin,deptmax;
   ub4 deptmin_cd,tspan;
+  ub4 utcofs12;
   ub4 lostop,histop;
   ub4 stop;
   ub4 costlim;

@@ -153,7 +153,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
       return n;
     }
     if (tt < utcofs) { tday++; continue; }
-    tt -= utcofs;
+    tt = lmin2min(tt,utcofs);
     if ( (xp[tt] & hi32) == hi32) {
       xp[tt] = tid | (dayid << 24);
       tlo = min(tlo,tt);
@@ -212,7 +212,8 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
     t = tday * daymin;
     mday = tday - t00;
     if (daymap[mday]) {
-      tt = t - gt0 + tdep - utcofs;
+      tt = t - gt0 + tdep;
+      tt = lmin2min(tt,utcofs);
       error_ge(tt,xlen);
       if ( (xp[tt] & hi32) == hi32) {
 //        hoplog(hop,0,"evt %u at t %u dayid %x",n,tt,dayid);

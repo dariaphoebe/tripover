@@ -109,6 +109,11 @@ int osclose(int fd)
   return close(fd);
 }
 
+int osremove(const char *name)
+{
+  return unlink(name);
+}
+
 int osdup2(int oldfd,int newfd)
 {
   return dup2(oldfd,newfd);
@@ -472,12 +477,32 @@ static int rlimit(int res,rlim_t lim,const char *desc,int show)
   return infovrb(show,0,"resource limit for %s set to \ah%lu",desc,lim);
 }
 
+// phicical mem in mb
+ub4 osmeminfo(void)
+{
+  ub8 pagesize,pagecnt,mb;
+  long lval;
+
+#if (defined _SC_PHYS_PAGES) && (defined _SC_PAGESIZE)
+  lval = sysconf(_SC_PAGESIZE);
+  if (lval < 1024) return 0;
+  pagesize = (ub8)lval;
+  lval = sysconf(_SC_PHYS_PAGES);
+  if (lval < 1024) return 0;
+  pagecnt = (ub8)lval;
+  mb = (pagesize * pagecnt) >> 20;
+  return (ub4)mb;
+#else
+  return 0;
+#endif
+}
+
 int oslimits(void)
 {
   int rv = 0;
   rlim_t maxvm;
 
-  if (globs.maxvm != hi32) {
+  if (globs.maxvm < hi24) {
     maxvm = (ub8)(globs.maxvm + 4) * 1024 * 1024 * 1024;
     rv |= rlimit(RLIMIT_AS,maxvm,"virtual memory +4 GB margin",1);
   }

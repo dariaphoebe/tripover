@@ -63,5 +63,7 @@ extern void showmemsums(void);
 
 extern size_t nearblock(size_t adr);
 
+extern ub4 meminfo(void);
+
 extern void inimem(void);
 extern void eximem(void);

@@ -296,7 +296,7 @@ static ub4 fcnv(char *dst, double x)
    extensions are led in by '\a' preceding a conversion :
    h + %u  makes the integer formatted 'human readable' like 123.8 M for 123800000
    d + %u  minute utc to date 20140912
-   u + %d  utc offset +0930   -1100
+   u + %u  utc offset +0930   -1100
    x + %u  %x.%u
    ` + %s  replace , with `
    v + %u%p interprets the pointer arg '%p' as an array of '%u' integers. thus :  
@@ -458,11 +458,11 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   } else if (do_utcofs) {
                     do_utcofs = 0;
                     if (uval > (14 + 12) * 60) { dst[n++] = '!'; uval = (14+12) * 60; }
-                    hh = uval / 60;
-                    mm = uval % 60;
-                    if (uval < 12 * 60) { dst[n++] = '-'; uval = (12 - hh) * 100 - mm; } // todo
-                    else { dst[n++] = '+'; uval = (hh - 12) * 100 + mm; }
-                    n += ucnv(dst + n,uval,4,0);
+                    if (uval < 12 * 60) { dst[n++] = '-'; uval = 12 * 60 - uval; }
+                    else { dst[n++] = '+'; uval -= 12 * 60; }
+                    n += ucnv(dst + n,uval / 60,2,0);
+                    dst[n++] = ':';
+                    n += ucnv(dst + n,uval % 60,2,0);
                     break;
                   } else if (do_xu) {
                     do_xu = 0;
@@ -700,6 +700,7 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
 
   if (*fmt == '\n') {
     msgbuf[pos++] = '\n';
+    fmt++;
   }
   if (opts & Msg_type) {
     if (lvl >= Vrb) pos += mysnprintf(msgbuf, pos, maxlen, "%c%u ",lvlnam,sublvl);

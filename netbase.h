@@ -288,8 +288,6 @@ struct networkbase {
   ub4 *portwrk;   // [portcnt]
 
 // access
-  ub4 tthops[Hopcnt];   // index in timetables above
-  ub4 farehops[Hopcnt];   // index in fares above
 
   ub4 *id2ports;         // [maxid]
   ub4 *subid2ports;      // [maxid]

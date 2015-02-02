@@ -103,9 +103,6 @@ static void cpfromgnet(gnet *gnet,net *net)
   net->hichainlen = gnet->hichainlen;
 
   net->ghopcnt = gnet->hopcnt;
-
-//  net->hopdist = gnet->hopdist;
-//  net->hopdur = gnet->hopdur;
 }
 
 struct hisort {
@@ -162,10 +159,11 @@ int partition(gnet *gnet)
   ub4 *choporg = gnet->choporg;
   ub4 *phopdist,*hopdist = gnet->hopdist;
   ub4 *phopdur,*hopdur = gnet->hopdur;
+  ub4 *phopcdur,*hopcdur = gnet->hopcdur;
 
   ub4 hpcnt2,hxcnt2;
   ub4 dist;
-  ub4 midur;
+  ub4 midur,cdur;
 
   if (portcnt < 2 || hopcnt == 0) return 0;
 
@@ -177,7 +175,7 @@ int partition(gnet *gnet)
 
   ub1 *gportparts;
 
-  ub4 aimpartsize = globs.engvars[Eng_partsize];
+  ub4 aimpartsize = globs.netvars[Net_partsize];
   ub4 aimcnt = max(1,portcnt / aimpartsize);
 
   info(0,"aimed partition size %u",aimpartsize);
@@ -241,6 +239,7 @@ int partition(gnet *gnet)
 
     net->hopdist = gnet->hopdist;
     net->hopdur = gnet->hopdur;
+    net->hopcdur = gnet->hopcdur;
 
     // global
     cpfromgnet(gnet,net);
@@ -619,7 +618,7 @@ int partition(gnet *gnet)
         fullcnt++;
       }
     }
-    info(0,"parts %u from %u, %u full",newpartcnt,partcnt,fullcnt);
+    info(0,"parts %u from %u, %u at %u limit",newpartcnt,partcnt,fullcnt,aimpartsize);
     if (newpartcnt == partcnt) {
       info(0,"end iter %u on zero out of %u groups parts %u",iter,nhino,partcnt);
       break;
@@ -1189,6 +1188,7 @@ int partition(gnet *gnet)
     pchoporg = alloc(pchopcnt * 2, ub4,0xff,"cmp choporg",pchopcnt);
     phopdist = alloc(pchopcnt, ub4,0xff,"net hopdist",pchopcnt);
     phopdur = alloc(pchopcnt, ub4,0xff,"net hopdur",pchopcnt);
+    phopcdur = alloc(pchopcnt, ub4,0xff,"net hopcdur",pchopcnt);
 
     // assign ports : members of this part
     pp = pports;
@@ -1292,8 +1292,10 @@ int partition(gnet *gnet)
 
       dist = hopdist[hop];
       midur = hopdur[hop];
+      cdur = hopcdur[hop];
       phopdist[phop] = dist;
       phopdur[phop] = midur;
+      phopcdur[phop] = cdur;
 
       if (phop >= pchopcnt) warning(0,"hop %u phop %u phopcnt %u %u %u",hop,phop,phopcnt,hpcnt2,hxcnt2);
       error_ge(phop,pchopcnt);
@@ -1338,6 +1340,7 @@ int partition(gnet *gnet)
 
     net->hopdist = phopdist;
     net->hopdur = phopdur;
+    net->hopcdur = phopcdur;
 
     net->routes = routes;  // not partitioned
     net->ridcnt = ridcnt;

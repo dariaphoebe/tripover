@@ -79,8 +79,9 @@ void initime(int iter)
 ub4 min2lmin(ub4 min,ub4 utcofs)
 {
   if (min <= utcofs) { warning(0,"time %u for utc offset %u before Epoch UTC",min,utcofs); return min; }
-  else if (utcofs < 12 * 60) return min - (utcofs - 12 * 60);
-  else return min + (12 * 60 - utcofs);
+  else if (utcofs < 12 * 60) return min - (12 * 60 - utcofs);
+  else if (utcofs > 12 * 60) return min + (utcofs - 12 * 60);
+  else return min;
 }
 
 // sub utcofs
@@ -90,6 +91,15 @@ ub4 lmin2min(ub4 lmin,ub4 utcofs)
   else if (utcofs < 12 * 60) return lmin + (12 * 60 - utcofs);
   else if (utcofs > 12 * 60) return lmin - (utcofs - 12 * 60);
   else return lmin;
+}
+
+// coded decimal to biased
+ub4 utc12ofs(ub4 uo12)
+{
+  ub4 hh,mm;
+
+  hh = uo12 / 100; mm = uo12 % 100;
+  return hh * 60 + mm;
 }
 
 void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen)

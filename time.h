@@ -33,6 +33,7 @@ extern ub4 lmin2cd(ub4 min);
 extern ub4 min2wday(ub4 min);
 extern ub4 min2lmin(ub4 min,ub4 utcofs);
 extern ub4 lmin2min(ub4 lmin,ub4 utcofs);
+extern ub4 utc12ofs(ub4 uo12);
 extern ub4 cdday2wday(ub4 cd);
 extern ub4 cd2day(ub4 cd);
 extern ub4 day2cd(ub4 day);

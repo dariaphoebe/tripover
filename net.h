@@ -244,7 +244,8 @@ struct network {
 
   ub4 *dist0;      // [portcnt2] distance
   ub4 *hopdist;    // [chopcnt] idem
-  ub4 *hopdur;     // [chopcnt]
+  ub4 *hopdur;     // [chopcnt] average duration
+  ub4 *hopcdur;     // [chopcnt] compound constant duration
   ub4 *choporg;    // [chopcnt * 2] <first,last>
 
   ub4 *mac2port;   // [nmac < portcnt]
@@ -264,7 +265,8 @@ struct network {
   ub4 hichainlen;
 
   size_t needconn;    // final required any-stop connectivity
-
+  size_t haveconn[Nstop];
+  
 // idem for each of n-stop...
   ub2 *concnt[Nstop];  // [port2]
   ub4 *conofs[Nstop];  // [port2]
@@ -318,7 +320,8 @@ struct gnetwork {
   ub4 *portsbyhop; // [hopcnt * 2] <dep,arr>
 
   ub4 *hopdist;    // [chopcnt] distance
-  ub4 *hopdur;     // [chopcnt] duration
+  ub4 *hopdur;     // [chopcnt] average / typical duration
+  ub4 *hopcdur;     // [chopcnt] compound constant duration
   ub4 *choporg;    // [chopcnt * 2] <first,last>
 
   ub4 partcnt,tpart;
@@ -375,7 +378,7 @@ extern int mknet(ub4 maxstop);
 extern struct network *getnet(ub4 part);
 extern struct gnetwork *getgnet(void);
 extern int triptoports_fln(ub4 fln,struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports);
-extern int gtriptoports(struct gnetwork *net,struct trip *ptrip,char *buf,ub4 buflen,ub4 *ppos);
+extern int gtriptoports(struct gnetwork *net,struct trip *ptrip,char *buf,ub4 buflen,ub4 *ppos,ub4 utcofs);
 
 #define checktrip(net,legs,nleg,dep,arr,dist) checktrip_fln((net),(legs),(nleg),(dep),(arr),(dist),FLN)
 #define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)

@@ -358,6 +358,8 @@ void bound_fln(block *blk,size_t pos,ub4 elsize,const char *spos,const char *sel
   if (pos >= blk->elems) errorfln(fln,Exit,FLN,"%s pos %lu %u above %s len %lu block '%s'",spos,pos,(ub4)(pos - blk->elems),blk->selems,blk->elems,blk->desc);
 }
 
+ub4 meminfo(void) { return osmeminfo(); }
+
 void inimem(void)
 {
   msgfile = setmsgfile(__FILE__);

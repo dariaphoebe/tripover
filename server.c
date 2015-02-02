@@ -61,9 +61,9 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   ub4 n,pos = 0,len = (ub4)req->len;
   ub4 ival;
   ub4 varstart,varend,varlen,valstart,valend,type;
-  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,tspan = 3;
+  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,tspan = 3,utcofs=2200;
   int rv;
-  enum Vars { Cnone,Cdep,Carr,Ctdep,Ctspan,Clostop,Chistop } var;
+  enum Vars { Cnone,Cdep,Carr,Ctdep,Ctspan,Clostop,Chistop,Cutcofs } var;
   ub4 *evpool;
 
   if (len == 0) return 1;
@@ -101,6 +101,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     else if (varlen == 5 && memeq(vp,"tspan",5)) var = Ctspan;
     else if (varlen == 6 && memeq(vp,"lostop",6)) var = Clostop;
     else if (varlen == 6 && memeq(vp,"histop",6)) var = Chistop;
+    else if (varlen == 6 && memeq(vp,"utcofs",6)) var = Cutcofs;
     else var = Cnone;
     switch (var) {
     case Cnone: break;
@@ -110,6 +111,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     case Ctspan: tspan = ival; break;
     case Clostop:  lostop = ival; break;
     case Chistop: histop = ival; break;
+    case Cutcofs: utcofs = ival; break;
     }
   }
 
@@ -119,6 +121,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   src->evpool = evpool;
 
   src->deptmin_cd = tdep;
+  src->utcofs12 = utcofs;
   src->tspan = tspan;
 
   // invoke actual plan here

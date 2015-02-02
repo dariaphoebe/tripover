@@ -264,8 +264,8 @@ double lon2rad(ub4 lon,ub4 scale)
   return r;
 }
 
-ub4 rad2lat(double rlat) { return (ub4)(( (rlat * 180 / M_PI) + 90) * Latscale); }
-ub4 rad2lon(double rlon) { return (ub4)(( (rlon * 180 / M_PI) + 180) * Lonscale); }
+ub4 rad2lat(double rlat,ub4 scale) { return (ub4)(( (rlat * 180 / M_PI) + 90) * scale); }
+ub4 rad2lon(double rlon,ub4 scale) { return (ub4)(( (rlon * 180 / M_PI) + 180) * scale); }
 
 // minlat,maxlat,latrange,minlon,maxlon,lonrange,midlat,midlon,count
 void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt])
@@ -337,11 +337,6 @@ int inimath(void)
   vrbena = (getmsglvl() >= Vrb);
 
   for (x = 0; x < 16; x++) rndstate[x] = xorshift64star();
-
-  x = (ub8)Latscale / 180;
-  error_gt(x,1<<30,0);
-  x = (ub8)Lonscale / 360;
-  error_gt(x,1<<30,0);
 
   return 0;
 }

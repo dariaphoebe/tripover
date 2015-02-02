@@ -17,7 +17,7 @@ The planner is targeted to run on a server, accessed by local and web clients.
 * flexible dates with broad departure and return date ranges
 * include nearby airports or stations
 * consider price, time, conditions or a combination
-* real-time update changes and fare availability
+* real-time updates, like planned changes, disruptions and fare availability
 
 === Non-goals
 
@@ -25,7 +25,7 @@ The planner is targeted to run on a server, accessed by local and web clients.
 +
 [small]#airline data is generally not publicly available#
 +
-[small]#arranging public transport data is a project in itself#
+[small]#good coverage for public transport data is a project in itself#
 +
 
 * booking+ticketing
@@ -45,14 +45,16 @@ The planner is targeted to run on a server, accessed by local and web clients.
 == Status
 Developing
 
-* preliminary GTFS reader and external readable network file format
-* initial artificial network
-* timetable handling
+* GTFS reader and external readable network file format
+* Timezone support
+* Combine mltiple datasets
 * Static connectivity matrix aka graph builing
-* rudimentary local commandline client / server interface
-* rudimentary route and time search
+* simple local commandline client / server interface
+* basic time and route search
 
 == Installation
+
+Below is a short version of how to install and run : see the wiki for more complete doc.
 
 You can compile, install and run the program in any directory. The chosen dir is henceforth referred to by +project root+.
 In the examples below, this project root is shown as current dir +./+.
@@ -70,7 +72,7 @@ edit +./config+ if needed. This is the output of the compiler selection above an
 
 edit +./cfg.h+ if needed. This file contains compile-time constants that you may want to revise.
 
-=== Build server
+=== Build server and tools
 
 `./emka`
 
@@ -78,17 +80,9 @@ This will compile and link the server +tripover+
 
 === Build client
 
-Currently, the local commandline client does not need a build step
+Currently, the local commandline client does not need a build step.
 
 == Usage
-
-=== artificial netowrk
-
-Invoke the server without an existing network :
-
-`./tripover -max-ports=500 -max-hops=500 -max-stops=2`
-
-This will create a small artificial network, then enters a loop waiting for client requests.
 
 === GTFS feed
 
@@ -96,7 +90,7 @@ Prepare a GTFS feed by unpacking into any directory. Below southeast Queensland 
 
 `mkdir data/seq && cd data/seq`
 
-`wget http://translink.com.au/sites/default/files/assets/resources/about-translink/reporting-and-publications/open-data/gtfs/SEQ.zip?20141020`
+`wget http://translink.com.au/sites/default/files/assets/resources/about-translink/reporting-and-publications/open-data/gtfs/SEQ.zip`
 
 `unzip SEQ`
 
@@ -104,11 +98,17 @@ Prepare a GTFS feed by unpacking into any directory. Below southeast Queensland 
 
 Convert into tripover external format
 
+`gtfsprep data/seq`
+
 `gtfstool import data/seq data`
 
-Run tripover server with this network
+Check for any errors or warnings in the outpiut. The cosole output is duplicated in +gtfstool.log+
+
+Run tripover server with this network:
 
 `./tripover data`
+
+This will initialise and precompute the network. It takes several minutes.
 
 Invoke the commandline client :
 

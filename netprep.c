@@ -378,7 +378,7 @@ int prepnet(netbase *basenet)
   // write reference for name lookup
   if (wrportrefs(basenet)) return 1;
 
-  if (condense(gnet)) return 1;
+//  if (condense(gnet)) return 1; not (yet?)
 
   return 0;
 }

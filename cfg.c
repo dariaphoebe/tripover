@@ -38,25 +38,7 @@ const char *runlvlnames(enum Runlvl lvl)
   return lvlnames[min(lvl,Runcnt)];
 }
 
-int inicfg(void)
-{
-  msgfile = setmsgfile(__FILE__);
-  iniassert();
-
-  lvlnames[Runread] = "readnet";
-  lvlnames[Runbaseprep] = "prepbase";
-  lvlnames[Runprep] = "prepnet";
-  lvlnames[Runmknet] = "mknet";
-  lvlnames[Runnet0] = "mknet0";
-  lvlnames[Runcondense] = "condense";
-  lvlnames[Runcompound] = "compound";
-  lvlnames[Runnetn] = "mknetn";
-  lvlnames[Runserver] = "server";
-  lvlnames[Runend] = "end";
-  lvlnames[Runcnt] = "end";
-
-  return 0;
-}
+static int streq(const char *s,const char *q) { return !strcmp(s,q); }
 
 int inicfgcl(void)
 {
@@ -86,6 +68,7 @@ enum Cfgvar {
   Maxvm,
   Querydir,
   Stopat,Enable,Disable,
+  Net_gen,
   Net2pdf,Net2ext,
   Section,
   Eng_gen,
@@ -106,9 +89,9 @@ static struct cfgvar {
 
   {"limits",Bool,Section,0,0,0,0,"limits"},
 
-  {"maxhops",Uint,Maxhops,0,0,Hopcnt,50000,"maximum number of hops"},
-  {"maxports",Uint,Maxports,0,0,Portcnt,100000,"maximum number of ports"},
-  {"maxstops",Uint,Maxstops,0,0,Nstop-1,8,"maximum number of stops"},
+  {"maxhops",Uint,Maxhops,0,0,1024 * 1024,1024 * 1024,"maximum number of hops"},
+  {"maxports",Uint,Maxports,0,0,1024 * 1024,1024 * 1024,"maximum number of ports"},
+  {"maxstops",Uint,Maxstops,0,0,Nstop-1,7,"maximum number of stops"},
 
   {"maxvm",Uint,Maxvm,0,1,hi24,hi24,"virtual memory limit in GB"},
 
@@ -117,6 +100,9 @@ static struct cfgvar {
   {"stopat",EnumRunlvl,Stopat,0,0,Runcnt,Runcnt,"stop at given stage"},
   {"enable",EnumRunlvl,Enable,0,0,1,1,"enable a given stage"},
   {"disable",EnumRunlvl,Disable,0,0,1,1,"disable a given stage"},
+
+  {"network",Bool,Section,0,0,0,0,"network settings"},
+  {"net.partsize",Uint,Net_gen,Net_partsize,1,50000,6000,"aimed partition size"},
 
   // interface
   {"interface",Bool,Section,0,0,0,0,"configure client-server interface"},
@@ -128,21 +114,64 @@ static struct cfgvar {
 
   {"engineering",Bool,Section,0,0,0,0,"engineering settings"},
   {"eng.periodlim",Uint,Eng_gen,Eng_periodlim,0,365*2,365,"schedule period limit"},
-  {"eng.partsize",Uint,Eng_gen,Eng_partsize,1,50000,3000,"aimed partition size"},
   {"eng.options",String,Eng_opt,0,0,0,0,"engineering options"},
   {NULL,0,0,0,0,0,0,NULL}
 };
+
+int inicfg(void)
+{
+  msgfile = setmsgfile(__FILE__);
+  iniassert();
+
+  lvlnames[Runread] = "readnet";
+  lvlnames[Runbaseprep] = "prepbase";
+  lvlnames[Runprep] = "prepnet";
+  lvlnames[Runmknet] = "mknet";
+  lvlnames[Runnet0] = "mknet0";
+  lvlnames[Runpart] = "partition";
+  lvlnames[Runcompound] = "compound";
+  lvlnames[Runnetn] = "mknetn";
+  lvlnames[Runserver] = "server";
+  lvlnames[Runend] = "end";
+  lvlnames[Runcnt] = "end";
+
+  struct cfgvar *vp;
+  ub4 x,gb = meminfo() >> 10;
+
+  if (gb == 0) return vrbfln(FLN,0,"cfg defaults not adjusted to available memory");
+  vrb0(0,"adjusting cfg defaults to %u GB memory",gb);
+
+  // make some defaults depend on memory
+  for (vp = cfgvars; vp->name; vp++) {
+    if (vp->var != Net_gen) continue;
+    switch(vp->subvar) {
+    case Net_partsize:
+      if (gb < 4) x = 1000;
+      else if (gb < 8) x = 2000;
+      else if (gb < 16) x = 3000;
+      else if (gb < 64) x = 6000;
+      else if (gb < 256) x = 12000;
+      else x = 20000;
+      vp->def = x;
+      break;
+    default: break;
+    }
+  }
+
+  return 0;
+}
 
 static int varseen[Cfgcnt];
 
 static int memeq(const char *s,const char *q,ub4 n) { return !memcmp(s,q,n); }
 
-static int writecfg(const char *curname)
+static int writecfg(int havecfg,const char *cname)
 {
   struct cfgvar *vp = cfgvars;
   ub4 uval,pos;
   ub4 now;
   int fd;
+  char fname[1024];
   char buf[4096];
   char nowstr[64];
   const char *name;
@@ -151,14 +180,23 @@ static int writecfg(const char *curname)
   enum Runlvl lvl;
   char *origin;
 
-  fd = filecreate(curname,1);
+  if (havecfg) {
+    fmtstring(fname,"%s/%s.cur",globs.netdir,cname);
+  } else {
+    fmtstring(fname,"%s/%s",globs.netdir,cname);
+  }
+  fd = filecreate(fname,1);
   if (fd == -1) return 1;
 
   now = gettime_sec();
   sec70toyymmdd(now,nowstr,sizeof(nowstr));
-  pos = fmtstring(buf,"# tripover %u.%u config in effect at %s\n\n",Version_maj,Version_min,nowstr);
+  if (havecfg) {
+    pos = fmtstring(buf,"# tripover %u.%u config in effect at %s\n\n",Version_maj,Version_min,nowstr);
+  } else {
+    pos = fmtstring(buf,"# tripover %u.%u config created at %s\n\n",Version_maj,Version_min,nowstr);
+  }
   pos += mysnprintf(buf,pos,sizeof(buf),"# name value  '#' origin description default\n\n");
-  if (filewrite(fd,buf,pos,curname)) return 1;
+  if (filewrite(fd,buf,pos,fname)) return 1;
 
   for (vp = cfgvars; vp->name; vp++) {
     name = vp->name;
@@ -167,7 +205,7 @@ static int writecfg(const char *curname)
     if (vp->var == Enable || vp->var == Disable) continue;
     else if (vp->var == Section) {
       pos = fmtstring(buf,"\n[%s] - %s\n",name,desc);
-      if (filewrite(fd,buf,pos,curname)) return 1;
+      if (filewrite(fd,buf,pos,fname)) return 1;
       continue;
     }
 
@@ -184,6 +222,7 @@ static int writecfg(const char *curname)
     case Net2pdf:  uval = globs.writpdf; break;
     case Net2ext:  uval = globs.writext; break;
     case Eng_gen:  uval = globs.engvars[vp->subvar]; break;
+    case Net_gen:  uval = globs.netvars[vp->subvar]; break;
     case Eng_opt: break;
     case Cfgcnt: case Section: break;
     }
@@ -196,23 +235,23 @@ static int writecfg(const char *curname)
     switch(vp->cnv) {
     case Uint:       pos = fmtstring(buf,"%s %u\t# %s %s [%u]\n",name,uval,origin,desc,vp->def); break;
     case Bool:       pos = fmtstring(buf,"%s %u\t# %s %s [%u]\n",name,uval,origin,desc,vp->def); break;
-    case EnumRunlvl: if (uval <= Runcnt) pos = fmtstring(buf,"%s %s-%u\t# %s %s\n",name,lvlnames[uval],uval,origin,desc);
+    case EnumRunlvl: if (uval <= Runcnt) pos = fmtstring(buf,"%s %s=%u\t# %s %s\n",name,lvlnames[uval],uval,origin,desc);
                      else pos = fmtstring(buf,"%s unknown-%u\t# %s %s\n",name,uval,origin,desc); break;
     case String:     pos = fmtstring(buf,"%s %s\t# %s %s\n",name,sval,origin,desc);break;
     case None:       pos = fmtstring(buf,"%s\t# %s %s\n",name,origin,desc);break;
     }
-    if (filewrite(fd,buf,pos,curname)) return 1;
+    if (filewrite(fd,buf,pos,fname)) return 1;
   }
-  filewrite(fd,"\n",1,curname);
+  filewrite(fd,"\n",1,fname);
 
   for (lvl = 0; lvl < Runcnt; lvl++) {
     if (globs.doruns[lvl]) pos = fmtstring(buf,"enable %s\n",lvlnames[lvl]);
     else pos = fmtstring(buf,"disable %s\n",lvlnames[lvl]);
-    if (filewrite(fd,buf,pos,curname)) return 1;
+    if (filewrite(fd,buf,pos,fname)) return 1;
   }
 
-  fileclose(fd,curname);
-  info(0,"wrote config to %s",curname);
+  fileclose(fd,fname);
+  info(0,"wrote config to %s",fname);
   return 0;
 }
 
@@ -244,6 +283,7 @@ static int limitvals(void)
     case Net2ext: limitval(vp,&globs.writext); break;
     case Querydir: break;
     case Eng_gen:  limitval(vp,globs.engvars + vp->subvar); break;
+    case Net_gen:  limitval(vp,globs.netvars + vp->subvar); break;
     case Eng_opt: break;
     case Cfgcnt: case Section: break;
     }
@@ -271,6 +311,7 @@ static void finalize(void)
     case Net2pdf: finalval(&globs.writpdf); break;
     case Net2ext: finalval(&globs.writext); break;
     case Eng_gen:  finalval(globs.engvars + vp->subvar); break;
+    case Net_gen:  finalval(globs.netvars + vp->subvar); break;
     case Querydir: break;
     case Eng_opt: break;
     case Cfgcnt: case Section: break;
@@ -287,14 +328,14 @@ static void setval(struct cfgvar *vp,ub4 *puval,ub4 newval)
 static void eng_opt(const char *val,ub4 len)
 {
   if (len == 9 && memeq(val,"no-msgsum",len)) globs.nomsgsum = 1;
-  else warn(0,"line %u: ignoring unknown option %s",linno,val);
+  else if (len) warn(0,"line %u: ignoring unknown option %s",linno,val);
 }
 
 static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
 {
   struct cfgvar *vp = cfgvars;
   ub4 n,prvline,uval = 0;
-  const char *name;
+  const char *name,*eq;
   enum Cfgvar var;
   char fln[1024];
 
@@ -322,7 +363,9 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
   }
   varseen[var] = linno;
 
-  if (vallen == 0) return error(0,"%s: needs arg",fln);
+  if (var != Enable && var != Disable && var != Eng_opt && var != Eng_gen) {
+    if (vallen == 0) return error(0,"%s: needs arg",fln);
+  } else if (vallen == 0) return 0;
 
   switch(vp->cnv) {
 
@@ -337,6 +380,8 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
              break;
 
   case EnumRunlvl:
+             eq = strchr(val,'=');
+             if (eq) vallen = (ub4)(eq - val);
              val[vallen] = 0;
              uval = 0;
              while (uval < Runcnt && strcmp(lvlnames[uval],val)) uval++;
@@ -363,6 +408,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
                  break;
   case Net2pdf:  setval(vp,&globs.writpdf,uval); break;
   case Net2ext:  setval(vp,&globs.writext,uval); break;
+  case Net_gen:  setval(vp,globs.netvars + vp->subvar,uval); break;
   case Eng_gen:  setval(vp,globs.engvars + vp->subvar,uval); break;
   case Eng_opt:  eng_opt(val,vallen); break;
   case Cfgcnt: case Section: break;
@@ -373,6 +419,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
 static int rdcfg(const char *name,int *havecfg)
 {
   struct myfile cfg;
+  char fname[1024];
   enum states { Out,Var,Val0,Val,Val9,Fls } state;
   ub4 pos,len,varlen,vallen;
   char var[Varlen];
@@ -380,15 +427,23 @@ static int rdcfg(const char *name,int *havecfg)
   int rv = 0;
   char *buf,c;
 
-  info(0,"check config in %s",name);
-  rv = readfile(&cfg,name,0);
+  fmtstring(fname,"%s/%s",globs.netdir,name);
+  info(0,"check config in %s",fname);
+  rv = readfile(&cfg,fname,0);
   if (rv) return 1;
-  if (cfg.exist == 0) return 0;
+
+  if (cfg.exist == 0) {
+    if (streq(globs.netdir,".")) return 0;
+    info(0,"check config in %s",name);
+    rv = readfile(&cfg,name,0);
+    if (rv) return 1;
+    if (cfg.exist == 0) return 0;
+  }
 
   *havecfg = 1;
 
   len = (ub4)cfg.len;
-  vrb(CC,"parse config in %s",name);
+  vrb(CC,"parse config in %s",fname);
 
   if (len == 0) return 0;
 
@@ -421,7 +476,7 @@ static int rdcfg(const char *name,int *havecfg)
       switch(c) {
       case '#': state = Val9; break;
       case '\n': rv = addvar(var,val,varlen,vallen); state = Out; break;
-      case ' ': case '\t': case '=': state = Val0; break;
+      case ' ': case '\t': case '=': vallen = 0; state = Val0; break;
       default: var[varlen++] = c;
       } break;
 
@@ -472,7 +527,7 @@ int readcfg(const char *name)
 
   if (rdcfg(name,&havecfg)) return 1;
   if (limitvals()) return 1;
-  writecfg(havecfg ? "tripover.curcfg" : name);
+  writecfg(havecfg,name);
   finalize();
   globs.stopat = min(globs.stopat,globs.stopatcl);
   vrb0(0,"done config file %s",name);

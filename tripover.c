@@ -35,7 +35,7 @@ static ub4 msgfile;
 #include "gtfs.h"
 #include "event.h"
 #include "net.h"
-// #include "netev.h" in progress
+#include "netev.h"
 #include "netprep.h"
 #include "condense.h"
 #include "compound.h"
@@ -81,7 +81,7 @@ static int init0(char *progname)
   inigtfs();
   ininet();
   ininetio();
-//  ininetev();
+  ininetev();
   ininetprep();
   inievent(0);
   inicondense();
@@ -92,11 +92,13 @@ static int init0(char *progname)
   return 0;
 }
 
+static int do_eximsg; // enable at net init
+
 static void exit0(void)
 {
   exiutil();
   eximem();
-  eximsg();
+  if (do_eximsg) eximsg();
 }
 
 // init network
@@ -107,8 +109,6 @@ static int initnet(void)
   netbase *basenet = getnetbase();
   gnet *gnet;
   int rv = 0;
-
-  error_ovf(portcnt,ub2);
 
   if (*globs.netdir == 0) return 1;
 
@@ -129,10 +129,12 @@ static int initnet(void)
 
   gnet = getgnet();
 
-  rv = compound(gnet);
+  if (dorun(FLN,Runcompound)) rv = compound(gnet);
+  else return 0;
   if (rv) return rv;
 
-  rv = partition(gnet);
+  if (dorun(FLN,Runpart)) rv = partition(gnet);
+  else return 0;
   if (rv) return rv;
 
   return rv;
@@ -152,12 +154,12 @@ static int do_main(void)
   if (streq(cmdstr,"run")) {
     info0(0,"command 'run'"); 
   } else if (streq(cmdstr,"gtfsout")) {
-    info0(0,"cmd: 'gtfsout': read net, process events and write normalised gtfs");
+    info0(0,"cmd: 'gtfsout' TODO: read net, process events and write normalised gtfs");
     globs.stopat = Runprep;
     globs.writgtfs = 1;
   } else if (streq(cmdstr,"init")) {
     return 0;
-  } else return error(0,"unknown command %s",cmdstr);
+  } else return error(0,"unknown command '%s': known are 'run','init'",cmdstr);
 
   if (argc < 2) return error0(0,"commands 'run' and 'gtfsout' need network dir arg");
   strcopy(globs.netdir,globs.args[1]);
@@ -176,6 +178,8 @@ static int do_main(void)
   inievent(1);
 
   oslimits();
+
+  do_eximsg = 1;
 
   if (initnet()) return 1;
 
@@ -291,11 +295,11 @@ int main(int argc, char *argv[])
 
   // temporary defaults
   globs.msglvl = Info;
-  strcopy(globs.cfgfile,"tripover.cfg");
   strcopy(globs.querydir,"queries");
 
   setmsglvl(globs.msglvl,0,0);
   if (init0(argv[0])) return 1;
+  fmtstring(globs.cfgfile,"%s.cfg",globs.progname);
 
   if (cmdline(argc,argv,cmdargs,Program_desc)) return 1;
 
@@ -303,7 +307,17 @@ int main(int argc, char *argv[])
 
   initime(1);
 
-  if (readcfg(globs.cfgfile)) return 1;
+  if (globs.argc == 0) return shortusage();
+
+  if (globs.netdir[0] == 0) globs.netdir[0] = '.';
+
+  const char *cfgfile = globs.cfgfile;
+  if (globs.argc == 1 && streq(globs.args[0],"init")) {
+    info(0,"prepare new default config in %s",cfgfile);
+    osremove(cfgfile);
+  }
+
+  if (readcfg(cfgfile)) return 1;
 
   iniutil(1);
 

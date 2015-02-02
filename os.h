@@ -18,6 +18,8 @@ extern int oscreate(const char *name);
 extern int osfdinfo(struct myfile *mf,int fd);
 extern int osfileinfo(struct myfile *mf,const char *name);
 extern int osclose(int fd);
+extern int osremove(const char *name);
+
 extern int osdup2(int oldfd,int newfd);
 extern int osrewind(int fd);
 extern void *osmmap(size_t len);
@@ -32,6 +34,8 @@ extern int getqentry(const char *qdir,struct myfile *mf,const char *region,const
 extern int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext);
 
 extern void osmillisleep(ub4 msec);
+
+extern ub4 osmeminfo(void);
 
 extern void setmsginfo(char *buf,ub4 len);
 

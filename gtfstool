@@ -45,15 +45,15 @@ my $verbose_hops = 1;
 my $idprefix = '';
 
 my $merge_dup = 1;  # merge if lat,lon,name almost identical: nl
-my $dup_limit = 0.25;
+my $dup_limit = 0.25; # todo in feedcfg
 my $showmerge = 0;
 
 my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
-my $infer_parent = 0;   # infer parent when seemingly missing : seq
+my $infer_parent = 1;   # infer parent when seemingly missing : seq
 my $infer_limit = 0.15;
 my $showinfer = 0;
 
-my $geoacc = 5; # decimals for lat/lon in canon output
+my $geoacc = 6; # decimals for lat/lon in canon output
 
 my $omit_unconnect = 1;
 my $omit_noparent = 1;
@@ -155,15 +155,15 @@ sub warning($) {
 }
 
 sub error($) {
-  my ($package,$filename,$line) = caller(0);
-  msg("error: $_[0] at line $line");
+  my ($package,$filename,$line,$sub) = caller(0);
+  msg("error: $_[0] in $sub");
   $errorcnt++;
   return 0;
 }
 
 sub error_exit($) {
-  my ($package,$filename,$line) = caller(0);
-  msg("error: $_[0] at line $line");
+  my ($package,$filename,$line,$sub) = caller(0);
+  msg("error: $_[0] in $sub");
   $errorcnt++;
   exit 1;
 }
@@ -507,6 +507,9 @@ sub rdgtfscfg($$)
       } elsif ($var eq 'infer-common-station') {
         $infer_parent = 1;
         info("infer common parent station if name,lat,lon almost equal $args");
+      } elsif ($var eq 'no-infer-common-station') {
+        $infer_parent = 0;
+        info("not infer common parent station if name,lat,lon almost equal $args");
       } else { info("line $linno: skip unknown var '$var'"); }
     }
   }
@@ -602,20 +605,31 @@ sub tz2ofs($)
   return ($hh,$mm);
 }
 
-sub opengtfs($)
+sub opengtfs($$)
 {
-  my ($name) = @_;
-  my ($fh,$headline);
+  my ($name,$cvsmode) = @_;
+  my ($fh,$headline,$c);
 
   return error("required $name not present") unless -f $name;
   return error("required $name is empty") unless -s $name;
 
-  open($fh,'<:encoding(UTF-8)',$name) or return error("cannot open $name:$!");
-  $headline = readline($fh);
-  return error("$name is empty") unless defined $headline and length($headline);
-  $headline =~ s/^\x{FEFF}//;  # remove BOM
-  $headline =~ s/[\r\n]+$//;
-  return (1,$fh,$headline);
+  if ($cvsmode) {
+    open($fh,'<:encoding(UTF-8)',$name) or return error("cannot open $name:$!");
+    $headline = readline($fh);
+    return error("$name is empty") unless defined $headline and length($headline);
+    $headline =~ s/^\x{FEFF}//;  # remove BOM
+    $headline =~ s/[\r\n]+$//;
+    return (1,$fh,$headline);
+  } else {
+    open($fh,'<',$name) or return error("cannot open $name:$!");
+    $c = '#';
+    while ($c eq '#' or $c eq "\n") {
+      $headline = readline($fh);
+      return error("$name is empty") unless defined $headline and length($headline);
+      $c = substr($headline,0,1);
+    }
+    return (1,$fh,$headline);
+  }
 }
 
 sub readagency($)
@@ -636,7 +650,7 @@ sub readagency($)
   info("reading $agencyfname");
   return info("dryrun") if $dryrun;
 
-  ($rv,$agency,$headline) = opengtfs($agencyfname);
+  ($rv,$agency,$headline) = opengtfs($agencyfname,1);
   return 0 unless $rv;
 
   my @colnames = split(',',$headline);
@@ -723,7 +737,7 @@ sub readfeedinfo($)
   info("reading $fname");
   return info("dryrun") if $dryrun;
 
-  ($rv,$file,$headline) = opengtfs($fname);
+  ($rv,$file,$headline) = opengtfs($fname,1);
   return 0 unless $rv;
 
   my @colnames = split(',',$headline);
@@ -870,7 +884,7 @@ sub readstops($)
   info("reading $stopsname");
   return info("dryrun") if $dryrun;
 
-  ($rv,$stopfile,$headline) = opengtfs($stopsname);
+  ($rv,$stopfile,$headline) = opengtfs($stopsname,1);
   return 0 unless $rv;
 
   my @colnames = split(',',$headline);
@@ -1337,7 +1351,7 @@ sub readroutes($)
   info("reading $routefname");
   return info("dryrun") if $dryrun;
 
-  ($rv,$routefile,$headline) = opengtfs($routefname);
+  ($rv,$routefile,$headline) = opengtfs($routefname,1);
   return 0 unless $rv;
 
   my @colnames = split(',',$headline);
@@ -1495,7 +1509,7 @@ sub readtrips($)
   info("reading $tripfname");
   return info("dryrun") if $dryrun;
 
-  ($rv,$tripfile,$headline) = opengtfs($tripfname);
+  ($rv,$tripfile,$headline) = opengtfs($tripfname,1);
   return 0 unless $rv;
 
   my @colnames = split(',',$headline);
@@ -1654,7 +1668,7 @@ sub readcalendar($)
   return info("optional $calfname not present") unless -f $calfname;
   return info("optional $calfname is empty") unless -s $calfname;
 
-  ($rv,$calfile,$headline) = opengtfs($calfname);
+  ($rv,$calfile,$headline) = opengtfs($calfname,1);
   return 0 unless $rv;
 
   my @colnames = split(',',$headline);
@@ -1835,7 +1849,7 @@ sub readcaldates($)
   return info("optional $calfname not present") unless -f $calfname;
   return info("optional $calfname is empty") unless -s $calfname;
 
-  ($rv,$calfile,$headline) = opengtfs($calfname);
+  ($rv,$calfile,$headline) = opengtfs($calfname,1);
   return 0 unless $rv;
 
   my @colnames = split(',',$headline);
@@ -2073,7 +2087,7 @@ sub readstoptimes($)
 {
   my ($dir) = @_;
 
-  my ($stoptimes,$stoptimesname,$rv,$headline);
+  my ($stoptimes,$stoptimesname,$rv,$headline,$csvmode);
   my ($col,$colname,$line,$fldend,$endq,$c,$req,$tmpcol,$lastline);
 
   my ($route_id,$trip_id,$arr_time,$dep_time,$stop_id,$headsign);
@@ -2083,12 +2097,16 @@ sub readstoptimes($)
 
   return error("missing dir arg for import") unless defined $dir and length($dir);
 
-  $stoptimesname = $dir . '/' . 'stop_times.txt';
+  $stoptimesname = $dir . '/' . 'stop_times.tab';
+  unless (-f $stoptimesname) {
+    $stoptimesname = $dir . '/' . 'stop_times.txt';
+    $csvmode = 1;
+  } else { $csvmode = 0; }
 
   info("reading $stoptimesname");
   return info("dryrun") if $dryrun;
 
-  ($rv,$stoptimes,$headline) = opengtfs($stoptimesname);
+  ($rv,$stoptimes,$headline) = opengtfs($stoptimesname,$csvmode);
   return 0 unless $rv;
 
   my @colnames = split(',',$headline);
@@ -2112,9 +2130,14 @@ sub readstoptimes($)
   }
 #  printf("%u of %u recognised fields\n",$colid,scalar @colnames);
 
+  if ($csvmode == 0) {
+    chop $headline;
+    return error("unsupported column order $headline in $stoptimesname") unless $headline eq "trip_id\tstop_id\tstop_sequence\tarrival_time\tdeparture_time";
+  }
+
   my @lines = readline($stoptimes);
   close($stoptimes);
-  error_exit("stop_times.txt is empty") unless (@lines > 0);
+  error_exit("$stoptimesname is empty") unless (@lines > 0);
 
   my $linno = 1;
   my $linecnt = scalar(@lines);
@@ -2137,6 +2160,18 @@ sub readstoptimes($)
 
   foreach $line (@lines) {
 
+   if ($csvmode == 0) {
+     chop $line;
+     $lastline = ($linno >= @lines);
+     $linno++;
+     vrb("last line") if $lastline;
+
+     ($trip_id,$rstop_id,$seq,$arr_time,$dep_time) = split("\t",$line);
+     $dep_time = '' unless defined $dep_time;
+     $arr_time = '' unless defined $arr_time;
+
+#     info("$linno $trip_id,$rstop_id,$seq,$arr_time,$dep_time");
+   } else {
     chop $line;
     chop $line if index($line,"\r") > 0;
 
@@ -2188,6 +2223,7 @@ sub readstoptimes($)
         $headsign =~ $unquoter;
       }
     }
+   }
 
     unless (exists($tripids{$trip_id})) {
       vrb("line $linno: undefined trip id $trip_id");
@@ -2240,7 +2276,7 @@ sub readstoptimes($)
     }
     $ridsidtimes{$ridsidtime} = 1;
 
-    info("$linno $line") unless $arr_time =~ qr'^[0-9:]+$';
+#    info("$linno $line") unless $arr_time =~ qr'^[0-9:]+$';
 
     push(@stop_times, join("\t",$tripid,$stopid,$seq,$dep_time,$arr_time)) if $canonout;
 
@@ -2298,6 +2334,7 @@ sub readstoptimes($)
         } elsif (length($dep_time)) {
           $tss = 0 unless defined $tss;
           ($thh,$tmm,$tss) = ($dep_time =~ $hhmmpat);
+          warning("line $xlinno invalid time format '$dep_time'") unless defined $thh;
           $tdepsec = ($thh * 3600) + ($tmm * 60) + $tss;
           $tarrsec = $tdepsec;
         } elsif (length($arr_time)) {

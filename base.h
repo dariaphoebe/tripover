@@ -21,8 +21,8 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 16
-#define Version_phase "initial"
+#define Version_min 17
+#define Version_phase "developing"
 #define Program_name "tripover"
 #define Program_desc "broad-search journey planner"
 
@@ -61,7 +61,7 @@ typedef int sb4;
  #define strcopy(dst,src) strncpy((dst),(src),sizeof(dst)-1 );
 #endif
 
-enum Runlvl { Runread,Runbaseprep,Runprep,Runcondense,Runcompound,Runmknet,Runnet0,Runnetn,Runserver,Runend,Runcnt };
+enum Runlvl { Runread,Runbaseprep,Runprep,Runcompound,Runpart,Runmknet,Runnet0,Runnetn,Runserver,Runend,Runcnt };
 
 // program-wide global vars go here
 extern struct globs {
@@ -105,6 +105,7 @@ extern struct globs {
   ub4 testcnt;
   ub4 testset[16];
 
+  ub4 netvars[64];   // checked for Net_cnt in cfg
   ub4 engvars[64];   // checked for Eng_cnt in cfg
 
   int nomsgsum;
@@ -117,18 +118,15 @@ struct myfile {
   ub4 basename;
   size_t len;
   unsigned long mtime;
-  char name[256];
+  char name[1024];
   char localbuf[1024];
   char *buf;
 };
 
-// 360 at 40k = 111 km / lon
-#define Latscale 1000000
-#define Lonscale 1000000
-
-#undef NVALGRIND
+#define NVALGRIND
 #ifdef NVALGRIND
  #define vg_set_undef(p,n)
+ #define vg_chk_def(p,n) 0
 #else
  #include <valgrind/memcheck.h>
  #define vg_set_undef(p,n) VALGRIND_MAKE_MEM_UNDEFINED((p),(n))

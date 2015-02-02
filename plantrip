@@ -21,8 +21,8 @@ use integer;
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 14;
-my $lastchanged = "28 jan 2015";
+my $version_min = 15;
+my $lastchanged = "2 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -33,7 +33,7 @@ my $license = "This work is licensed under the Creative Commons\n" .
 my $verbose = 0;
 my $dryrun = 0;
 
-my $currentconfig = 'tripover.curcfg';
+my $currentconfig = 'tripover.cfg.cur';
 my $querydirvar = 'querydir';
 my $querydir;
 
@@ -43,12 +43,22 @@ my $timeout = 12; # seconds
 
 my $agelimit = 60; # seconds
 
+# defaults, modifyable with 'set' cmd or args
+my $maxstop = 4;
+my $dayrange = 3;
+my $startdate = 0; # implies start of service
+my $tz = 'Australia/Brisbane';
+my $utcofs = '+10:00';
+
+my $utcofs12 = 2200;  # biased coded decimal
+
 # stop at compile-time warnings
 local $SIG{__WARN__} = sub { print "$_[0]\n"; exit 1; };
 
 my $logname = 'plantrip.log';
 my $logfd;
 
+# rotate log
 if (-t STDOUT) {
   for (my $bck = 8; $bck >= 0; $bck--) {
     rename($logname . '.' . $bck,$logname . '.' . ($bck+1)) if (-f $logname . '.' . $bck);
@@ -231,9 +241,9 @@ sub portbyname($)
   return '';
 }
 
-sub iplan($$$$$)
+sub iplan($$)
 {
-  my ($dep,$arr,$stops,$dayrange,$startday) = @_;
+  my ($dep,$arr) = @_;
 
   my ($depname,$arrname,$qstr);
 
@@ -252,16 +262,27 @@ sub iplan($$$$$)
 
   my $region = 'glob';
 
-  $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\ndeptmin i $startday\n";
-  if (length($stops)) { $qstr .= "histop i $stops\n"; }
+  $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\ndeptmin i $startdate\n";
+  $qstr .= "histop i $maxstop\nutcofs i $utcofs12\n";
   query('p',$region,$qstr);
 }
 
-sub plan($$$$$)
+sub plan($$)
 {
-  my ($depname,$arrname,$stops,$dayrange,$startday) = @_;
+  my ($depname,$arrname) = @_;
 
   my ($dep,$arr);
+
+  unless (defined $depname and length($depname)) {
+    print('depart from: ');
+    $depname=<STDIN>;
+  }
+  return unless defined $depname and length($depname);
+  unless (defined $arrname and length($arrname)) {
+    print('arrive at: ');
+    $arrname=<STDIN>;
+  }
+  return unless defined $arrname and length($arrname);
 
   $dep = portbyname($depname);
   return 1 unless length($dep);
@@ -273,7 +294,72 @@ sub plan($$$$$)
   my $pdep = $idbysub{$dep};
   my $parr = $idbysub{$arr};
 
-  iplan($pdep,$parr,$stops,$dayrange,$startday);
+  iplan($pdep,$parr);
+}
+
+sub getvar($)
+{
+  my ($var) = @_;
+
+  unless (defined $var and length($var)) {
+    print('variable (? for list): ');
+    $var=<STDIN>;
+  }
+  return unless defined $var and length($var);
+  if (substr($var,0,1) eq '?') {
+    info('startdate - search for departure from this day onward');
+    info('daterange - number of days to search');
+    info('transferlimit - maximum number of transfers allowed');
+    info('timezone - specify timezone to show results in');
+    info('utcoffset- idem, in hh:mm offset from UTC');
+    return;
+  }
+  info("startdate: $startdate") if index($var,'startdate') >= 0;
+  info("daterange: $dayrange") if index($var,'daterange') >= 0;
+  info("transferlimit: $maxstop") if index($var,'transerlimit') >= 0;
+  info("timezone: $tz") if index($var,'timezone') >= 0;
+  info("utcoffset: $utcofs") if index($var,'utcoffset') >= 0;
+}
+
+sub setvar($$)
+{
+  my ($var,$val) = @_;
+
+  my ($hh,$mm,$col);
+
+  unless (defined $var and length($var)) {
+    print('variable: ');
+    $var=<STDIN>;
+  }
+  return unless defined $var and length($var);
+  unless (defined $var and length($var)) {
+    print('value: ');
+    $var=<STDIN>;
+  }
+  return unless defined $var and length($var);
+
+  info("set $var to '$val'");
+  $startdate = $val if index($var,'startdate') >= 0;
+  $dayrange = $val if index($var,'daterange') >= 0;
+  $maxstop = $val if index($var,'transerlimit') >= 0;
+  if (index($var,'timezone') >= 0) {
+    ($hh,$mm) = tz2ofs($val);
+    return unless defined $hh;
+    $tz = $val;
+    $utcofs12 = ($hh + 12) * 100 + $mm;
+    $utcofs = $hh . ':' . $mm;
+    info("new utcofs $hh:$mm");
+  }
+  if (index($var,'utcoffset') >= 0) {
+    $col = index($val,':');
+    return unless $col > 0;
+    $hh = substr($val,0,$col);
+    $mm = substr($val,$col+1);
+    $utcofs12 = ($hh + 12) * 100 + $mm;
+    info("new utcofs $hh:$mm");
+    $tz = ofs2tz($val);
+    info("new tz $tz");
+  }
 }
 
 sub stop($)
@@ -323,7 +409,7 @@ sub query($$$)
   print($qfile $str . "\n");
   close($qfile);
 
-  info("submit '$cmd' '$str'");
+  vrb("submit '$cmd' '$str'");
 
 # rename to submit: server will pick up from here. reply has serverid appended
   vrb("rename to $qname_sub");
@@ -413,6 +499,8 @@ sub usage()
   info("commands:");
   info("plan <from> <to>   plan a trip");
   info("stop               stop server\n");
+  info("set <var> <value>  set variable\n");
+  info("get [var]          get variable (? for list)\n");
   info("without command, interactive mode is entered");
 }
 
@@ -425,16 +513,111 @@ sub showvers($)
   info("$copyright\n");
 }
 
+my (%tzofs,%tzdstofs);
+
+sub readtzinfo()
+{
+  my $tzname = 'tzinfo.txt';
+  my $tzfile;
+  my $col = 0;
+  my ($line,$tzstr,$tz,$ofs,$dstofs,$a,$b,$c,$alt);
+  my @tzs;
+  my $tzcol = 3;
+  my $ofscol = 5;
+  my $dstofscol = 6;
+
+  # read timezone info from wikipedia export, in turn from iana TZ database 
+  open($tzfile,'<:encoding(UTF-8)',$tzname) or return warning("cannot open $tzname:$!");
+  my @lines = readline($tzfile);
+  close($tzfile);
+  for $line (@lines) {
+    next unless length($line);
+    next if index($line,'#') == 0;
+
+    @tzs = ();
+    if (index($line,'|-') == 0) {
+      $col = 0;
+    } elsif (index($line,'|') == 0) {
+      $line = substr($line,1);
+      $col++;
+    }
+
+    if ($col == $tzcol) {
+      $a = index($line,'[[');
+      $b = index($line,']]');
+      $tzstr = substr($line,$a+2,$b-3);
+    } elsif ($col == $ofscol) {
+      $a = index($line,'[[');
+      $c = index($line,'|');
+      $ofs = substr($line,$a+5,$c-6);
+    } elsif ($col == $dstofscol) {
+      $a = index($line,'[[');
+      $c = index($line,'|');
+      if ($a < 0) { vrb("no dstofs for $tz abc $line"); $dstofs = $ofs; }
+      else { $dstofs = substr($line,$a+5,$c-6); }
+    } elsif ($col > $dstofscol) {
+      while (length($tzstr)) {
+        $alt = index($tzstr,'|');
+        if ($alt < 0) {
+          push @tzs,$tzstr;
+          $tzstr = '';
+        } else {
+          $tz = substr($tzstr,0,$alt);
+          vrb("tz '$tz' ofs '$ofs'");
+          push @tzs,$tz;
+          $tzstr = substr($tzstr,$alt + 1);
+          vrb("tzstr '$tzstr'");
+        }
+      }
+      foreach $tz (@tzs) {
+        $tzofs{$tz} = $ofs;
+        $tzdstofs{$tz} = $dstofs;
+        vrb("tz '$tz' ofs '$ofs'");
+      }
+      $col = 0;
+    }
+  }
+  return 1;
+}
+
+sub tz2ofs($)
+{
+  my ($str) = @_;
+  my ($hh,$mm,$hhmm);
+
+  unless (exists($tzofs{$str})) { warning("no timezone info for $str"); return (0,0); }
+
+  $hhmm = $tzofs{$str};
+  $a = index($hhmm,':');
+  $hh = substr($hhmm,0,$a);
+  $mm = substr($hhmm,$a+1);
+  vrb("utc offset hh $hh mm $mm");
+  return ($hh,$mm);
+}
+
+sub ofs2tz($)
+{
+  my ($hhmm) = @_;
+  my ($hm,$str) = @_;
+
+  while (($str,$hm) = each %tzofs) {
+    return $str if $hm eq $hhmm;
+  }
+  return $hhmm;
+}
+
 sub init()
 {
   readcfg();
   unless (-d $querydir) {
+    info("creating configured query dir $querydir");
     mkdir($querydir) || error_exit("cannot create query dir:$!");
   }
+  readtzinfo();
 }
 
 my ($arg,$opt,$cmd,$line,$prvline);
-my ($dep,$arr,$stops,$dayrange,$startday);
+my ($dep,$arr);
 my @args;
 
 if (@ARGV > 0) {
@@ -469,24 +652,18 @@ if (@ARGV > 0) {
     } elsif ($cmd eq 'plan') {
       exit info("plan needs 'from' and 'to' arg") unless (@args > 2);
       $dep = $args[1]; $arr = $args[2];
-      if (@args > 3) { $stops = $args[3]; }
-      else { $stops = ''; }
-      if (@args > 4) { $dayrange = $args[4]; }
-      else { $dayrange = 3; }
-      if (@args > 5) { $startday = $args[5]; }
-      else { $startday = 0; } # implies start of service 
-      plan($dep,$arr,$stops,$dayrange,$startday);
+      $maxstop = $args[3] if (@args > 3);
+      $dayrange = $args[4] if (@args > 4);
+      $startdate = $args[5] if (@args > 5);
+      plan($dep,$arr);
       agedir($querydir,time() - $agelimit);
     } elsif ($cmd eq 'iplan') {
       exit info("iplan needs 'from' and 'to' arg") unless (@args > 2);
       $dep = $args[1]; $arr = $args[2];
-      if (@args > 3) { $stops = $args[3]; }
-      else { $stops = ''; }
-      if (@args > 4) { $dayrange = $args[4]; }
-      else { $dayrange = 3; }
-      if (@args > 5) { $startday = $args[5]; }
-      else { $startday = 0; }
-      iplan($dep,$arr,$stops,$dayrange,$startday);
+      $maxstop = $args[3] if (@args > 3);
+      $dayrange = $args[4] if (@args > 4);
+      $startdate = $args[5] if (@args > 5);
+      iplan($dep,$arr);
       agedir($querydir,time() - $agelimit);
     } else { info("unknown command"); }
   }
@@ -509,19 +686,26 @@ while ($cmd ne 'quit') {
   $line = $prvline if $line eq '!!';
   @args = split(' ',$line);
   $cmd = '';
-  $cmd = 'quit' unless index($line,'quit') < 0;
-  $cmd = 'quit' unless index($line,'exit') < 0;
-  $cmd = 'plan' unless index($line,'plan') < 0;
-  $cmd = 'iplan' unless index($line,'iplan') < 0;
-  $cmd = 'stop' unless index($line,'stop') < 0;
-  info("unrecognised command") if length($line) and not length($cmd);
-  $dayrange = 3; $startday = 20140916; $stops = 2;
+  $cmd = 'quit' if index($line,'quit') == 0;
+  $cmd = 'quit' if index($line,'exit') == 0;
+  $cmd = 'plan' if index($line,'plan') == 0;
+  $cmd = 'iplan' if index($line,'iplan') == 0;
+  $cmd = 'stop' if index($line,'stop') == 0;
+  $cmd = 'set' if index($line,'set') == 0;
+  $cmd = 'get' if index($line,'get') == 0;
+  info("unrecognised command '$line'") if length($line) and not length($cmd);
   $prvline = $line;
   if ($cmd eq 'plan') {
-    plan($args[1],$args[2],$stops,$dayrange,$startday);
+    plan($args[1],$args[2]);
     agedir($querydir,time() - $agelimit);
   } elsif ($cmd eq 'iplan') {
-    iplan($args[1],$args[2],$stops,$dayrange,$startday);
+    iplan($args[1],$args[2]);
     agedir($querydir,time() - $agelimit);
-  } elsif ($cmd eq 'stop') { stop($line); }
+  } elsif ($cmd eq 'stop') {
+    stop($line);
+  } elsif ($cmd eq 'set') {
+    setvar($args[1],$args[2]);
+  } elsif ($cmd eq 'get') {
+    getvar($args[1]);
+  }
 }

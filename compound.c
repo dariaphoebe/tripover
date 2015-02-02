@@ -50,7 +50,7 @@ int compound(gnet *net)
 {
   ub4 rportcnt,port2,rport2,portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
-  ub4 hop,chop,newhopcnt = 0,newcnt;
+  ub4 hop,chop,prvchop,newhopcnt = 0,newcnt;
   ub4 rid,rrid,ridcnt = net->ridcnt;
   ub4 chain,chaincnt = net->chaincnt;
   ub4 chainhopcnt = net->chainhopcnt;
@@ -68,6 +68,10 @@ int compound(gnet *net)
 
   net->chopcnt = hopcnt;
 
+  if (hopcnt == 0) return info(0,"skip compound on %u hop\as",hopcnt);
+
+  net->hopcdur = alloc(hopcnt,ub4,0xff,"net hopcdur",hopcnt); // fallback
+
   if (portcnt < 3) return info(0,"skip compound on %u port\as",portcnt);
   if (hopcnt < 2) return info(0,"skip compound on %u hop\as",hopcnt);
   if (ridcnt == 0) return info(0,"skip compound on no rids for %u hop\as",hopcnt);
@@ -84,7 +88,7 @@ int compound(gnet *net)
   ub4 *orghopdist = net->hopdist;
 
   ub4 *orghopdur = net->hopdur;
-  ub4 midur;
+  ub4 midur,dur;
 
   ub4 ghop,hop1,hop2,dep1,arr2;
   ub4 dist1,dist2,midur1,midur2,dist = 0;
@@ -118,7 +122,7 @@ int compound(gnet *net)
   afree(duprids,"cmp duprids");
 #endif
 
-  ub4 cnt,rawcmphopcnt = 0;
+  ub4 cnt,cmphopcnt = 0;
 
   routes = net->routes;
   chains = net->chains;
@@ -144,7 +148,7 @@ int compound(gnet *net)
 
   ub4 *port2rport = alloc(portcnt,ub4,0,"cmp rportmap",portcnt);
   ub4 *rport2port = alloc(hiportlen,ub4,0,"cmp rportmap",hiportlen);
-  ub1 *duphops = alloc(hiportlen * hiportlen,ub1,0,"cmp duphops",hiportlen);
+  ub4 *duphops = alloc(hiportlen * hiportlen,ub4,0xff,"cmp duphops",hiportlen);
 
   // pass 1: count
   for (rid = 0; rid < ridcnt; rid++) {
@@ -173,7 +177,7 @@ int compound(gnet *net)
     rport2 = rportcnt * rportcnt;
     nclear(duphops,rport2);
     newcnt = 0;
-    for (rdep = 0; rdep < rportcnt; rdep++) duphops[rdep * rportcnt + rdep] = 1;
+    for (rdep = 0; rdep < rportcnt; rdep++) duphops[rdep * rportcnt + rdep] = 0;
 
     warnlim = 1;
     for (chain = 0; chain < chaincnt; chain++) {
@@ -219,8 +223,8 @@ int compound(gnet *net)
         for (ci2 = ci1 + 1; ci2 < pchlen; ci2++) {
           arr2 = parrs[ci2];
           deparr = dep1 * rportcnt + arr2;
-          if (duphops[deparr]) continue;
-          duphops[deparr] = 1;
+          if (duphops[deparr] == hi32) continue;
+          duphops[deparr] = 0;
           cmpcnt++;
 //          if (cmpcnt >= maxperm2) break;
         } // each c2
@@ -231,16 +235,16 @@ int compound(gnet *net)
       } // each c1
       newcnt += cmpcnt;
     } // each chain
-    newhopcnt += newcnt;
-    info(0,"rid %u len %u cmp %u",rid,rportcnt,newcnt);
+    cmphopcnt += newcnt;
+    vrb0(0,"rid %u len %u cmp %u",rid,rportcnt,newcnt);
   } // each rid
-  info(0,"\ah%u compound hops",newhopcnt);
+  info(0,"\ah%u compound hops",cmphopcnt);
+
+  if (cmphopcnt == 0) return 0;
 
   info(0,"compound %u chains in %u rids pass 2",chaincnt,ridcnt);
 
-  if (newhopcnt == 0) return 0;
-
-  newhopcnt += hopcnt;
+  newhopcnt = cmphopcnt + hopcnt;
 
   chop = hopcnt;
 
@@ -258,6 +262,11 @@ int compound(gnet *net)
   memcpy(hopdur,orghopdur,hopcnt * sizeof(ub4));
   afree(orghopdur,"net hopdur");
   net->hopdur = hopdur;
+
+  ub4 *hopcdur = alloc(newhopcnt,ub4,0,"cmp hopcdur",newhopcnt);
+  ub4 *hopccnt = alloc(newhopcnt,ub4,0,"cmp hopccnt",newhopcnt);
+  ub4 *hoplodur = alloc(newhopcnt,ub4,0,"cmp hoplodur",newhopcnt);
+  ub4 *hophidur = alloc(newhopcnt,ub4,0,"cmp hophidur",newhopcnt);
 
   ub4 *choporg = alloc(newhopcnt * 2,ub4,0,"cmp choporg",newhopcnt);
 
@@ -279,8 +288,7 @@ int compound(gnet *net)
       if (port2rport[arr] == hi32) { port2rport[arr] = rportcnt; rport2port[rportcnt++] = arr; }
     }
     rport2 = rportcnt * rportcnt;
-    nclear(duphops,rport2);
-    for (rdep = 0; rdep < rportcnt; rdep++) duphops[rdep * rportcnt + rdep] = 1;
+    nsethi(duphops,rport2);
 
     for (chain = 0; chain < chaincnt; chain++) {
       cp = chains + chain;
@@ -328,15 +336,27 @@ int compound(gnet *net)
         dep1 = pdeps[ci1];
         for (ci2 = ci1 + 1; ci2 < pchlen; ci2++) {
           arr2 = parrs[ci2];
+          if (dep1 == arr2) continue;
           deparr = dep1 * rportcnt + arr2;
-          if (duphops[deparr]) continue;
+          prvchop = duphops[deparr];
+          if (prvchop != hi32) {  // accumulate duration if constant
+            tdep1 = ptdep[ci1];
+            tarr2 = ptarr[ci2];
+            error_lt(tarr2,tdep1);
+            dur = tarr2 - tdep1;
+            hopcdur[prvchop] += dur;
+            hoplodur[prvchop] = min(hoplodur[prvchop],dur);
+            hophidur[prvchop] = max(hophidur[prvchop],dur);
+            hopccnt[prvchop]++;
+            continue;
+          }
 
           if (chop >= newhopcnt) {
             warn(0,"limiting compound to %u hops",chop - hopcnt);
             break;
           }
 
-          duphops[deparr] = 1;
+          duphops[deparr] = chop;
 
           // generate compound
           hop1 = pchain[ci1];
@@ -360,9 +380,13 @@ int compound(gnet *net)
           dist = dist2 - dist1;
           hopdist[chop] = dist;
 
-          error_lt(tarr2,tdep1);   // todo take average over chains if not constant
+          error_lt(tarr2,tdep1);
           midur = tarr2 - tdep1;
           hopdur[chop] = midur;
+          hopcdur[chop] = midur;
+          hoplodur[chop] = midur;
+          hophidur[chop] = midur;
+          hopccnt[chop] = 1;
 
           chop++;
           cmpcnt++;
@@ -379,16 +403,32 @@ int compound(gnet *net)
     if (chop >= newhopcnt) break;
   } // each rid
 
+  ub4 eqdurs = 0,aeqdurs = 0;
+
   for (hop = 0; hop < chop; hop++) {
     error_ge(choporg[hop * 2],hopcnt);
     error_ge(choporg[hop * 2 + 1],hopcnt);
+
+    cnt = hopccnt[hop];
+    if (cnt) {
+     if ( hoplodur[hop] == hophidur[hop]) {
+        hopcdur[hop] /= cnt;
+        eqdurs++;
+     } else if ( hophidur[hop] - hoplodur[hop] < 10) {
+        hopcdur[hop] /= cnt;
+        aeqdurs++;
+     } else vrb0(0,"chop %u dur %u-%u",chop ,hoplodur[hop],hophidur[hop]);
+    } else {
+      hopcdur[hop] = hi32;
+    }
   }
 
-  info(0,"%u of %u estimated compound hops",chop - hopcnt,rawcmphopcnt);
+  info(0,"%u compound hops, %u with constant duration, %u within 10 min",chop - hopcnt,eqdurs,aeqdurs);
   info(0,"avg chain len %lu, global %lu",cumpchainlen / pchaincnt,cumgchainlen / pchaincnt);
 
   net->chopcnt = chop;
   net->choporg = choporg;
+  net->hopcdur = hopcdur;
 
   return 0;
 }

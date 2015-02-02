@@ -54,9 +54,10 @@ int condense(struct gnetwork *net)
   if (portcnt == 0) return info0(0,"skip condense on 0 ports");
   if (hopcnt == 0) return info0(0,"skip condense on 0 hops");
 
-  docondense = dorun(FLN,Runcondense);
+//  docondense = dorun(FLN,Runcondense);
 
   if (portcnt < 200) docondense = 0;  // todo heuristic
+  else docondense = 0;
 
   ub4 *port2zport = alloc(portcnt,ub4,0xff,"condense",portcnt);
   ub4 *zport2port = alloc(portcnt,ub4,0xff,"condense",portcnt);

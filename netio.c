@@ -538,9 +538,9 @@ static int rdextports(netbase *net,const char *dir)
   ub4 valndx,*vals;
   ub4 latscale,latscaleline;
   ub4 lonscale,lonscaleline;
+  ub8 x8;
 
-  latscale = Latscale;
-  lonscale = Lonscale;
+  latscale = lonscale = 0;
 
   struct extport {
     char name[128];
@@ -613,6 +613,11 @@ static int rdextports(netbase *net,const char *dir)
       break;
 
       case Newitem:
+      error_zz(latscale,lonscale);
+      x8 = (ub8)latscale / 180;
+      error_gt(x8,1<<30,0);
+      x8 = (ub8)lonscale / 360;
+      error_gt(x8,1<<30,0);
       namelen = eft.namelen;
       valndx = eft.valndx;
       linno = eft.linno;
@@ -847,8 +852,8 @@ static int rdextports(netbase *net,const char *dir)
     pp = ports + port;
     id = pp->id;
     id2ports[id] = port;
-    pp->rlat = lat2rad(pp->lat,Latscale);
-    pp->rlon = lon2rad(pp->lon,Lonscale);
+    pp->rlat = lat2rad(pp->lat,latscale);
+    pp->rlon = lon2rad(pp->lon,lonscale);
 //    info(0,"port %u geo %u,%u %e,%e %s",port,pp->lat,pp->lon,pp->rlat,pp->rlon,pp->name);
   }
   for (subid = 0; subid <= subidhi; subid++) subid2ports[subid] = hi32;
