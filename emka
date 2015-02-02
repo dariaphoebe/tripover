@@ -41,9 +41,16 @@
 # - content hashes excluding comments is a better indicator than timestamp
 # - executables used to generate sources are not updated automatically 
 
+# This file is part of Tripover, a broad-search journey planner.
+
+#  Copyright (C) 2014-2015 Joris van der Geer.
+
+#  This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
+#  To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
+
 # author: Joris van der Geer
 
-# last changed:  30 nov 2014
+# last changed:  2 feb 2015
 
 use 5.008;
 use integer;
@@ -55,7 +62,9 @@ use POSIX qw(tmpnam);
 use Fcntl ':mode';
 
 my $progname = 'emka';
-my $verstr = '0.62';
+my $verstr = '0.63';
+
+my $norecurse = 1;
 
 sub cmd_help() {
   print("Usage: $progname [options] [command] [dir]\n");
@@ -251,7 +260,8 @@ sub cmd_config($) {
   $cc = trimws($cc);
   $cc = $ccdef if length($cc) < 1;
   info("cc '$cc'");
-  info("'$cc' is not in PATH") unless which($cc);
+  if (which($cc)) { $ccdef = $cc; }
+  else { info("note: '$cc' is not in PATH"); }
 
   print ("linker [$ccdef] ? ");
 
@@ -569,7 +579,7 @@ sub read_dir($) {
     ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat _;
 
     if (S_ISDIR($mode)) {
-      if (inarray($name,@ignoredirs)) { next; }
+      if ($norecurse or inarray($name,@ignoredirs)) { next; }
       info("recurse into $name");
       return 0 unless read_dir_recurse($path);
       next;
@@ -957,7 +967,7 @@ foreach $arg (@ARGV) {
     elsif ($opt eq 's') { info('+static'); $do_sca = 1; }
     elsif ($opt eq 'u') { info('unconditional build except generated sources'); $unconditional = 1; }
     elsif (index($opt,'t') == 0) { $endtime = int(substr($opt,2)); }
-    else { info("ignring unknown option -$opt"); }
+    else { info("ignoring unknown option -$opt"); }
   } else {
     if ($arg eq 'static') { $cmd = 'static'; }
     elsif ($arg eq 'clean') { $cmd = 'clean'; }

@@ -284,6 +284,8 @@ struct networkbase {
 
   ub4 t0,t1; // overall timebox in localtime + tz uncertainty
 
+  ub4 utcofs12_def;
+
 // workspace
   ub4 *portwrk;   // [portcnt]
 

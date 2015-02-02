@@ -42,9 +42,6 @@ void inicompound(void)
   iniassert();
 }
 
-static const ub4 maxperm = min(160,Chainlen);
-static const ub4 maxperm2 = maxperm * maxperm;
-
 // add compound hops
 int compound(gnet *net)
 {
@@ -61,6 +58,8 @@ int compound(gnet *net)
   struct route *rp,*routes = net->routes;
   struct chain *cp,*chains = net->chains;
   struct chainhop *chp,*chainhops = net->chainhops;
+  ub4 maxperm = min(160,Chainlen);
+  ub4 maxperm2 = maxperm * maxperm;
 
   ub4 dep,arr,deparr,rdep,rarr;
   int docompound,dbg;

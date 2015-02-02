@@ -1012,6 +1012,7 @@ static int rdexttimes(netbase *net,const char *dir)
       mm = utcofs12 % 100;
       utcofs = hh * 60 + mm;
       vrb0(0,"UTC offset %u from %u:%u - 12:00",utcofs - 12 * 60,hh,mm);
+      net->utcofs12_def = utcofs12;
 
       if (addcnt > dtbox) {
         warninfo(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,addcnt,dtbox);
@@ -1820,6 +1821,10 @@ int wrportrefs(netbase *net)
 
   pos += mysnprintf(buf,pos,buflen,"# written by tripover version %u.%u  %s %s\n\n", Version_maj,Version_min,nowstr,tz);
   pos += mysnprintf(buf,pos,buflen,"# %u ports, bounding box todo\n\n",portcnt);
+
+  pos += mysnprintf(buf,pos,buflen,".utcofs\t%u\n\n",net->utcofs12_def);
+  pos += mysnprintf(buf,pos,buflen,".latscale\t%u\n\n",net->latscale);
+  pos += mysnprintf(buf,pos,buflen,".lonscale\t%u\n\n",net->lonscale);
 
   pos += mysnprintf(buf,pos,buflen,"# gid\tname\tlat\tlon\n\n");
 

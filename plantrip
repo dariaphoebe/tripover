@@ -16,12 +16,11 @@
 
 use 5.012;
 use strict;
-use integer;
 
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 15;
+my $version_min = 16;
 my $lastchanged = "2 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
@@ -47,10 +46,12 @@ my $agelimit = 60; # seconds
 my $maxstop = 4;
 my $dayrange = 3;
 my $startdate = 0; # implies start of service
-my $tz = 'Australia/Brisbane';
+my $tzdef = 'Australia/Brisbane';
+my $tz;
 my $utcofs = '+10:00';
 
 my $utcofs12 = 2200;  # biased coded decimal
+my $utcofs12_def = 2200;
 
 # stop at compile-time warnings
 local $SIG{__WARN__} = sub { print "$_[0]\n"; exit 1; };
@@ -76,7 +77,10 @@ my %portnames;
 my %portpnames;
 my %portids;
 my %idbysub;
+my (%portlats,%portlons);
 my $portcnt = 0;
+
+my ($latscale,$lonscale);
 
 sub msg($) {
   my ($m) = @_;
@@ -147,6 +151,48 @@ sub agedir($$)
   return 1;
 }
 
+my $pi = 3.141592655;
+my $geolow = $pi * 1.0e-4;
+my $geolimit = $pi * 1.0e-8;
+my $mean_earth_radius = 6371.0;
+
+sub acos { atan2( sqrt(1 - $_[0] * $_[0]), $_[0] ) }
+
+sub geodist($$$$)
+{
+  my ($slat,$slon,$lat,$lon) = @_;
+
+  my ($dist,$dlat,$dlon);
+
+  my $phi1 = ($slat * $pi) / 180;
+  my $lam1 = ($slon * $pi) / 180;
+  my $phi2 = ($lat * $pi) / 180;
+  my $lam2 = ($lon * $pi) / 180;
+
+  my $dlam = $lam2 - $lam1;
+  my $dphi = $phi2 - $phi1;
+
+  if (abs($dlam) < $geolow and abs($dphi) < $geolow) { # trivial case: assume flat
+    if (abs($dlam) < $geolimit and abs($dphi) < $geolimit) { # flush to zero
+      return 0;
+    }
+    $dlat = ($dlam * $mean_earth_radius * 2) / $pi;
+    $dlon = ($dphi * $mean_earth_radius * 2) / $pi;
+    $dist = sqrt( ($dlat * $dlat) + ($dlon * $dlon));
+    return $dist;
+  }
+
+  my ($d,$dsig);
+
+  $d = sin($phi1) * sin($phi2) + cos($phi1) * cos($phi2) * cos($dlam);
+  if ($d >= 1.0) { error("geodist d $d for $phi1 $phi2 $lam1 $lam2"); return 0; }
+  elsif ($d <= -1.0) { error("geodist d $d for $phi1 $phi2 $lam1 $lam2"); return 0; }
+
+  $dsig = acos($d);
+
+  return $dsig * $mean_earth_radius;
+}
+
 my $haveportrefs = 0;
 
 # read port to id mappings
@@ -154,7 +200,8 @@ sub readportrefs($)
 {
   my ($fname) = @_;
 
-  my ($fh,$line,$id,$subid,$name,$lcname,$nlen,$lat,$lon);
+  my ($id,$subid,$name,$lcname,$nlen,$lat,$lon);
+  my ($fh,$line,$c,$var,$val);
 
   open($fh,'<:encoding(UTF-8)',$fname) or error_exit("cannot open $fname: $!");
 
@@ -163,8 +210,15 @@ sub readportrefs($)
 
   foreach $line (@lines) {
     next unless length($line);
-    next if index($line,'#') == 0;
-
+    $c = substr($line,0,1);
+    next if $c eq '#';
+    if ($c eq '.') {
+      ($var,$val) = split("\t",substr($line,1));
+      $tzdef = $val if $var eq 'tz';
+      $latscale = $val if $var eq 'latscale';
+      $lonscale = $val if $var eq 'lonscale';
+      next;
+    }
     ($id,$subid,$name,$lat,$lon) = split("\t",$line);
     next unless defined $id and defined $name;
     $lcname = lc($name);
@@ -172,6 +226,8 @@ sub readportrefs($)
     $portnames{$lcname} = $subid;
     $portids{$subid} = $name unless defined $portids{$subid};
     $idbysub{$subid} = $id;
+    $portlats{$subid} = $lat;
+    $portlons{$subid} = $lon;
   }
   $portcnt = scalar(keys %portids);
   info("$portcnt ports");
@@ -241,11 +297,33 @@ sub portbyname($)
   return '';
 }
 
+sub portbygeo($$)
+{
+  my ($lat,$lon) = @_;
+  my ($clat,$clon,$dist,$lodist,$loid,$id,$name);
+
+  readportrefs($portrefname) unless $haveportrefs;
+
+  $lodist = 999999999; $loid = 0;
+  while (($id,$name) = each %portids) {
+    $clat = $portlats{$id};
+    $clon = $portlons{$id};
+    $clat = ($clat / $latscale) - 90;
+    $clon = ($clon / $lonscale) - 180;
+
+    $dist = geodist($lat,$lon,$clat,$clon);
+    if ($dist < $lodist) { vrb("dist $dist id $id $name"); $lodist = $dist; $loid = $id; }
+  }
+  warning("$lat,$lon not found") unless exists $portids{$loid};
+
+  return $loid;
+}
+
 sub iplan($$)
 {
   my ($dep,$arr) = @_;
 
-  my ($depname,$arrname,$qstr);
+  my ($depname,$arrname,$qstr,$hh,$mm);
 
   if ($haveportrefs) {
     if (exists($portids{$dep})) { $depname = $portids{$dep}; }
@@ -260,8 +338,21 @@ sub iplan($$)
     info("arr $arr");
   }
 
+  if ($dep == $arr) {
+    info("departure and arrival identical");
+    return 1;
+  }
+
   my $region = 'glob';
 
+  unless (defined $tz) {
+    $utcofs12 = $utcofs12_def;
+    $hh = ($utcofs12 / 100) - 12;
+    $mm = $utcofs12 % 100;
+    $utcofs = sprintf("%+02d:%02d",$hh,$mm);
+    $tz = ofs2tz($utcofs);
+    info("using default display tz $tz utc$utcofs from portrefs");
+  }
   $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\ndeptmin i $startdate\n";
   $qstr .= "histop i $maxstop\nutcofs i $utcofs12\n";
   query('p',$region,$qstr);
@@ -272,6 +363,8 @@ sub plan($$)
   my ($depname,$arrname) = @_;
 
   my ($dep,$arr);
+  my $isgeo = qr'^\s*([+-]?[0-9]+\.[0-9]+)\s*,\s*([+-]?[0-9]+\.[0-9]+)\s*$';
+  my ($dlat,$dlon,$alat,$alon);
 
   unless (defined $depname and length($depname)) {
     print('depart from: ');
@@ -284,11 +377,22 @@ sub plan($$)
   }
   return unless defined $arrname and length($arrname);
 
-  $dep = portbyname($depname);
-  return 1 unless length($dep);
+  ($dlat,$dlon) = ($depname =~ $isgeo);
+  if (defined $dlat and defined $dlon) {
+    $dep = portbygeo($dlat,$dlon)
+  } else {
+    $dep = portbyname($depname);
+  }
+  return 1 unless length($dep) and exists $portids{$dep};
   info("$depname resolved into $portids{$dep}");
-  $arr = portbyname($arrname);
-  return 1 unless length($arr);
+
+  ($alat,$alon) = ($arrname =~ $isgeo);
+  if (defined $dlat and defined $dlon) {
+    $arr = portbygeo($alat,$alon) 
+  } else {
+    $arr = portbyname($arrname);
+  }
+  return 1 unless length($arr) and exists $portids{$arr};
   info("$arrname resolved into $portids{$arr}");
 
   my $pdep = $idbysub{$dep};
@@ -347,7 +451,7 @@ sub setvar($$)
     return unless defined $hh;
     $tz = $val;
     $utcofs12 = ($hh + 12) * 100 + $mm;
-    $utcofs = $hh . ':' . $mm;
+    $utcofs = sprintf("%+02d:%02d",$hh,$mm);
     info("new utcofs $hh:$mm");
   }
   if (index($var,'utcoffset') >= 0) {
@@ -616,7 +720,7 @@ sub init()
   readtzinfo();
 }
 
-my ($arg,$opt,$cmd,$line,$prvline);
+my ($arg,$opt,$inopt,$cmd,$line,$prvline);
 my ($dep,$arr);
 my @args;
 
@@ -631,8 +735,9 @@ if (@ARGV > 0) {
     }
   }
 
+  $inopt = 1;
   foreach $arg (@ARGV) {
-    if (substr($arg,0,1) eq '-') {
+    if ($inopt and substr($arg,0,1) eq '-') {
       $opt = $arg;
       $opt =~ s/^-+//;
       if ($opt eq 'v' or $opt eq 'verbose') { info('verbose mode'); $verbose = 1; }
@@ -641,6 +746,7 @@ if (@ARGV > 0) {
       elsif ($opt eq 'V' or $opt eq 'version') { showvers(1); exit 1; }
       else { info("ignoring unknown option -$opt"); }
     } else {
+      $inopt = 0;
       push(@args,$arg);
     }
   }
@@ -673,7 +779,7 @@ if (@ARGV > 0) {
 init();
 
 info("entering command loop. commands:\n");
-info("  plan <from> <to>");
+info("  plan <from> <to> name or coords");
 info("  quit, exit");
 
 # loop 
