@@ -35,7 +35,7 @@ enum Msgcode {
 enum Msgopts { Msg_stamp = 2, Msg_pos = 4, Msg_type = 8, Msg_ccerr = 16 };
 
 struct eta {
-  ub8 now,stamp,start;
+  ub8 now,stamp,start,limit;
   ub4 cur,end;
 };
 

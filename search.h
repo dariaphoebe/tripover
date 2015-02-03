@@ -20,6 +20,7 @@ struct srcctx {
 
   char resbuf[2 * Nxleg * 256];
   ub4 reslen;
+  ub8 querytlim;
 
   struct trip trips[2];
 

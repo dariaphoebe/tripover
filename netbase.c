@@ -465,7 +465,8 @@ int prepbasenet(void)
           cp->rid = rid;
           cp->dep = dep;
           cp->hopcnt = 1;
-          cp->lotdep = tdep;
+          cp->lotdep = cp->hitdep = tdep;
+          cp->lotarr = cp->hitarr = tarr;
           cumhoprefs2++;
         } else {
           if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
@@ -488,6 +489,9 @@ int prepbasenet(void)
             error_ge(chcnt,cp->hoprefs);
             cp->hopcnt = chcnt + 1;
             cp->lotdep = min(cp->lotdep,tdep);
+            cp->lotarr = min(cp->lotarr,tarr);
+            cp->hitdep = max(cp->hitdep,tarr);
+            cp->hitarr = max(cp->hitarr,tarr);
             cumhoprefs2++;
             if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u at %u %s to %s",rrid,rid,tid,hop,i,pdep->name,parr->name);
           }
@@ -533,9 +537,12 @@ int prepbasenet(void)
     if (lodur == hidur) {
       tp->midur = hidur;
       eqdur++;
-    } else if ( hidur - lodur <= duracc) {
+    } else if (hidur - lodur <= duracc) {
       tp->midur = hidur;
       accdur++;
+    } else if (hidur - lodur > 60 * 12) {
+      warn(Iter,"hop %u duration %u-%u",hop,lodur,hidur);
+      tp->midur = hi32;
     } else {
       tp->midur = hi32;
     }
@@ -606,6 +613,9 @@ int prepbasenet(void)
       rp = routes + rid;
       rp->chaincnt++;
       cumchaincnt++;
+
+      hidur = cp->hitarr - cp->lotdep;
+      infocc(hidur > 120,0,"chain %u rrid %u hidur %u",chain,rrid,hidur);
       ofs = cp->hopofs;
       chip = chainidxs + ofs;
       sort8(chip,cnt,FLN,"chainhops");
@@ -719,7 +729,7 @@ int prepbasenet(void)
     rp = routes + rid;
     rrid = rp->rrid;
     cnt = rp->hichainlen;
-    info(0,"r.rid %u.%u hilen %u cnt %u",rrid,rid,cnt,rp->hopcnt);
+    vrb0(0,"r.rid %u.%u hilen %u cnt %u",rrid,rid,cnt,rp->hopcnt);
   }
 
   basenet.hichainlen = hichlen;

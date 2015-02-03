@@ -45,20 +45,31 @@ static int marklocal(struct network *net)
   ub4 ndep,narr,nudep,nuarr,nvdep,nvarr;
   struct hop *hp,*hops = net->hops;
   struct port *pdep,*parr,*ports = net->ports;
-  ub4 hop,dep,arr;
+  ub4 *portsbyhop = net->portsbyhop;
+  ub4 *choporg = net->choporg;
+  ub4 hop,hop1,dep,arr;
   ub4 rrid;
   ub4 hopcnt = net->hopcnt;
+  ub4 chopcnt = net->chopcnt;
   ub4 portcnt = net->portcnt;
 
-  for (hop = 0; hop < hopcnt; hop++) {
-    hp = hops + hop;
+  for (hop = 0; hop < chopcnt; hop++) {
 
-    dep = hp->dep;
-    arr = hp->arr;
+    dep = portsbyhop[hop * 2];
+    arr = portsbyhop[hop * 2 + 1];
+    if (dep == arr) continue;
     if (dep == hi32 || arr == hi32) continue;
+
     error_ge(dep,portcnt);
     error_ge(arr,portcnt);
-    error_eq(dep,arr);
+
+    if (hop < hopcnt) hp = hops + hop;
+    else {
+      hop1 = choporg[hop * 2];
+      error_ge(hop1,hopcnt);
+      hp = hops + hop1;
+    }
+
     pdep = ports + dep;
     parr = ports + arr;
 
@@ -67,8 +78,6 @@ static int marklocal(struct network *net)
 
     pdep->ndep = ndep+1;
     parr->narr = narr+1;
-
-    if (hp->kind == Walk) continue;
 
     rrid = hp->rrid;
 
@@ -151,6 +160,8 @@ int partition(gnet *gnet)
   portcnt = gnet->portcnt;
   hopcnt = gnet->hopcnt;
   chopcnt = gnet->chopcnt;
+
+  error_lt(chopcnt,hopcnt);
 
   ridcnt = gnet->ridcnt;
   routes = gnet->routes;
@@ -1119,7 +1130,7 @@ int partition(gnet *gnet)
       if (gportparts[dep * partcnt + part] && gportparts[arr * partcnt + part]) {
         hopcnts[part]++;
         cnt++;
-      } else if (gportparts[dep * partcnt + part] || gportparts[arr * partcnt + part]) {
+      } else if (hop < hopcnt && (gportparts[dep * partcnt + part] || gportparts[arr * partcnt + part])) {
         xhopcnts[part]++;
       }
     }
@@ -1231,7 +1242,7 @@ int partition(gnet *gnet)
     hp = phops;
     phop = hpcnt2 = hxcnt2 = phopcnt = 0;
 
-    info(0,"part %u from %u+%u hops",part,hopcnt,chopcnt);
+    info(0,"part %u from %u + %u hops",part,hopcnt,chopcnt);
     for (hop = 0; hop < chopcnt; hop++) {
 
       dep = portsbyhop[hop * 2];
@@ -1245,12 +1256,22 @@ int partition(gnet *gnet)
       error_ge(dep,portcnt);
       error_ge(arr,portcnt);
 
-      if (gportparts[dep * partcnt + part] == 0 && gportparts[arr * partcnt + part] == 0) continue;
+ //     infocc(part == 2,0,"hop %u of %u,%u",hop,hopcnt,chopcnt);
+
+      if (gportparts[dep * partcnt + part] == 0 && gportparts[arr * partcnt + part] == 0) {
+//        infocc(part == 2,0,"hop %u of %u,%u %u-%u",hop,hopcnt,chopcnt,dep,arr);
+        continue;
+      } else if (gportparts[dep * partcnt + part] == 0 || gportparts[arr * partcnt + part] == 0) {
+        if (hop >= hopcnt) continue;
+        hxcnt2++;
+      }
+
+      infocc(part == 2,0,"hop %u of %u,%u = %u",hop,hopcnt,chopcnt,phop);
 
       error_ge(phop,pchopcnt);
 
       if (phopcnt == 0 && hop >= hopcnt) {
-        info(0,"hopcnt %u",hop);
+        info(Iter,"%u plain hops",phop);
         phopcnt = phop;
       }
 
@@ -1261,10 +1282,11 @@ int partition(gnet *gnet)
         error_ge(h1,hopcnt);
         error_ge(h2,hopcnt);
         ghp = hops + h1;
+
         ph1 = g2phop[h1];
         ph2 = g2phop[h2];
-        if (ph1 != hi32) error_ge(ph1,phopcnt);
-        if (ph2 != hi32) error_ge(ph2,phopcnt);
+        error_ge(ph1,phopcnt);
+        error_ge(ph2,phopcnt);
         pchoporg[phop * 2] = ph1;
         pchoporg[phop * 2 + 1] = ph2;
       }
@@ -1318,9 +1340,34 @@ int partition(gnet *gnet)
       }
       phop++;
     }
-    warncc(phop < pchopcnt,0,"%u out of %u hops",phop,pchopcnt);
+    warninfo(phop < pchopcnt,0,"%u out of %u hops, %u interpart",phop,pchopcnt,hxcnt2);
     pchopcnt = phop;
-    error_z(phopcnt,pchopcnt);
+
+    if (phop && phopcnt == 0) {
+      info(0,"no compound hops for %u plain hops, %u expected",phop,pchopcnt);
+      phopcnt = phop;
+    }
+
+#if 1
+    for (phop = phopcnt; phop < pchopcnt; phop++) {
+      depp = pportsbyhop[phop * 2];
+      arrp = pportsbyhop[phop * 2 + 1];
+      if (depp == arrp || depp == hi32 || arrp == hi32) continue;
+
+      hop = p2ghop[phop];
+      error_ge(hop,chopcnt);
+      h1 = choporg[hop * 2];
+      h2 = choporg[hop * 2 + 1];
+      error_ge(h1,hopcnt);
+      error_ge(h2,hopcnt);
+      ph1 = g2phop[h1];
+      ph2 = g2phop[h2];
+      error_ge(ph1,phopcnt);
+      error_ge(ph2,phopcnt);
+      cdur = phopcdur[phop];
+      infocc(cdur > 60 * 24,Iter,"gchop %u = %u-%u dur %u",hop,h1,h2,cdur);
+    }
+#endif
 
     net->part = part;
     net->istpart = (part == tpart && partcnt > 1);

@@ -37,6 +37,12 @@ static ub4 msgfile;
 
 #include "search.h"
 
+// time limit in sec for searches
+static const ub4 Timelimit = 3;
+
+// emulate walk links as frequency-based
+static const ub4 walkiv_min = 10;
+
 void inisearch(void)
 {
   msgfile = setmsgfile(__FILE__);
@@ -50,8 +56,6 @@ static ub4 tidfld(ub4 ndx) { return ndx * fldcnt + fldtid; }
 static ub4 dtfld(ub4 ndx) { return ndx * fldcnt + flddt; }
 static ub4 durfld(ub4 ndx) { return ndx * fldcnt + flddur; }
 static ub4 costfld(ub4 ndx) { return ndx * fldcnt + fldcost; }
-
-static const ub4 walkiv_min = 10;
 
 static const ub4 tid2watch = 464743;
 
@@ -373,7 +377,7 @@ static ub4 nxtevs(search *src,net *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
           }
           if (tdep1 != hi32 && tarr2 != hi32) {
             if (tarr2 >= tdep1) dur = tarr2 - tdep1;
-            else warn(0,"chop %u-%u tdep %u-%u",ghop1,ghop2,tdep1,tarr2); // todo
+            else warn(Iter,"chop %u-%u tdep %u-%u",ghop1,ghop2,tdep1,tarr2); // todo
           }
         }
       } else dur = (x >> 32);  // plain hops have duration in event
@@ -401,7 +405,7 @@ static ub4 nxtevs(search *src,net *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   src->dcnts[leg] = dcnt;
   if (dcnt == 0) return 0;
 
-  warncc(dcnt >= dmax,0,"exceeding %u dep event",dcnt);
+  warncc(dcnt >= dmax,Iter,"exceeding %u dep event",dcnt);
 
   src->hop1s[leg] = hop1;
   src->hop2s[leg] = hop2;
@@ -554,7 +558,7 @@ static ub4 prvevs(search *src,ub4 leg)
   ub8 x,*ev,*aev;
   ub2 *map;
 
-  if (src->histop == 8) return src->dtcurs[leg]; // xxx todo debug
+//  if (src->histop == 8) return src->dtcurs[leg]; // xxx debug
 
   error_z(leg,0);
   aleg = leg - 1;
@@ -650,7 +654,7 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
     src->curts[l] = t;
     error_z(t,l);
     src->curtids[l] = tid;
-    if (at > t) warn(0,"prvtdep \ad%u after tdep \ad%u",at,t);  // todo
+    if (at > t) warn(Iter,"prvtdep \ad%u after tdep \ad%u",at,t);  // todo
     at = t;
 
     if (tid == hi32) {
@@ -661,7 +665,7 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
 //      error_ge(hop1,hopcnt);
       error_ge(tid,tidcnt);
       rtid = tid2rtid[tid];
-      info(0,"hop %u-%u part %u ev %u of %u leg %u t \ad%u tid %u rtid %u dt %u",hop1,hop2,part,lodev,dcnt,l,t,tid,rtid,dt);
+      vrb0(0,"hop %u-%u part %u ev %u of %u leg %u t \ad%u tid %u rtid %u dt %u",hop1,hop2,part,lodev,dcnt,l,t,tid,rtid,dt);
     }
   }
   src->curdt = dt;
@@ -1607,6 +1611,7 @@ static ub4 srcxpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *re
           estvar = xpartcnt * tportcnt / max(tdmid,1);
 
           if (progress(&eta,"step %u of %u, %u vars",xpartcnt - 1,estvar,src->varcnt)) return 0;
+          if (xpartcnt == 1) eta.limit = src->querytlim;
 
           if (gdmid == gamid) conn += srcxpart2t(gnet,tnet,dpart,apart,gdep,garr,gdmid,src);
           else conn += srcxpart2(gnet,tnet,dpart,apart,gdep,garr,gdmid,gamid,src);
@@ -1695,6 +1700,7 @@ static ub4 srcxdpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *r
       estvar = xpartcnt * tportcnt / max(tdmid,1);
 
       if (progress(&eta,"step %u of %u, %u vars",xpartcnt - 1,estvar,src->varcnt)) return 0;
+      if (xpartcnt == 1) eta.limit = src->querytlim;
 
       conn += srcxpart2t(gnet,tnet,dpart,apart,gdep,garr,gamid,src);
     }
@@ -1773,6 +1779,7 @@ static ub4 srcxapart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *r
       estvar = xpartcnt * tportcnt / max(tdmid,1);
 
       if (progress(&eta,"step %u of %u, %u vars",xpartcnt - 1,estvar,src->varcnt)) return 0;
+      if (xpartcnt == 1) eta.limit = src->querytlim;
 
       conn += srcxpart2t(gnet,tnet,dpart,apart,gdep,garr,gdmid,src);
     }
@@ -1896,6 +1903,7 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   src->histop = nstophi;
 
   t0 = gettime_usec();
+  src->querytlim = t0 + 1000 * 1000 * Timelimit;
 
   info(CC,"search dep %u arr %u on \ad%u-\ad%u %s to %s geodist %u",dep,arr,deptmin,deptmax,pdep->name,parr->name,src->geodist);
   conn = dosrc(net,nstoplo,nstophi,src,ref);
@@ -1903,7 +1911,10 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   info(0,"%u of %u depvars %u of %u midvars %u of %u arrvars %u stored",src->dvarxcnt,src->dvarcnt,src->tvarxcnt,src->tvarcnt,src->avarxcnt,src->avarcnt,src->varcnt);
 
   dt = gettime_usec() - t0;
-  info(0,"search took \a.%u usec",(ub4)dt);
+
+  if (dt > 2000000) info(0,"search took %u sec",(ub4)(dt / 1000000));
+  if (dt > 2000) info(0,"search took \a.%u usec",(ub4)(dt / 1000));
+  else info(0,"search took %u usec",(ub4)dt);
 
   if (conn == 0) {
     if (src->avarxcnt) return info(0,"no time found for %u stop\as",nstophi);

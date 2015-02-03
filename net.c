@@ -74,8 +74,8 @@ static ub4 watch_dep[Watches] = { 20 };
 static ub4 watch_arr[Watches] = { 3 };
 
 // todo configurable
-static const ub4 walklimit = 1;
-static const ub4 walkspeed = 20;  // minutes per dist unit
+static const ub4 walklimit = 2;
+static const ub4 walkspeed = 2;  // minutes per dist unit
 
 static ub2 cnt0lim_part = 256; // todo configurable
 
@@ -1836,6 +1836,7 @@ int mknet(ub4 maxstop)
       }
       info(0,"partition %u static network init done",part);
     } else info(0,"partition %u skipped static network init",part);
+    msgprefix(0,NULL);
 
   } // each part
 
@@ -1845,8 +1846,6 @@ int mknet(ub4 maxstop)
     net = getnet(part);
     gnet->histop = min(gnet->histop,net->histop);
   }
-
-  msgprefix(0,NULL);
 
   if (mkxmap(caller,gnet)) return 1;
 

@@ -119,7 +119,7 @@ struct myfile {
   size_t len;
   unsigned long mtime;
   char name[1024];
-  char localbuf[1024];
+  char localbuf[4096];
   char *buf;
 };
 

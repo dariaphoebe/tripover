@@ -51,7 +51,7 @@
   cextra =
   cana =
 
-# no syntax-check only for standard compiler
+## no syntax-check only for standard compiler
   .c. =
 
 [compiler = all]

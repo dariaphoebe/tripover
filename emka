@@ -101,6 +101,7 @@ my %defconfig = (
     cdbg => '',
     cextra => '',
     cdia => '',
+    cana => '',
 
 # standard .c.o rule
   _c_o => '%compiler -c -o %.o %copt %cdiag %cextra %.c',
@@ -115,6 +116,7 @@ my %defconfig = (
     ldiag => '-Weverything',
     ldbg => '',
     lextra => '',
+    lana => '',
 
 # standard .o.x rule
   _o_x => '%linker -o %.x %lopt %ldiag %lextra %.o',

@@ -1003,7 +1003,7 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
   vrbfln(fln,CC,"progress %u of %u",cur,end);
 
   if (cur == 0) {
-    eta->cur = eta->end = 0;
+    eta->cur = eta->end = eta->limit = 0;
     eta->stamp = eta->start = now;
   } else if (cur + 1 < end && now - eta->stamp < 2 * sec) return 0;
   eta->stamp = now;
@@ -1022,7 +1022,11 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
     est = (dt * (100UL - perc)) / 100;
   }
   if (cur) mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
-  return infofln(fln,0,"%s",buf);
+  infofln(fln,0,"%s",buf);
+  if (eta->limit && now > eta->limit) {
+    infofln(fln,0,"timelimit of %lu sec exceeded",(eta->limit - eta->start) / (1000 * 1000));
+    return 1;
+  } else return 0;
 }
 
 int setmsglog(const char *dir,const char *name)

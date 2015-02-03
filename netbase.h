@@ -96,7 +96,7 @@ struct chainbase {
   ub4 dep;
   ub4 hopcnt;
   ub4 hopofs;
-  ub4 lotdep;
+  ub4 lotdep,lotarr,hitdep,hitarr;
   ub8 code;
 };
 

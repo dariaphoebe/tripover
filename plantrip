@@ -38,7 +38,7 @@ my $querydir;
 
 my $portrefname = 'portrefs.txt';
 
-my $timeout = 12; # seconds
+my $timeout = 6; # seconds
 
 my $agelimit = 60; # seconds
 
@@ -338,7 +338,7 @@ sub iplan($$)
     info("arr $arr");
   }
 
-  if ($dep == $arr) {
+  if ($dep ne '*' and $dep == $arr) {
     info("departure and arrival identical");
     return 1;
   }
@@ -352,6 +352,17 @@ sub iplan($$)
     $utcofs = sprintf("%+02d:%02d",$hh,$mm);
     $tz = ofs2tz($utcofs);
     info("using default display tz $tz utc$utcofs from portrefs");
+  }
+
+  if ($dep eq '*') {
+    readportrefs($portrefname) unless $haveportrefs;
+    foreach $dep (keys %portids) {
+      $dep = $idbysub{$dep};
+      $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\ndeptmin i $startdate\n";
+      $qstr .= "histop i $maxstop\nutcofs i $utcofs12\n";
+      query('p',$region,$qstr);
+    }
+    return;
   }
   $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\ndeptmin i $startdate\n";
   $qstr .= "histop i $maxstop\nutcofs i $utcofs12\n";
@@ -546,9 +557,9 @@ sub query($$$)
 
   stat $reply or return ret_close_err($reply,"cannot access $qname_rep: $!");
   ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat _;
-  ret_close_err($reply,"$qname_rep is not a regular file") unless S_ISREG($mode);
-  ret_close_err($reply,"$qname_rep is empty") unless $size > 0;
-  ret_close_err($reply,"$qname_rep is empty") unless -r $qname_rep;
+  return ret_close_err($reply,"$qname_rep is not a regular file") unless S_ISREG($mode);
+  return ret_close_err($reply,"$qname_rep is empty") unless $size > 0;
+  return ret_close_err($reply,"$qname_rep is empty") unless -r $qname_rep;
 
   my @lines = readline($reply);
   close($reply);
@@ -654,6 +665,7 @@ sub readtzinfo()
       $a = index($line,'[[');
       $c = index($line,'|');
       $ofs = substr($line,$a+5,$c-6);
+      if (substr($ofs,0,1) eq "\x{2212}") { $ofs = '-' . substr($ofs,1); }
     } elsif ($col == $dstofscol) {
       $a = index($line,'[[');
       $c = index($line,'|');

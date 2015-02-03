@@ -133,12 +133,12 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   rep->buf = rep->localbuf;
   if (rv) len = fmtstring(rep->localbuf,"reply plan %u-%u error code %d\n",dep,arr,rv);
   else if (src->reslen) {
-    len = src->reslen;
+    len = min(src->reslen,sizeof(rep->localbuf));
     memcpy(rep->localbuf,src->resbuf,len);
   } else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
   vrb0(0,"reply len %u",len);
   rep->len = len;
-  osmillisleep(100);
+  osmillisleep(50);
   return 0;
 }
 

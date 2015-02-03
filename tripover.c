@@ -278,8 +278,6 @@ static int cmd_arg(struct cmdval *cv)
 static struct cmdarg cmdargs[] = {
   { "verbose|v", "[level]%u", "set or increase verbosity", cmd_vrb },
   { "assert-limit", "[limit]%u", "stop at this #assertions", cmd_limassert },
-  { "max-ports", "limit%u", "limit #ports", cmd_max },
-  { "max-hops", "limit%u", "limit #hops", cmd_max },
   { "max-stops", "limit%u", "limit #stops", cmd_max },
   { "stopat|runto","stage","run only up to the given stage",cmd_stopat },
   { ".test-a", "test%u", "test", cmd_test },

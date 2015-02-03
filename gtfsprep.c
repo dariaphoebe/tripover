@@ -477,8 +477,9 @@ static int rdcalendar(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/calendar.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,0);
   if (rv) return 1;
+  if (eft.mf.exist == 0) return 0;
 
   buf = eft.mf.buf;
   len = (ub4)eft.mf.len;
@@ -607,8 +608,9 @@ static int rdcaldates(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/calendar_dates.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,0);
   if (rv) return 1;
+  if (eft.mf.exist == 0) return 0;
 
   buf = eft.mf.buf;
   len = (ub4)eft.mf.len;
@@ -730,8 +732,8 @@ static int rdroutes(gtfsnet *net,const char *dir)
   char *lines = net->routelines = mkblock(mem,linelen,char,Noinit,"gtfs %u routes, len %u",rawcnt-1,linelen);
 
   const char tab = '\t';
-  ub4 route_idpos,snamepos,lnamepos,descpos,rtypepos;
-  route_idpos=snamepos=lnamepos=descpos=rtypepos = hi32;
+  ub4 route_idpos,agencypos,snamepos,lnamepos,descpos,rtypepos;
+  route_idpos=agencypos=snamepos=lnamepos=descpos=rtypepos = hi32;
 
   do {
 
@@ -748,6 +750,7 @@ static int rdroutes(gtfsnet *net,const char *dir)
       for (valno = 0; valno < valcnt; valno++) {
         val = vals + valno * Collen;
         if (streq(val,"route_id")) route_idpos = valno;
+        else if (streq(val,"agency_id")) agencypos = valno;
         else if (streq(val,"route_short_name")) snamepos = valno;
         else if (streq(val,"route_long_name")) lnamepos = valno;
         else if (streq(val,"route_desc")) descpos = valno;
@@ -776,6 +779,15 @@ static int rdroutes(gtfsnet *net,const char *dir)
 
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab);
+
+// agency
+      if (agencypos != hi32) {
+        val = vals + agencypos * Collen;
+        vlen = vallens[agencypos];
+
+        bound(mem,linepos + vlen + 1,char);
+        linepos = addcol(lines,linepos,val,vlen,tab);
+      } else lines[linepos++] = tab;
 
 // type
       val = vals + rtypepos * Collen;
@@ -1039,8 +1051,8 @@ static int rdtrips(gtfsnet *net,const char *dir)
   char *lines = net->triplines = mkblock(mem,linelen,char,Noinit,"gtfs %u trips, len %u",rawcnt-1,linelen);
 
   const char tab = '\t';
-  ub4 route_idpos,service_idpos,trip_idpos;
-  route_idpos=service_idpos=trip_idpos = hi32;
+  ub4 route_idpos,service_idpos,trip_idpos,headsignpos;
+  route_idpos=service_idpos=trip_idpos=headsignpos = hi32;
 
   do {
 
@@ -1059,6 +1071,7 @@ static int rdtrips(gtfsnet *net,const char *dir)
         if (streq(val,"route_id")) route_idpos = valno;
         else if (streq(val,"service_id")) service_idpos = valno;
         else if (streq(val,"trip_id")) trip_idpos = valno;
+        else if (streq(val,"headsign")) headsignpos = valno;
         else info(0,"skipping column %s",val);
       }
       if (route_idpos == hi32) return error(0,"%s: missing required column route_id",fname);
@@ -1097,7 +1110,16 @@ static int rdtrips(gtfsnet *net,const char *dir)
       vlen = vallens[trip_idpos];
 
       bound(mem,linepos + vlen + 1,char);
-      linepos = addcol(lines,linepos,val,vlen,'\n');
+      linepos = addcol(lines,linepos,val,vlen,tab);
+
+// headsign
+      if (headsignpos != hi32) {
+        val = vals + headsignpos * Collen;
+        vlen = vallens[headsignpos];
+
+        bound(mem,linepos + vlen + 1,char);
+        linepos = addcol(lines,linepos,val,vlen,'\n');
+      } else lines[linepos++] = '\n';
 
       cnt++;
       break;
@@ -1304,6 +1326,8 @@ static int wrcalendar(gtfsnet *net,const char *dir)
   ub4 pos;
   int fd;
 
+  if (net->calendarcnt == 0) return 0;
+
   fmtstring(fname,"%s/calendar.tab",dir);
 
   fd = filecreate(fname,1);
@@ -1329,6 +1353,8 @@ static int wrcaldates(gtfsnet *net,const char *dir)
   ub4 buflen = sizeof(buf);
   ub4 pos;
   int fd;
+
+  if (net->caldatescnt == 0) return 0;
 
   fmtstring(fname,"%s/calendar_dates.tab",dir);
 
@@ -1366,7 +1392,7 @@ static int wrroutes(gtfsnet *net,const char *dir)
 
   if (filewrite(fd,buf,pos,fname)) return 1;
 
-  pos = fmtstring0(buf,"route_id\troute_type\troute_short_name\troute_long_name\troute_desc\n");
+  pos = fmtstring0(buf,"route_id\tagency_id\troute_type\troute_short_name\troute_long_name\troute_desc\n");
   if (filewrite(fd,buf,pos,fname)) return 1;
 
   if (filewrite(fd,net->routelines,net->routelinepos,fname)) return 1;
@@ -1418,7 +1444,7 @@ static int wrtrips(gtfsnet *net,const char *dir)
 
   if (filewrite(fd,buf,pos,fname)) return 1;
 
-  pos = fmtstring0(buf,"route_id\tservice_id\ttrip_id\n");
+  pos = fmtstring0(buf,"route_id\tservice_id\ttrip_id\ttrip_headsign\n");
   if (filewrite(fd,buf,pos,fname)) return 1;
 
   if (filewrite(fd,net->triplines,net->triplinepos,fname)) return 1;
