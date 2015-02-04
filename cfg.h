@@ -32,9 +32,9 @@
 enum Engvars { Eng_periodlim,Eng_partsize,Eng_cnt };
 enum Netvars { Net_partsize,Net_cnt };
 
-sassert(Net_cnt < sizeof(globs.netvars),"globs.netvars < Net_cnt");
-sassert(Net_cnt < Elemcnt(globs.netvars),"globs.netvars < Net_cnt");
-sassert(Eng_cnt < sizeof(globs.engvars),"globs.engvars < Eng_cnt");
+sassert(Net_cnt < sizeof(globs.netvars),"globs.netvars < Net_cnt")
+sassert(Net_cnt < Elemcnt(globs.netvars),"globs.netvars < Net_cnt")
+sassert(Eng_cnt < sizeof(globs.engvars),"globs.engvars < Eng_cnt")
 
 #define Cfgcl (1U << 31)
 #define Cfgdef (1U << 30)

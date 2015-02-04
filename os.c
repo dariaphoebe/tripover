@@ -145,21 +145,29 @@ static void wrstderrlog(const char *buf,ub4 len)
   if (fd > 0 && fd != 2) oswrite(fd,buf,len);
 }
 
+#ifdef MAP_ANONYMOUS
 void *osmmap(size_t len)
 {
-#ifdef MAP_ANONYMOUS
   void *p = mmap(NULL,len,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
-#else
-  void *p = malloc(len);
-#endif
   return p;
 }
-
 int osmunmap(void *p,size_t len)
 {
   int rv = munmap(p,len);
   return rv;
 }
+#else
+#include <stdlib.h>
+void *osmmap(size_t len)
+{
+  void *p = malloc(len);
+  return p;
+}
+int osmunmap(void *p,size_t len)
+{
+  free(p);
+}
+#endif
 
 static void mysigint(int __attribute__ ((unused)) sig,siginfo_t *si,void * __attribute__ ((unused)) pp)
 {
@@ -478,16 +486,17 @@ static int rlimit(int res,rlim_t lim,const char *desc,int show)
 
   rlim.rlim_cur = min(lim,rlim.rlim_max);
   if (setrlimit(res,&rlim)) return oserror(0,"cannot set resource limit for %s",desc);
-  return infovrb(show,0,"resource limit for %s set to \ah%lu",desc,lim);
+  return infovrb(show,0,"resource limit for %s set to \ah%lu",desc,(unsigned long)lim);
 }
 
 // physical mem in mb
 ub4 osmeminfo(void)
 {
+#if (defined _SC_PHYS_PAGES) && (defined _SC_PAGESIZE)
+
   ub8 pagesize,pagecnt,mb;
   long lval;
 
-#if (defined _SC_PHYS_PAGES) && (defined _SC_PAGESIZE)
   lval = sysconf(_SC_PAGESIZE);
   if (lval < 1024) return 0;
   pagesize = (ub8)lval;

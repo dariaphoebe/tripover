@@ -29,8 +29,6 @@ static ub4 msgfile;
 #include "netbase.h"
 #include "netio.h"
 
-#include <valgrind/memcheck.h>
-
 static ub4 pdfscale_lat = 1200;
 static ub4 pdfscale_lon = 1200;
 
