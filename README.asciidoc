@@ -1,4 +1,4 @@
-= tripover - journey planner for air and long-haul rail
+= tripover - Broad-search journey planner for timetable-based transport
 
 An attempt to build a journey planner good at broad searches.
 Like "from Germany to Java, depart next month, return one to two weeks later".
