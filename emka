@@ -50,7 +50,7 @@
 
 # author: Joris van der Geer
 
-# last changed:  2 feb 2015
+# last changed:  4 feb 2015
 
 use 5.008;
 use integer;
@@ -73,6 +73,7 @@ sub cmd_help() {
   print("-n, -dryrun         No action mode\n");
   print("-s, -static         Add static analysis pass\n");
   print("-u, -unconditional  Unconditional build\n");
+  print("-x, -nolink         Skip linking step\n");
   print("-v, -verbose        Verbose mode\n");
   print("-V, -version        Show version and quit\n\n");
   print("Commands:\n");
@@ -151,6 +152,7 @@ my $unconditional = 0;
 my $dryrun = 0;
 my $do_sca = 0;
 my $loop = 0;
+my $nolink = 0;
 
 my $logfh;
 
@@ -167,8 +169,6 @@ sub error_exit($) { print ($_[0],"\n"); exit 1; }
 
 sub substitute($$$$) {
   my ($val,$arg,$from,$to) = @_;
-
-#  info ("val $val arg $arg from $from to $to");
 
   $arg = substr $arg,1;
   return substr($val,0,$from) . $config{$arg} . substr($val,$to) if exists $config{$arg};
@@ -925,7 +925,7 @@ sub cmd_loop() {
     src2obj('nogen') or next;
 
     vrb('l ');
-    obj2exe('nogen');
+    obj2exe('nogen') unless $nolink;
 #    sleep 2;
   }
 }
@@ -940,7 +940,7 @@ sub cmd_build() {
     gen() or redo;
     src2obj('nogen') or redo;
 
-    obj2exe('nogen');
+    obj2exe('nogen') unless $nolink;
     $changed = 0;
   }
 }
@@ -967,6 +967,7 @@ foreach $arg (@ARGV) {
     if ($opt eq 'v') { info('verbose'); $verbose = 1; }
     elsif ($opt eq 'n') { info('dryrun'); $dryrun = 1; }
     elsif ($opt eq 's') { info('+static'); $do_sca = 1; }
+    elsif ($opt eq 'x') { info('nolink'); $nolink = 1; }
     elsif ($opt eq 'u') { info('unconditional build except generated sources'); $unconditional = 1; }
     elsif (index($opt,'t') == 0) { $endtime = int(substr($opt,2)); }
     else { info("ignoring unknown option -$opt"); }

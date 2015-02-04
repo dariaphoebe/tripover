@@ -281,7 +281,7 @@ void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt])
   bbox[Boxcnt]++;
 }
 
-static double geolow = M_PI * 0.002;   // ~ 40 km
+static double geolow = M_PI * 0.0002;   // ~ 4 km
 static double geolimit = M_PI * 1.0e-8;
 
 // great circle lat/lon to Km.
@@ -304,12 +304,12 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
   dphi = phi2 - phi1;
 
   if (dlam > -geolimit && dlam < geolimit && dphi > -geolimit && dphi < geolimit) { // flush to 0
-    vrb(0,"geodist 0 below |%e|",geolimit);
+    vrb0(0,"geodist 0 below |%e|",geolimit);
     return 0.0;
   } else if (dlam > -geolow && dlam < geolow && dphi > -geolow && dphi < geolow) { // approx trivial case
     vrbcc(vrbena,0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
-    dlat = dlam * mean_earth_radius / 4 * M_PI;
-    dlon = dphi * mean_earth_radius / 4 * M_PI;
+    dlat = dlam * mean_earth_radius * 2;
+    dlon = dphi * mean_earth_radius * 2;
     fdist = sqrt(dlat * dlat + dlon * dlon);
     return fdist;
   }
@@ -322,7 +322,7 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
 
   if (isnan(dsig)) error(0,"geodist %e %e-%e %e nan",rlat1,rlon1,rlat2,rlon2);
 
-  dist = dsig * mean_earth_radius;
+  dist = dsig * 2 * mean_earth_radius;
 
   return dist;
 }

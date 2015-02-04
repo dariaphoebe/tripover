@@ -22,7 +22,7 @@
   csyn = -w -fsyntax-only
   cfmt = -fno-caret-diagnostics -fno-color-diagnostics -fno-diagnostics-show-option -fno-diagnostics-fixit-info
   cdbg = -gline-tables-only
-  cextra = -std=c11 -fstack-protector-strong
+  cextra = -std=c11 -fstack-protector
 
 # uncomment to enable runtime sanitizer
   cana = #-fsanitize=address -fsanitize=undefined,integer,unsigned-integer-overflow

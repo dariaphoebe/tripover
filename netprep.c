@@ -11,7 +11,6 @@
 
 /*
   copy work lists from i/o based base lists
-
  */
 
 #include <string.h>
@@ -26,7 +25,6 @@ static ub4 msgfile;
 #include "msg.h"
 
 #include "util.h"
-#include "bitfields.h"
 #include "netbase.h"
 #include "netio.h"
 #include "netprep.h"
@@ -41,9 +39,7 @@ void ininetprep(void)
 
 int prepnet(netbase *basenet)
 {
-  struct network *net;
   struct gnetwork *gnet = getgnet();
-
   struct portbase *bports,*bpp;
   struct hopbase *bhops,*bhp;
   struct sidbase *bsids,*bsp;
@@ -52,33 +48,25 @@ int prepnet(netbase *basenet)
 
   ub8 *bchip,*bchainidxs;
   struct chainhopbase *bchp,*bchainhops;
-// todo events
 
-  struct port *ports,*pports,*pdep,*parr,*pp,*gp;
-  struct hop *hops,*phops,*hp,*ghp;
+  struct port *ports,*pdep,*parr,*pp;
+  struct hop *hops,*hp;
   struct sidtable *sids,*sp;
   struct chain *chains,*cp;
   struct route *routes,*rp;
   struct timepatbase *btp;
   struct timepat *tp;
 
-  ub4 *portsbyhop;
-  char *dname,*aname;
-
-  ub4 bportcnt,portcnt,tportcnt;
-  ub4 bhopcnt,hopcnt,nilhopcnt,pridcnt;
-  ub4 dep,arr,depp,arrp;
-  ub4 bsidcnt,sidcnt,bchaincnt,chaincnt,chainlen,chainhopcnt;
+  ub4 bportcnt,portcnt;
+  ub4 bhopcnt,hopcnt;
+  ub4 dep,arr;
+  ub4 bsidcnt,sidcnt,bchaincnt,chaincnt,chainhopcnt;
   ub4 bridcnt,ridcnt;
-  ub4 nlen,cnt,acnt,dcnt,tcnt,sid,rid,rrid,part,tpart,xmaplen;
-  ub4 pportcnt,zpportcnt,phopcnt,partcnt,part2,newpartcnt;
+  ub4 nlen,cnt,acnt,dcnt,sid,rid,rrid;
+
   enum txkind kind;
-  ub4 hop,port,zport,zpport,chain,phop,pport;
-  ub4 hirrid;
-  ub4 *hopcnts,*portcnts;
-  ub4 *g2p,*p2g,*g2phop;
-  ub4 *p2zp,*zp2p,*port2zport;
-  struct partition *parts,*partp;
+  ub4 hop,port,chain;
+
   ub4 *rrid2rid = basenet->rrid2rid;
 
   bhopcnt = basenet->hopcnt;
@@ -86,7 +74,6 @@ int prepnet(netbase *basenet)
   bsidcnt = basenet->sidcnt;
   bridcnt = basenet->ridcnt;
   bchaincnt = basenet->rawchaincnt;
-  chainhopcnt = basenet->chainhopcnt;
   if (bportcnt == 0 || bhopcnt == 0) return error(0,"prepnet: %u ports, %u hops",bportcnt,bhopcnt);
 
   // filter but leave placeholder in gnet to make refs match
@@ -187,8 +174,6 @@ int prepnet(netbase *basenet)
       continue;
     }
 
-//    info(0,"hop %u %s at %u %u-%u",hop,bhp->name,bhp->cid,dep,arr);
-
     pdep = ports + dep;
     parr = ports + arr;
     error_z(pdep->valid,hop);
@@ -214,7 +199,6 @@ int prepnet(netbase *basenet)
     t0 = btp->t0;
     t1 = btp->t1;
     evcnt = btp->evcnt;
-//    warninfo(t1 == t0,0,"hop %u tt range %u-%u",hop,t0,t1);
     tp->utcofs = btp->utcofs;
     tp->tdays = btp->tdays;
     tp->gt0 = btp->gt0;
@@ -279,7 +263,6 @@ int prepnet(netbase *basenet)
   }
   if (hopcnt == 0) return error(0,"nil hops out of %u",bhopcnt);
   info(0,"%u from %u hops",hopcnt,bhopcnt);
-  nilhopcnt = bhopcnt - hopcnt;
   hopcnt = bhopcnt;
 
   info0(0,"global connectivity");
@@ -302,7 +285,6 @@ int prepnet(netbase *basenet)
     cp->rid = bcp->rid;
     cp->tid = chain;
     cp->rtid = bcp->rtid;
-    bofs = bcp->hopofs;
     cp->hopofs = ofs;
     ofs += cnt;
     chaincnt++;
@@ -324,15 +306,15 @@ int prepnet(netbase *basenet)
     ofs = cp->hopofs;
     bofs = bcp->hopofs;
     bchip = bchainidxs + bofs;
-    prvseq = seq = prvtdep = 0;
+    seq = prvtdep = 0;
     for (i = 0; i < cnt; i++) {
       chp = chainhops + ofs + i;
       idx = bchip[i] & hi32;
       error_ge(idx,cnt);
       bchp = bchainhops + bofs + idx;
       prvseq = seq;
-      seq = bchip[i] >> 32;
-      infocc(seq == 0,0,"tid %u rtid %u idx %u/%u at %p",chain,rtid,i,cnt,bchip + i);
+      seq = (ub4)(bchip[i] >> 32);
+      infocc(seq == 0,0,"tid %u rtid %u idx %u/%u",chain,rtid,i,cnt);
       error_le(seq,prvseq);
       chp->hop = bchp->hop;
       tdep = bchp->tdep;

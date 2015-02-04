@@ -147,7 +147,11 @@ static void wrstderrlog(const char *buf,ub4 len)
 
 void *osmmap(size_t len)
 {
+#ifdef MAP_ANONYMOUS
   void *p = mmap(NULL,len,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+#else
+  void *p = malloc(len);
+#endif
   return p;
 }
 
@@ -477,7 +481,7 @@ static int rlimit(int res,rlim_t lim,const char *desc,int show)
   return infovrb(show,0,"resource limit for %s set to \ah%lu",desc,lim);
 }
 
-// phicical mem in mb
+// physical mem in mb
 ub4 osmeminfo(void)
 {
   ub8 pagesize,pagecnt,mb;

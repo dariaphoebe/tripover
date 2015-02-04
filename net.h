@@ -36,7 +36,6 @@
 #define Npart 8192
 
 #define Nlocal 4
-// #define Nxpart 4
 
 #define Nleg (Nstop+1)
 #define Nxleg (Nxstop+1)
@@ -53,9 +52,8 @@ struct port {
   ub4 cid;
   ub4 allid;
 
-  char name[128];  // todo: use below structure instead
+  char name[128];
   ub4 namelen;
-//  struct gname name;
 
   ub4 gid;   // global port, index in gnet.ports
 
@@ -65,10 +63,6 @@ struct port {
   ub4 utcofs;
 
   ub4 partcnt;  // #parts member of
-//  ub4 part;     // 'home' part
-
-//  ub2 partnos[Nxpart];  // partnos of membership
-//  ub4 pmapofs[Nxpart];  // reachability map
 
   ub4 zid;
   ub4 zlen;
@@ -135,12 +129,10 @@ struct timepat {
 
 struct hop {
   ub4 magic;
-//  ub4 id;
   ub4 gid;
 
-  char name[64];  // todo: use below structure instead
+  char name[64];
   ub4 namelen;
-//  struct gname name;
 
   enum txkind kind;
 
@@ -173,7 +165,6 @@ struct route {
   ub4 chainofs;
   ub4 chaincnt;
 
-//  ub4 dtermport,atermport; // terminus
   ub4 part;
 };
 
@@ -192,7 +183,7 @@ struct sidtable {
   ub4 id;
   ub4 sid;
 
-  char name[128]; // todo
+  char name[128];
   ub4 namelen;
 
   ub4 t0,t1;
@@ -222,9 +213,7 @@ struct network {
   struct carrier *carriers;  
   struct sidtable *sids;
 
-//  ub4 *routechains;
   struct chainhop *chainhops;  // points to gnet
-//  ub8 *chainidxs;              // points to gnet
 
   bool istpart;
 
@@ -283,17 +272,9 @@ struct network {
 
 // partitions
   ub4 tportcnt;         // number of ports in global part
-  ub4 tports[2048];
-
-// pools
-// ?  datetime *gopool;
-
-// minis
-  ub4 minicnt;
-  ub4 *minis;
-
+  ub4 tports[4096];
 };
-typedef struct network net;
+typedef struct network lnet;
 
 struct partition {
   ub4 bbox[9];
@@ -331,7 +312,6 @@ struct gnetwork {
   ub4 portcnts[Npart];  // only proper ports
   ub4 hopcnts[Npart];
   ub4 xhopcnts[Npart];
-//  ub4 ridcnts[Npart];
 
   ub1 *portparts;  // [partcnt * portcnt] port memberships
 

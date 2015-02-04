@@ -21,7 +21,7 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 17
+#define Version_min 18
 #define Version_phase "developing"
 #define Program_name "tripover"
 #define Program_desc "broad-search journey planner"
@@ -51,7 +51,7 @@ typedef int sb4;
 
 // c11 langage only
 #if defined  __STDC_VERSION__ && __STDC_VERSION__ >= 201101
- #define sassert(expr,msg) _Static_assert(expr,msg)
+ #define sassert(expr,msg) _Static_assert(expr,msg);
 
  #define aclear(p) { _Static_assert(sizeof(p) > 8,"need array, not pointer"); memset((p),0,sizeof(p)); }
  #define strcopy(dst,src) { _Static_assert(sizeof(dst) > 8,"need array, not pointer"); strncpy((dst),(src),sizeof(dst)-1); }
@@ -64,7 +64,7 @@ typedef int sb4;
 enum Runlvl { Runread,Runbaseprep,Runprep,Runcompound,Runpart,Runmknet,Runnet0,Runnetn,Runserver,Runend,Runcnt };
 
 // program-wide global vars go here
-extern struct globs {
+struct globs {
   const char *progname;
 
   ub1 doruns[Runcnt];
@@ -109,8 +109,8 @@ extern struct globs {
   ub4 engvars[64];   // checked for Eng_cnt in cfg
 
   int nomsgsum;
-
-} globs;
+};
+extern struct globs globs;
 
 struct myfile {
   int exist,direxist,alloced;
@@ -126,9 +126,9 @@ struct myfile {
 #define NVALGRIND
 #ifdef NVALGRIND
  #define vg_set_undef(p,n)
- #define vg_chk_def(p,n) 0
+ #define vg_chk_def(a,p,n)
 #else
  #include <valgrind/memcheck.h>
- #define vg_set_undef(p,n) VALGRIND_MAKE_MEM_UNDEFINED((p),(n))
- #define vg_chk_def(p,n) VALGRIND_CHECK_MEM_IS_DEFINED((p),(n))
+ #define vg_set_undef(p,n) VALGRIND_MAKE_MEM_UNDEFINED((p),(n));
+ #define vg_chk_def(a,p,n) (a) = VALGRIND_CHECK_MEM_IS_DEFINED((p),(n));
 #endif

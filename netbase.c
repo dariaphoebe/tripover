@@ -28,8 +28,6 @@ static ub4 msgfile;
 #include "netio.h"
 #include "event.h"
 
-// static const ub4 maxdays = 365 * 2;  // longest schedule period supported
-
 static const ub4 daymin = 60 * 24;   // convenience
 
 // holds everything primary. in contrast, net.h contains derived info
@@ -42,8 +40,6 @@ static const ub4 rrid2watch = hi32;
 netbase *getnetbase(void) { return &basenet; }
 
 #include "watch.h"
-
-static int vrbena;
 
 static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rlat,double rlon,ub4 size,enum txkind kind)
 {
@@ -58,8 +54,6 @@ static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rla
     }
   }
   if (lat == 0 && lon == 0) return error(0,"port %u latlon 0",newport);
-//  if (lat >= 180 * Latscale) warning(0,"port %u lat %u out of range",newport,lat);
-//  if (lon >= 360 * Lonscale) warning(0,"port %u lon %u out of range",newport,lon);
 
   pp = ports + newport;
   pp->lat = lat;
@@ -97,7 +91,7 @@ static ub4 getz(ub8 lat,ub8 lon)
 
 int mkrandnet(ub4 portcnt,ub4 hopcnt)
 {
-  struct portbase *ports,*pdep,*parr;
+  struct portbase *ports;
   struct hopbase *hops,*hp;
   struct range zrange;
   ub1 *net0;
@@ -196,8 +190,6 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     memcopy(hp->name,"noname",6);
     hp->namelen = 6;
     curhop++;
-    pdep = ports + dep;
-    parr = ports + arr;
   }
 
   aclear(depstats);
@@ -270,7 +262,7 @@ int prepbasenet(void)
   ub4 *tbp,*timesbase = basenet.timesbase;
   ub4 tndx,vndx,timecnt,timespos,evcnt,zevcnt,cnt;
   ub4 sid,rsid,tid,rtid,rid,rrid;
-  ub4 tdep,tarr,tripseq,tdepsec,tarrsec,prvtdep;
+  ub4 tdep,tarr,tripseq,tdepsec,tarrsec;
   ub4 chcnt,i;
   ub4 t0,t1,ht0,ht1,hdt,tdays,mapofs;
   ub8 cumevcnt = 0,cumzevcnt = 0,cumtdays = 0;
@@ -291,7 +283,6 @@ int prepbasenet(void)
   ub1 *xpacc = alloc((xtimelen >> 4) + 2,ub1,0,"time",gdt);
   block *eventmem,*evmapmem;
 
-  ub8 *events;
   struct timepatbase *tp;
   struct routebase *rp,*routes = basenet.routes;
   ub1 *daymap,*sidmaps = basenet.sidmaps;
@@ -315,8 +306,6 @@ int prepbasenet(void)
 
   double fdist;
   ub4 dist;
-
-  int dbg = 0;
 
   ub4 ofs,chainofs = 0;
   for (chain = 0; chain < rawchaincnt; chain++) {
@@ -369,7 +358,6 @@ int prepbasenet(void)
     // times
     timespos = hp->timespos;
     timecnt = hp->timecnt;
-//    info(0,"hop %u timepos %u cnt %u",hop,timespos,timecnt);
     if (timecnt) bound(&basenet.timesmem,(timespos + timecnt - 1) * 5,ub4);
     tbp = timesbase + timespos * 5;
     evcnt = 0;
@@ -398,8 +386,6 @@ int prepbasenet(void)
       tarrsec = tbp[3];
       tripseq = tbp[4];
 
-//      info(0,"dep %u arr %u",tdepsec,tarrsec);
-
       tdep = tdepsec / 60;
       tarr = tarrsec / 60;
 
@@ -423,21 +409,14 @@ int prepbasenet(void)
       mapofs = sp->mapofs;
       daymap = sidmaps + mapofs;
 
-//      dbg = (tid == tid2watch || hop == 2654);
-
-      infocc(dbg,0,"tndx %u rsid %u r.tid %u.%u dep %u arr %u t0 %u t1 %u days %u",tndx,sp->rsid,rtid,tid,tdep,tarr,t0,t1,(t1 - t0) / 1440);
-
-//      rsidlog(rsid,"hop %u tndx %u tid %x dep %u t0 %u t1 %u days %u",hop,tndx,tid,tdep,t0,t1,(t1 - t0) / 1440);
-
       cnt = fillxtime(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid);
-      hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",tid,rsid,t0,t1,tdep,tarr,cnt);
+      hoplog(hop,0,"r.tid %u.%u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",rtid,tid,rsid,t0,t1,tdep,tarr,cnt);
       if (cnt == 0) {
         vrb0(0,"tid %u r.sid %u.%u \ad%u \ad%u dep \ad%u arr \ad%u no events",tid,rsid,sid,t0,t1,tdep,tarr);
-//        return 1;
         tbp[0] = sidcnt; // disable for next pass
         tbp += 5;
         continue;
-      } // else info(0,"hop %u tid %u td \ad%u ta \ad%u %u events",hop,tid,tdep,tarr,cnt);
+      }
 
       if (rawchaincnt == 0) { info(0,"hop %u no chains",hop); continue; }
 
@@ -453,7 +432,6 @@ int prepbasenet(void)
         chp = chainhops + ofs + chcnt;
         pp = ports + cp->dep;
         error_z(tripseq,tid);
-//        infocc(tid == 57021,0,"xxx tid %u seq %u idx %u at %p",tid,tripseq,chcnt,chip);
         error_ge(chcnt,cp->hoprefs);
         if (chcnt == 0) {
           chip[0] = (ub8)tripseq << 32;
@@ -523,6 +501,7 @@ int prepbasenet(void)
     tp->hidur = hidur;
     tp->avgdur = sumdur / evcnt;
 
+    duracc = 15;
     switch (hp->kind) {
       case Air:  duracc = 15; break;
       case Rail: if (lodur > 12 * 60) duracc = 10; else duracc = 2; break;
@@ -547,9 +526,6 @@ int prepbasenet(void)
       tp->midur = hi32;
     }
     tp->duracc = duracc;
-
-//    else if (hidur > 2 * lodur) info(0,"hop %u lodur %u hidur %u",hop,lodur,hidur);
-//    else vrb0(0,"hop %u lodur %u hidur %u",hop,lodur,hidur);
 
     error_ne(hp->t0,ht0);
     ht1 += daymin;  // make end date exclusive
@@ -590,7 +566,7 @@ int prepbasenet(void)
   info(0,"%u of %u hops with constant duration, %u within accuracy",eqdur,hopcnt,accdur);
 
   // prepare hoplist in chain
-  ub4 ci,idx,iv,eqcnt = 0,hichlen = 0,lochlen = hi32,hichain = 0,lochain = 0;
+  ub4 ci,idx,iv,hichlen = 0,lochlen = hi32,hichain = 0,lochain = 0;
   ub4 cumchaincnt = 0,ridchainofs = 0;
   ub8 sum1,sum2,sum;
   ub4 chstats[128];
@@ -623,7 +599,7 @@ int prepbasenet(void)
       sum1 = sum2 = 0;
       dist = 0; midur = prvdur = 0;
       for (ci = 0; ci < cnt; ci++) {
-        tripseq = chip[ci] >> 32;
+        tripseq = (ub4)(chip[ci] >> 32);
         error_z(tripseq,chain);
         idx = chip[ci] & hi32;
         error_ge(idx,cnt);
@@ -661,13 +637,13 @@ int prepbasenet(void)
   chip = chainidxs + cp->hopofs;
   for (ci = 0; ci < cnt; ci++) {
     idx = chip[ci] & hi32;
-    tripseq = chip[ci] >> 32;
+    tripseq = (ub4)(chip[ci] >> 32);
     hop = chp[idx].hop;
     tdep = chp[idx].tdep;
     hp = hops + hop;
     pdep = ports + hp->dep;
     parr = ports + hp->arr;
-    info(0,"  hop %u %u-%u at \ad%u %s to %s",hop,hp->dep,hp->arr,tdep,pdep->name,parr->name);
+    info(0,"  hop %u %u-%u at \ad%u %s to %s seq %u",hop,hp->dep,hp->arr,tdep,pdep->name,parr->name,tripseq);
   }
 
   cnt = 0;
@@ -689,7 +665,7 @@ int prepbasenet(void)
   chip = chainidxs + ofs;
   for (ci = 0; ci < cnt; ci++) {
     idx = chip[ci] & hi32;
-    tripseq = chip[ci] >> 32;
+    tripseq = (ub4)(chip[ci] >> 32);
     hop = chp[idx].hop;
     hp = hops + hop;
     pdep = ports + hp->dep;
@@ -740,7 +716,7 @@ int prepbasenet(void)
 
   eventmem = &basenet.eventmem;
   evmapmem = &basenet.evmapmem;
-  events = basenet.events = mkblock(eventmem,cumzevcnt * 2,ub8,Init0,"time events");
+  basenet.events = mkblock(eventmem,cumzevcnt * 2,ub8,Init0,"time events");
 
   basenet.evmaps = mkblock(evmapmem,cumtdays * 5,ub2,Init0,"time eventmaps");
   
@@ -770,8 +746,6 @@ int prepbasenet(void)
 
     msgprefix(0,"hop %u",hop);
 
-    dep = hp->dep;
-    arr = hp->arr;
     timespos = hp->timespos;
     timecnt = hp->timecnt;
     tbp = timesbase + timespos * 5;
@@ -781,7 +755,7 @@ int prepbasenet(void)
     tp->evcnt = 0;
     memset(xp,0xff,hdt * sizeof(*xp));
     memset(xpacc,0,(hdt >> 4) + 1);
-    ht0 = hi32; ht1 = 0; vndx = 0;
+    vndx = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
       sid = tbp[0];
       if (sid >= sidcnt) { tbp += 5; continue; }  // skip non-contributing entries disabled above
@@ -805,7 +779,7 @@ int prepbasenet(void)
       daymap = sidmaps + mapofs;
 
       cnt = fillxtime2(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid,dur);
-      hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",tid,sp->rsid,t0,t1,tdep,tarr,cnt);
+      hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events seq %u",tid,sp->rsid,t0,t1,tdep,tarr,cnt,tripseq);
       error_z(cnt,hop);
       evcnt += cnt;
       if (evcnt > maxev4hop) {
@@ -852,5 +826,4 @@ void ininetbase(void)
 {
   msgfile = setmsgfile(__FILE__);
   iniassert();
-  vrbena = (getmsglvl() >= Vrb);
 }

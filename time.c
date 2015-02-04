@@ -32,8 +32,6 @@ static ub4 msgfile;
 
 #include "os.h"
 
-static ub4 eramin;
-
 static ub4 daysinmon[12] =  {31,28,31,30,31,30,31,31,30,31,30,31};
 static ub4 daysinmon2[12] = {31,29,31,30,31,30,31,31,30,31,30,31};
 static ub4 *yymm2daytab;
@@ -178,6 +176,14 @@ ub4 min2wday(ub4 min)
   ub4 day = min / 1440;
   ub4 wday = (day + Epochwday) % 7;
   return wday;
+}
+
+// coded decimal 1230 to minutes
+ub4 hhmm2min(ub4 ct)
+{
+  ub4 h = ct / 100;
+  ub4 m = ct % 100;
+  return h * 60 + m;
 }
 
 ub4 gettime_sec(void)

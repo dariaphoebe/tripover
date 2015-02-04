@@ -13,13 +13,13 @@ struct cmdval { // matched commandline arg
   ub4 uval;
   ub4 valcnt;
   char *sval;
-  char *valname;
+  const char *valname;
   const char *subarg;
   struct cmdarg *args;
   ub4 argndx;
   int retval;
-  char *progname;
-  char *progdesc;
+  const char *progname;
+  const char *progdesc;
 };
 
 struct cmdarg { // commandline arg defines

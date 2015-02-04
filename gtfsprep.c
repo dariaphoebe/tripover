@@ -22,10 +22,10 @@
 #include <stdarg.h>
 
 #include "base.h"
-//#include "cfg.h"
+struct globs globs;
+
 #include "os.h"
 #include "mem.h"
-//#include "math.h"
 #include "util.h"
 #include "time.h"
 
@@ -33,10 +33,6 @@ static ub4 msgfile;
 #include "msg.h"
 
 #include "gtfsprep.h"
-
-struct globs globs;
-
-// static const char copyright[] = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
 static int init0(char *progname)
 {
@@ -62,7 +58,6 @@ static int init0(char *progname)
   info(User,"gtfsprep %u.%u %s %s\n", Version_maj,Version_min,Version_phase,mtimestr);
 
   if (iniutil(0)) return 1;
-//  if (inicfg()) return 1;
   inimem();
   inios();
   globs.maxvm = 12;
@@ -160,7 +155,6 @@ static enum extresult nextchar(struct extfmt *ef)
 
   len = (ub4)ef->mf.len;
   pos = ef->pos;
-//  info(0,"pos %u len %u",pos,len);
   if (pos >= len) return Eof;
 
   // state
@@ -246,7 +240,6 @@ static enum extresult nextchar(struct extfmt *ef)
       break;
 
     case Val1:
-//      info(0,"ndx %u c %c",valndx,c);
       switch(c) {
         case ',': valndx++; vallens[valndx] = 0; state = Val2; break;
         case '\r': break;
@@ -259,7 +252,6 @@ static enum extresult nextchar(struct extfmt *ef)
       break;
 
     case Val2:
-//      info(0,"ndx %u c %c",valndx,c);
       switch (c) {
         case ',': valndx++; vallens[valndx] = 0; break;
         case '\r': break;
@@ -274,7 +266,6 @@ static enum extresult nextchar(struct extfmt *ef)
       break;
 
     case Val2q:
-//      info(0,"ndx %u c %c",valndx,c);
       switch(c) {
         case '"': state = Val3q; break;
         case '\r': break;
@@ -287,7 +278,6 @@ static enum extresult nextchar(struct extfmt *ef)
       break;
 
     case Val3q:
-//      info(0,"ndx %u c %c",valndx,c);
       switch(c) {
         case '"':
           val = vals + valndx * Collen;
@@ -1215,10 +1205,6 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
       colno = eft.colno;
       vallens = eft.vallens;
       error_ge(cnt,rawcnt);
-      for (valno = 0; valno < valcnt; valno++) {
-        val = vals + valno * Collen;
-//        vrb0(0,"col %u val '%s'",valno,val);
-      }
       if (valcnt < 4) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
 
 // tripid

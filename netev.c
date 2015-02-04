@@ -10,26 +10,19 @@
  */
 
 #include <stddef.h>
-//#include <stdarg.h>
 
 #include "base.h"
 #include "cfg.h"
 #include "mem.h"
-//#include "math.h"
 
 static ub4 msgfile;
 #include "msg.h"
 
 #include "time.h"
-//#include "util.h"
-
-//#include "netbase.h"
-//#include "netio.h"
-//#include "event.h"
 #include "net.h"
 #include "netev.h"
 
-static const ub4 daymin = 60 * 24;   // convenience
+
 
 static const ub4 sampleshh = 16;
 static const ub4 samplescc = 16;
@@ -43,7 +36,7 @@ void ininetev(void)
 
 // get an average total duration between two plain hops
 // take a handful of samples.
-static ub4 avgdurhh(net *net,ub4 hop1,ub4 hop2)
+static ub4 avgdurhh(lnet *net,ub4 hop1,ub4 hop2)
 {
   struct hop *hp1,*hp2,*hops = net->hops;
   struct timepat *tp1,*tp2;
@@ -77,7 +70,7 @@ static ub4 avgdurhh(net *net,ub4 hop1,ub4 hop2)
   rt2 = (ub4)ev2[0]; t2 = rt2 + gt02;
   for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / sampleshh) ) {
     rt1 = (ub4)ev1[gndx * 2];
-    dur1 = ev1[gndx * 2 + 1] >> 32;
+    dur1 = (ub4)(ev1[gndx * 2 + 1] >> 32);
     t1 = rt1 + gt01;
     while (t2 < t1 + dur1 + ttmin) {
       if (++gndx2 >= cnt2) break;
@@ -87,7 +80,7 @@ static ub4 avgdurhh(net *net,ub4 hop1,ub4 hop2)
     if (gndx2 >= cnt2) break;
     if (t2 - (t1 + dur1) > ttmax) continue;
     dtcnt++;
-    dur2 = ev2[gndx2 * 2 + 1] >> 32;
+    dur2 = (ub4)(ev2[gndx2 * 2 + 1] >> 32);
     dt = t2 + dur2 - t1;
     lodt = min(lodt,dt);
     dtsum += dt;
@@ -99,7 +92,7 @@ static ub4 avgdurhh(net *net,ub4 hop1,ub4 hop2)
 
 // get an average total duration between two compound hops
 // take a handful of samples.
-static ub4 avgdurcc(net *net,ub4 hop1,ub4 hop2)
+static ub4 avgdurcc(lnet *net,ub4 hop1,ub4 hop2)
 {
   struct hop *hp1,*hp2,*hops = net->hops;
   struct timepat *tp1,*tp2;
@@ -107,13 +100,11 @@ static ub4 avgdurcc(net *net,ub4 hop1,ub4 hop2)
   ub4 *hopdur = net->hopdur;
   ub4 ttmax = 120,ttmin = 5; // todo
   ub4 gndx,gndx2;
-  ub4 h11,h12,h21,h22;
+  ub4 h11,h22;
   ub4 dt,dur1,dur2,dtsum,avgdt;
   ub8 *events = net->events;
 
   h11 = choporg[hop1 * 2];
-  h12 = choporg[hop1 * 2 + 1];
-  h21 = choporg[hop2 * 2];
   h22 = choporg[hop2 * 2 + 1];
 
   hp1 = hops + h11;
@@ -164,7 +155,7 @@ static ub4 avgdurcc(net *net,ub4 hop1,ub4 hop2)
 
 // get an average total duration between compound and plain hop
 // take a handful of samples.
-static ub4 avgdurch(net *net,ub4 hop1,ub4 hop2)
+static ub4 avgdurch(lnet *net,ub4 hop1,ub4 hop2)
 {
   struct hop *hp1,*hp2,*hops = net->hops;
   struct timepat *tp1,*tp2;
@@ -172,12 +163,11 @@ static ub4 avgdurch(net *net,ub4 hop1,ub4 hop2)
   ub4 *hopdur = net->hopdur;
   ub4 ttmax = 120,ttmin = 5; // todo
   ub4 gndx,gndx2;
-  ub4 h11,h12,h21,h22;
+  ub4 h11;
   ub4 dt,dur1,dur2,dtsum,avgdt;
   ub8 *events = net->events;
 
   h11 = choporg[hop1 * 2];
-  h12 = choporg[hop1 * 2 + 1];
 
   hp1 = hops + h11;
   hp2 = hops + hop2;
@@ -215,7 +205,7 @@ static ub4 avgdurch(net *net,ub4 hop1,ub4 hop2)
     if (gndx2 >= cnt2) break;
     if (t2 - (t1 + dur1) > ttmax) continue;
     dtcnt++;
-    dur2 = ev2[gndx2 * 2 + 1] >> 32;
+    dur2 = (ub4)(ev2[gndx2 * 2 + 1] >> 32);
     dt = t2 + dur2 - t1;
     lodt = min(lodt,dt);
     dtsum += dt;
@@ -227,7 +217,7 @@ static ub4 avgdurch(net *net,ub4 hop1,ub4 hop2)
 
 // get an average total duration between plain and compound hops
 // take a handful of samples.
-static ub4 avgdurhc(net *net,ub4 hop1,ub4 hop2)
+static ub4 avgdurhc(lnet *net,ub4 hop1,ub4 hop2)
 {
   struct hop *hp1,*hp2,*hops = net->hops;
   struct timepat *tp1,*tp2;
@@ -235,11 +225,10 @@ static ub4 avgdurhc(net *net,ub4 hop1,ub4 hop2)
   ub4 *hopdur = net->hopdur;
   ub4 ttmax = 120,ttmin = 5; // todo
   ub4 gndx,gndx2;
-  ub4 h11,h12,h21,h22;
+  ub4 h22;
   ub4 dt,dur1,dur2,dtsum,avgdt;
   ub8 *events = net->events;
 
-  h21 = choporg[hop2 * 2];
   h22 = choporg[hop2 * 2 + 1];
 
   hp1 = hops + hop1;
@@ -269,7 +258,7 @@ static ub4 avgdurhc(net *net,ub4 hop1,ub4 hop2)
   if (dur2 == hi32) return 1000; // todo hopadur[]
   for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / samplescc) ) {
     rt1 = (ub4)ev1[gndx * 2];
-    dur1 = ev1[gndx * 2 + 1] >> 32;
+    dur1 = (ub4)(ev1[gndx * 2 + 1] >> 32);
     t1 = rt1 + gt01;
     while (t2 < t1 + dur1 + ttmin) {
       if (++gndx2 >= cnt2) break;
@@ -290,13 +279,12 @@ static ub4 avgdurhc(net *net,ub4 hop1,ub4 hop2)
 
 // first step of estimated average total trip duration
 // stores arrival times of last hop
-ub4 prepestdur(net *net,ub4 *trip,ub4 len,ub4 *estdurs,ub4 estdurcnt)
+ub4 prepestdur(lnet *net,ub4 *trip,ub4 len)
 {
   ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
-  ub4 whopcnt = net->whopcnt;
   ub4 *hopdur = net->hopdur;
-  ub4 o,avgdur,midur;
+  ub4 avgdur,midur;
   ub4 h;
   struct hop *hp,*hops = net->hops;
 
@@ -319,16 +307,15 @@ ub4 prepestdur(net *net,ub4 *trip,ub4 len,ub4 *estdurs,ub4 estdurcnt)
 }
 
 // estimate average total trip duration, using arrival times of preceding triplet
-ub4 estdur(net *net,ub4 *estdurs,ub4 estdurcnt,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
+ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
 {
   ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
-  ub4 whopcnt = net->whopcnt;
   ub4 *hopdur = net->hopdur;
   ub4 *choporg = net->choporg;
-  ub4 o,avgdur,midur;
+  ub4 midur;
   ub4 h1,h2,ch1;
-  struct hop *hp1,*hp2,*hops = net->hops;
+  struct hop *hops = net->hops;
   struct timepat *tp;
 
   if (len1 == 1 && len2 == 1) { // basic net1 case

@@ -26,9 +26,7 @@
 static ub4 msgfile;
 #include "msg.h"
 
-#include "bitfields.h"
 #include "netbase.h"
-
 #include "netio.h"
 
 #include <valgrind/memcheck.h>
@@ -66,7 +64,7 @@ letters introduce commands:
 numbers start a regular 'port' line:
  id name lat lon
 
-numbers default to hexadecimal. prefix capital D for decimal. lon follows lat radix
+numbers default to hexadecimal. prefix . for decimal.
 
 file hops.txt
   patterned after ports.txt
@@ -92,23 +90,7 @@ routes.txt  todo
  id name hopcnt
  ...
 
-
   tripover internal format todo: meant for larger nets. typ combine sets of external
-
- gtfs:
-
-  stop  = port
-  route = service e.g. 385
-  trip  = triplet
-  trip-times = timetable
-  shapes = net2pdf
-  calendar = part of timetable
-  calendar-dates = part of timetable
-
-  airline timetables can use gtfs ?
-
-  perl script to process gtfs into tripover external format
-  c tool to combine multiple external nets ( e.g sydney + brisbane ) into internal
 
  */
 
@@ -146,9 +128,9 @@ static void mkhexmap(void)
   char c;
 
   memset(hexmap,0xff,256);
-  for (c = '0'; c <= '9'; c++) hexmap[(ub4)c] = c - '0';
-  for (c = 'a'; c <= 'f'; c++) hexmap[(ub4)c] = c + 10 - 'a';
-  for (c = 'A'; c <= 'F'; c++) hexmap[(ub4)c] = c + 10 - 'A';
+  for (c = '0'; c <= '9'; c++) hexmap[(ub4)c] = (ub1)(c - '0');
+  for (c = 'a'; c <= 'f'; c++) hexmap[(ub4)c] = (ub1)(c + 10 - 'a');
+  for (c = 'A'; c <= 'F'; c++) hexmap[(ub4)c] = (ub1)(c + 10 - 'A');
   hexmap[9] = 0x20;
   hexmap[0x0a] = 0xfe;
   hexmap[0x20] = 0x20;
@@ -239,7 +221,6 @@ static enum extresult nextchar(struct extfmt *ef)
 
   len = (ub4)ef->mf.len;
   pos = ef->pos;
-//  info(0,"pos %u len %u",pos,len);
   if (pos >= len) return Eof;
 
   // state
@@ -519,7 +500,6 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
   return 0;
 }
 
-// name id subid lat lon  # comment
 static int rdextports(netbase *net,const char *dir)
 {
   enum extresult res;
@@ -574,7 +554,7 @@ static int rdextports(netbase *net,const char *dir)
 
 //  vg_chk_def(ep,sizeof(struct extport));
 
-  id = idhi = subidhi = maxid = 0;
+  idhi = subidhi = maxid = 0;
   idlo = hi32;
   latscaleline = lonscaleline = 0;
 
@@ -646,7 +626,7 @@ static int rdextports(netbase *net,const char *dir)
       clear(ep);
       ep->id = id;
       ep->subid = subid;
-      infocc(id > 160000,0,"port %u id %u %x hi %u",extportcnt,id,id,idhi);
+      infocc(id > 160000,Iter,"port %u id %u %x hi %u",extportcnt,id,id,idhi);
       ep->opts = opts;
       ep->parent = (opts & Stopopt_parent);
       ep->child  = (opts & Stopopt_child);
@@ -686,7 +666,7 @@ static int rdextports(netbase *net,const char *dir)
 
   ub4 pid,subofs,seq;
   ub4 cnt,extport,subport,subportcnt;
-  ub8 vgadr;
+  ub8 vgadr = 0;
   struct subportbase *subports,*sp;
 
   // create mappings
@@ -793,10 +773,9 @@ static int rdextports(netbase *net,const char *dir)
   port = subport = 0;
   for (extport = 0; extport < extportcnt; extport++) {
     ep = extports + extport;
-    vg_chk_def(ep,sizeof(struct extport));
+    vg_chk_def(vgadr,ep,sizeof(struct extport))
     id = ep->id;
     subid = ep->subid;
-    opts = ep->opts;
     namelen = ep->namelen;
     lat = ep->lat;
     lon = ep->lon;
@@ -820,7 +799,7 @@ static int rdextports(netbase *net,const char *dir)
       pid = id2ports[id];
       error_ge(pid,extportcnt);
       pep = extports + pid;
-      vg_chk_def(pep,sizeof(struct extport));
+      vg_chk_def(vgadr,pep,sizeof(struct extport))
       cnt = pep->subcnt;
       subofs = pep->subofs;
       error_ge(subofs,subportcnt);
@@ -837,9 +816,9 @@ static int rdextports(netbase *net,const char *dir)
       sp->lat = lat;
       sp->lon = lon;
       sp->namelen = namelen;
-      vgadr = vg_chk_def(ep,sizeof(struct extport)-1);
+      vg_chk_def(vgadr,ep,sizeof(struct extport)-1)
       infocc(vgadr != 0,0,"port %u ep undefined at ofs %ld",extport,(char *)vgadr - (char *)ep);
-      vgadr = vg_chk_def(sp,sizeof(struct subportbase)-1);
+      vg_chk_def(vgadr,sp,sizeof(struct subportbase)-1)
       infocc(vgadr != 0,0,"port %u sp undefined at ofs %ld",subport,(char *)vgadr - (char *)sp);
       if (namelen) memcpy(sp->name,ep->name,namelen);
     }
@@ -854,7 +833,6 @@ static int rdextports(netbase *net,const char *dir)
     id2ports[id] = port;
     pp->rlat = lat2rad(pp->lat,latscale);
     pp->rlon = lon2rad(pp->lon,lonscale);
-//    info(0,"port %u geo %u,%u %e,%e %s",port,pp->lat,pp->lon,pp->rlat,pp->rlon,pp->name);
   }
   for (subid = 0; subid <= subidhi; subid++) subid2ports[subid] = hi32;
   for (port = 0; port < subportcnt; port++) {
@@ -890,7 +868,6 @@ static void expandsid(ub4 rsid,ub1 *map,ub4 maplen,ub4 t00,ub4 t0,ub4 t1,ub4 dow
   infocc(rsid == 2,0,"map %p base %u \ad%u start %u len %u",map + t0,t00,t00,t0,t1 - t0);
   while (t < t1 - t00) {
     error_ge(t,maplen);
-//    infocc(rsid == 70,0,"t %u %u day %x mask %x",t,day2cd(t + t00),daymask,dow);
     if (daymask & dow) map[t] = 2;
     if (daymask == (1 << 6)) daymask = 1;
     else daymask <<= 1;
@@ -910,7 +887,7 @@ static int rdexttimes(netbase *net,const char *dir)
   ub4 rsid,sid,*rsid2sids;
   int rv;
   char *buf;
-  ub4 len,linno,colno,namelen,valndx,valcnt,id,idhi,maxsid = 0;
+  ub4 len,linno,colno,namelen,valndx,valcnt,maxsid = 0;
   ub4 dow,t0,t1,t0_cd,t1_cd,t_cd,tbox0,tbox1,dtbox,t0wday;
   ub4 daybox0,daybox1,t0days,t1days,tday,cnt,daycnt;
   ub4 hh,mm;
@@ -942,9 +919,9 @@ static int rdexttimes(netbase *net,const char *dir)
   sidcnt = vsidcnt = 0;
 
   rawsidcnt++;
-  sids = sp = mkblock(&net->sidmem,rawsidcnt,struct sidbase,Init0,"");
+  sids = sp = mkblock(&net->sidmem,rawsidcnt,struct sidbase,Init0,"%u sids",rawsidcnt);
 
-  id = idhi = maxsid = 0;
+  maxsid = 0;
   tbox0 = tbox1 = dtbox = daybox0 = daybox1 = 0;
   sidmaps = NULL;
   mapofs = 0;
@@ -963,7 +940,6 @@ static int rdexttimes(netbase *net,const char *dir)
       namelen = eft.namelen;
       valndx = eft.valndx;
       linno = eft.linno;
-      colno = eft.colno;
       docmd(timevars,namelen,name,linno,fname,vals,valndx);
       break;
 
@@ -1088,7 +1064,6 @@ static int rdexttimes(netbase *net,const char *dir)
       daycnt = 0;
       for (tday = 0; tday < dtbox; tday++) {
         cnt = map[tday];
-//        if (rsid == 0x1dc87 && cnt) info(0,"rsid %x day %u",rsid,tday);
         if (cnt) daycnt++;
       }
       tday = 0;
@@ -1171,7 +1146,6 @@ static int rdexttimes(netbase *net,const char *dir)
 
   ub4 gt0,gt1;
 
-  utcofs = 12 * 60;
   if (tbox0 && tbox1) {
     gt0 = daybox0 * daymin;
     gt1 = daybox1 * daymin;
@@ -1202,7 +1176,7 @@ static int rdextroutes(netbase *net,const char *dir)
 
   ub4 rawridcnt,ridcnt;
   struct routebase *routes,*rp;
-  ub4 rrid,rid,hirrid = 0,*rrid2rid = 0;
+  ub4 rrid,hirrid = 0,*rrid2rid = 0;
   int rv;
   char *buf;
   ub4 len,linno = 0,colno = 0,namelen,valndx,valcnt;
@@ -1230,7 +1204,7 @@ static int rdextroutes(netbase *net,const char *dir)
   ridcnt = 0;
 
   rawridcnt++;
-  routes = rp = mkblock(&net->ridmem,rawridcnt,struct routebase,Init0,"");
+  routes = rp = mkblock(&net->ridmem,rawridcnt,struct routebase,Init0,"%u routes",rawridcnt);
 
   vals = eft.vals;
   name = eft.name;
@@ -1270,7 +1244,6 @@ static int rdextroutes(netbase *net,const char *dir)
 
       if (namelen > namemax) {
         parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
-        namelen = namemax;
       } else if (namelen == 0) {
         strcopy(rp->name,"(unnamed)");
         rp->namelen = 9;
@@ -1318,12 +1291,12 @@ static int rdexthops(netbase *net,const char *dir)
   struct extfmt eft;
   const char *fname;
 
-  ub4 hop,hop2,rawhopcnt,hopcnt;
+  ub4 hop,rawhopcnt,hopcnt;
   ub4 portcnt,subportcnt;
   ub4 ridcnt;
   ub4 chain,chaincnt;
   ub4 maxportid;
-  struct hopbase *hops,*hp,*hp2;
+  struct hopbase *hops,*hp;
   struct portbase *ports,*pdep,*parr;
   struct subportbase *subports,*sbp;
   struct sidbase *sids,*sp;
@@ -1334,7 +1307,7 @@ static int rdexthops(netbase *net,const char *dir)
   ub4 rsid,sid,sidcnt,*rsid2sids;
   int rv;
   char *buf;
-  ub4 len,linno,colno,val,namelen,valndx,id,idhi,maxid,hirrid,maxsid;
+  ub4 len,linno,colno,val,namelen,valndx,id,maxid,hirrid,maxsid;
   ub4 depid,arrid,dep,arr,pid,rtype,routeid,timecnt;
   char *name,*dname,*aname;
   ub4 *vals;
@@ -1385,7 +1358,7 @@ static int rdexthops(netbase *net,const char *dir)
   routes = net->routes;
   ridcnt = net->ridcnt;
 
-  id = idhi = maxid = hirrid = 0;
+  maxid = hirrid = 0;
 
   vals = eft.vals;
   name = eft.name;
@@ -1403,7 +1376,6 @@ static int rdexthops(netbase *net,const char *dir)
       namelen = eft.namelen;
       valndx = eft.valndx;
       linno = eft.linno;
-      colno = eft.colno;
       docmd(hopvars,namelen,name,linno,fname,vals,valndx);
     break;
 
@@ -1423,7 +1395,7 @@ static int rdexthops(netbase *net,const char *dir)
         }
         inited = 1;
       }
-
+      error_zp(rtid2tid,hitripid);
       if (progress(&eta,"reading hop %u of %u, \ah%u time entries",hop,rawhopcnt,timespos)) return 1;
 
       namelen = eft.namelen;
@@ -1476,8 +1448,6 @@ static int rdexthops(netbase *net,const char *dir)
         info(0,"line %u hop id %u dep %u id %u equal to arr id %u %s",linno,id,dep,depid,arrid,dname);
         break;
       }
-
-//      infocc(routeid == 69,0,"rrid %u hop id %u %u-%u %s to %s route %s",routeid,id,depid,arrid,dname,aname,name);
 
       if (routeid != hi32) hirrid = max(hirrid,routeid);
       else info(0,"hop %u has no route id %s to %s",hop,dname,aname);
@@ -1702,7 +1672,7 @@ static int rdexthops(netbase *net,const char *dir)
   if (sidrefs < sidcnt) info(0,"%u sid\as not referenced",sidcnt - sidrefs); // todo filter ?
 
   ub4 *id2hops;
-  ub4 varmask;
+
 
   if (maxid > 100 * 1000 * 1000) warning(0,"max hop id %u",maxid);
   id2hops = alloc(maxid+1,ub4,0xff,"id2hops",maxid);
@@ -1753,7 +1723,6 @@ static int rdexthops(netbase *net,const char *dir)
 int readextnet(netbase *net,const char *dir)
 {
   int rv;
-  ub4 portcnt;
 
   info(0,"reading base net in tripover external format from dir %s",dir);
 
@@ -1764,9 +1733,6 @@ int readextnet(netbase *net,const char *dir)
 
   rv = rdextports(net,dir);
   if (rv) return rv;
-
-  portcnt = net->portcnt;
-  if (portcnt) net->portwrk = alloc(portcnt,ub4,0,"portwrk",portcnt);
 
   rv = rdexttimes(net,dir);
   if (rv) return rv;
@@ -1798,7 +1764,7 @@ int wrportrefs(netbase *net)
   struct portbase *pp,*ports = net->ports;
   struct subportbase *spp,*sports = net->subports;
 
-  ub4 port,sport,wportcnt = 0,portcnt = net->portcnt,subportcnt = net->subportcnt;
+  ub4 port,sport,wportcnt = 0,portcnt = net->portcnt;
   const char *portsname = "portrefs.txt";
 
   char nowstr[64];
@@ -1910,7 +1876,6 @@ int net2ext(netbase *net)
 }
 
 // write network as page content
-// todo overlay planned trip in distinct color
 static ub4 addnetpdf(netbase *net, char *buf, ub4 len)
 {
   struct portbase *pp,*pdep,*parr,*ports = net->ports;

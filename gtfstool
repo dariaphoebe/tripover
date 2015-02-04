@@ -18,8 +18,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 25;
-my $lastchanged = "2 feb 2015";
+my $version_min = 26;
+my $lastchanged = "4 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -240,48 +240,6 @@ my $fmt_prvsid = 1;
 my $fmt_diftid = 2;
 my $fmt_difdep = 4;
 my $fmt_difarr = 8;
-
-# use integer codes for fields
-my $col_enum = 1;
-my $col_stopid    = $col_enum++;
-my $col_stopcode  = $col_enum++;
-my $col_stopname  = $col_enum++;
-my $col_stopdesc  = $col_enum++;
-my $col_stoplat   = $col_enum++;
-my $col_stoplon   = $col_enum++;
-my $col_zoneid    = $col_enum++;
-my $col_stopurl   = $col_enum++;
-my $col_loctype   = $col_enum++;
-my $col_parent    = $col_enum++;
-my $col_platform  = $col_enum++;
-
-my $col_monday    = $col_enum++;
-my $col_tuesday   = $col_enum++;
-my $col_wednesday = $col_enum++;
-my $col_thursday  = $col_enum++;
-my $col_friday    = $col_enum++;
-my $col_saturday  = $col_enum++;
-my $col_sunday    = $col_enum++;
-
-my $col_startdate = $col_enum++;
-my $col_enddate   = $col_enum++;
-
-my $col_date      = $col_enum++;
-my $col_extype    = $col_enum++;
-
-my $col_routeid   = $col_enum++;
-my $col_agencyid  = $col_enum++;
-my $col_routesname = $col_enum++;
-my $col_routelname = $col_enum++;
-my $col_routedesc = $col_enum++;
-my $col_routetype = $col_enum++;
-my $col_tripid    = $col_enum++;
-my $col_headsign  = $col_enum++;
-my $col_direction = $col_enum++;
-
-my $col_serviceid = $col_enum++;
-
-my $col_unknown = $col_enum++;
 
 my $opt_childstop = 1;
 my $opt_parentstop = 2;
@@ -589,7 +547,45 @@ sub init()
       $col = 0;
     }
   }
+
+  $tzofs{'ACST'} = '+09:30';
+  $tzofs{'ACT'} = '-05:00';
+  $tzofs{'ACWST'} = '+08:45';
+  $tzofs{'AEST'} = '+10:00';
+
+  $tzofs{'AKST'} = '-09:00';
+  $tzofs{'AST'} = '+03:00';
+  $tzofs{'AWST'} = '+08:00';
+  $tzofs{'BRT'} = '-03:00';
+  $tzofs{'BST'} = '+01:00';
+  $tzofs{'CDT'} = '-05:00';
+  $tzofs{'CEST'} = '+02:00';
   $tzofs{'CET'} = '+01:00';
+  $tzofs{'CST'} = '-06:00';
+  $tzofs{'EDT'} = '-04:00';
+  $tzofs{'EEST'} = '+03:00';
+  $tzofs{'EET'} = '+02:00';
+  $tzofs{'EST'} = '-05:00';
+  $tzofs{'GMT'} = '+00:00';
+  $tzofs{'HKT'} = '+08:00';
+  $tzofs{'I'} = '+09:00';
+  $tzofs{'IST'} = '+05:30';
+  $tzofs{'JST'} = '+09:00';
+  $tzofs{'KST'} = '+09:00';
+  $tzofs{'MDT'} = '-06:00';
+  $tzofs{'MSK'} = '+03:00';
+  $tzofs{'MST'} = '-07:00';
+  $tzofs{'NZST'} = '+12:00';
+  $tzofs{'PDT'} = '-07:00';
+  $tzofs{'PKT'} = '+05:00';
+  $tzofs{'PST'} = '-08:00';
+  $tzofs{'SAST'} = '+02:00';
+  $tzofs{'SGT'} = '+08:00';
+  $tzofs{'UTC'} = '+08:00';
+  $tzofs{'WET'} = '+00:00';
+  $tzofs{'WIB'} = '+07:00';
+  $tzofs{'WIT'} = '+09:00';
+  $tzofs{'WITA'} = '+08:00';
 
   return 1;
 }
@@ -1122,14 +1118,12 @@ sub readstops($)
   my (@sibstops,$stoplst);
 
   while (($parent,$parent1) = each %parentdups) {
-    info("xxx");
     $stoplst = $parents{$parent};
     $parents{$parent} = '';
     $parents{$parent1} .= $stoplst;
     @sibstops = split(' ',trimws($stoplst));
     for $stopid (@sibstops) {
       $parentbyid{$stopid} = $parent1;
-      info("xxx");
     }
   }
 
@@ -1394,7 +1388,6 @@ sub readtrips($)
     $hitripid = $linno;
 
     $routeid = $routeids{$route_id};
-#    info("route $route_id id $routeid");
     $triproutes{$tripid} = $routeid;
 
     $sid = $serviceids{$service_id};
@@ -1860,8 +1853,6 @@ sub readstoptimes($)
     }
     $ridsidtimes{$ridsidtime} = 1;
 
-#    info("$linno $line") unless $arr_time =~ qr'^[0-9:]+$';
-
     push(@stop_times, join("\t",$tripid,$stopid,$seq,$arr_time,$dep_time)) if $canonout;
 
     if (exists($parentbyid{$stopid})) {
@@ -1899,7 +1890,7 @@ sub readstoptimes($)
 
         ($seq,$xtripid,$id,$dep_time,$arr_time,$xlinno) = split("\t",$tripline);
 
-        if ($xtripid ne $prvtrip) { # todo: at merge
+        if ($xtripid ne $prvtrip) { # todo: at merge ?
           warning("trip ID '$xtripid' mismatches '$prvtrip' $tripline");
           last;
         }
@@ -1946,7 +1937,6 @@ sub readstoptimes($)
 
         $tdepsec += $tbias;
         $tarrsec += $tbias;
-#        info("skip hop $id line $xlinno") if $id == $prvid;
         next if $id == $prvid;
 
         return error("trip ID '$xtripid' duplicate sequence $seq") if $seq == $prvseq;
@@ -1978,7 +1968,6 @@ sub readstoptimes($)
           push @uniqids,$uniqid;
           $stopdeps[$prvid]++;
           $stoparrs[$id]++;
-#          info("$uniqid line $xlinno start $linno") if $prvroute == 69;
           $hopcnt++;
         }
       } # each tripline
@@ -2114,8 +2103,6 @@ sub writext($$)
     $stop_code = '' unless defined $stop_code;
     $opts = 0 unless defined $opts;
 
-#    info("port '$stop_name' code '$stop_code' desc '$desc' opt '$opts'");
-
     $parent = '';
     $parent = $parentbyid{$stopid} if exists $parentbyid{$stopid};
 
@@ -2128,7 +2115,6 @@ sub writext($$)
       $portcnt++;
     }
 
-#    info("name $stop_name id $stopid_to sub $stopid lat $ilat lon $ilon opt $opts id $stop_id code $stop_code parent $parent\n");
     printf($portfile "%s\t.%u\t.%u\t%x\t%x\t%x\t# id %s code %s %s\n",$stop_name,$stopid_to,$stopid,$ilat,$ilon,$opts,$stop_id,$stop_code,$parent);
   }
   close($portfile);

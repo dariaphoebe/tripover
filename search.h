@@ -13,7 +13,6 @@
 
 #define Topdts 32
 
-// rudimentary
 // port and hop refs are global
 struct srcctx {
   char desc[256];
@@ -28,7 +27,7 @@ struct srcctx {
   ub4 vias[Nvia];
   ub4 viacnt;
   ub4 deptmin,deptmax;
-  ub4 deptmin_cd,tspan;
+  ub4 deptmin_cd,depttmin_cd,tspan;
   ub4 utcofs12;
   ub4 lostop,histop;
   ub4 stop;

@@ -134,7 +134,20 @@ By default tripover reads its runtine configuration from +tripover.cfg+
 After tripover has been run, the configuration in effect is written to +tripover.curcfg+
 
 You can use the latter as a starting point for the former. It shows all defaults, as well as a short description.
- 
+
+== Issues ==
+
+At the time of this writing, Tripover is in an early stage of development.
+Things start to work, some query results are good, some are not. You will likely hit issues when trying new data.
+
+* The commandline tools can be very verbose and disabling does not work properly.
+
+* Distance units are coarse approximations.
+
+* Larger networks that require partitioning can give surprising results.
+
+* No Daylight savings time handling.
+
 == Author
 
 Joris van der Geer

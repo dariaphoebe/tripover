@@ -47,9 +47,8 @@ struct portbase {
   ub4 id;
   ub4 cid;     // constant at net changes
 
-  char name[128];  // todo: use below structure instead
+  char name[128];
   ub4 namelen;
-//  struct gname name;
 
   ub4 ndep,narr;
 
@@ -73,7 +72,7 @@ struct subportbase {
   ub4 subid;
   ub4 cid;     // constant at net changes
 
-  char name[128];  // todo: use below structure instead
+  char name[128];
   ub4 namelen;
 
   ub4 lat,lon;
@@ -124,10 +123,8 @@ struct hopbase {
   ub4 magic;
   ub4 id;       // index in net.hops
   ub4 cid;
-  char name[128];  // todo: use below structure instead
+  char name[128];
   ub4 namelen;
-
-//  struct gname name;
 
   ub1 valid;
 
@@ -204,22 +201,15 @@ struct sidbase {
   ub4 service;
 
   ub4 t0,t1;      // tt range in minutes std
-//  ub4 t0map;      // start of day map in minutes std
 
   ub4 lt0day,lt1day; // tt range in localtime days
 
-//  ub4 dt;         // granularity of table in minutes
   ub4 utcofs;     // minutes east from utc + 12h
 
   ub4 mapofs;     // day map
   ub4 maplen;     // in days
 
   ub4 refcnt;
-
-//  ub2 duration;   // minutes
-//  ub2 gocnt;      // # entries below
-
-//  ub4 gobase;     // datetime gos[gocnt] at net.dtmaps+base :  daysofweek, timesofday map
 };
 
 // optional: ~ unrolled timetable
@@ -261,8 +251,6 @@ struct networkbase {
   ub8 *chainidxs;    // seq,ndx
   struct chainhopbase *chainhops;
 
-//  ub8 *chainmets;    // cum dist,midur
-
   ub4 *routechains;
   ub4 *timesbase;
   ub8 *events;
@@ -285,9 +273,6 @@ struct networkbase {
   ub4 t0,t1; // overall timebox in localtime + tz uncertainty
 
   ub4 utcofs12_def;
-
-// workspace
-  ub4 *portwrk;   // [portcnt]
 
 // access
 

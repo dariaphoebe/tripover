@@ -17,6 +17,8 @@
 #include <string.h>
 
 #include "base.h"
+struct globs globs;
+
 #include "cfg.h"
 #include "os.h"
 #include "time.h"
@@ -29,7 +31,6 @@ static ub4 msgfile;
 
 #include "server.h"
 
-#include "bitfields.h"
 #include "netbase.h"
 #include "netio.h"
 #include "gtfs.h"
@@ -41,8 +42,6 @@ static ub4 msgfile;
 #include "compound.h"
 #include "partition.h"
 #include "search.h"
-
-struct globs globs;
 
 static const char copyright[] = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -104,8 +103,6 @@ static void exit0(void)
 // init network
 static int initnet(void)
 {
-  ub4 portcnt = globs.maxports;
-  ub4 hopcnt = globs.maxhops;
   netbase *basenet = getnetbase();
   gnet *gnet;
   int rv = 0;
@@ -202,7 +199,7 @@ static int do_main(void)
 
     rv = plantrip(&src,(char *)"buildin test",dep,arr,lostop,histop);
     if (rv) warning(0,"search returned error %d",rv);
-    else if (src.trips[0].cnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,src.trips[0].port,src.lodist);
+    else if (src.trips[0].cnt) info(0,"%u to %u = \av%u%p distance %u\n",dep,arr,src.lostop+2,(void *)src.trips[0].port,src.lodist);
     else info(0,"%u to %u : no trip\n",dep,arr);
   }
 

@@ -254,9 +254,9 @@ static ub4 fcnv(char *dst, double x)
 {
   double fexp,exp;
   ub4 iexp;
-  ub4 nmant,ix,n = 0;
+  ub4 ix,n = 0;
   char *org = dst;
-  char mantissa[32];
+
 
   // trivia
   if (isnan(x)) { memcpy(dst,"#NaN",4); return 4; }
@@ -338,7 +338,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         case 'x': do_xu = 1; break;
         case '`': do_comma = 1; break;
         case 's': if (uval != 1) dst[n++] = 's'; break;
-        case '%': dst[n++] = c1; c1 = '%'; break;
+        case '%': dst[n++] = c1; break;
         default: dst[n++] = c1;
       }
       c1 = *p; if (c1) p++;
@@ -382,7 +382,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   } else if (uval == hi32) {
                     memcpy(dst + n,"hi32",4); n += 4;
                   } else if (luval > hi32) {
-                    n += ucnv(dst + n,(luval >> 32),wid,pad);
+                    n += ucnv(dst + n,(ub4)(luval >> 32),wid,pad);
                     dst[n++] = ',';
                     n += ucnv(dst + n,(ub4)luval,wid,pad);
                   } else n += ucnv(dst + n,(ub4)luval,wid,pad);
@@ -723,7 +723,6 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   }
   if (opts && pos < maxlen) msgbuf[pos++] = ' ';
   decorpos = pos;
-//  if (lvl == Assert) pos += mysnprintf(msgbuf, pos, maxlen, "assert\n  ");
 
   pos += vsnprint(msgbuf, pos, maxlen, fmt, ap);
   pos = min(pos,maxlen-1);
@@ -805,16 +804,6 @@ int __attribute__ ((format (printf,3,4))) vrbfln(ub4 fln, ub4 code, const char *
 
   msginfo(fln);
 
-#if 0
-  if (code & CC) {
-    va_list ap1;
-    code &= ~CC;
-    va_start(ap1, fmt);
-    cclen = vsnprint(ccbuf,0,sizeof(ccbuf),fmt,ap1);
-    ccfln = fln;
-    va_end(ap1);
-  }
-#endif
   if (msglvl < Vrb) return 0;
   lvl = code / V0;
   if (lvl > vrblvl) return 0;
@@ -1003,7 +992,8 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
   vrbfln(fln,CC,"progress %u of %u",cur,end);
 
   if (cur == 0) {
-    eta->cur = eta->end = eta->limit = 0;
+    eta->cur = eta->end = 0;
+    eta->limit = 0;
     eta->stamp = eta->start = now;
   } else if (cur + 1 < end && now - eta->stamp < 2 * sec) return 0;
   eta->stamp = now;
@@ -1120,7 +1110,7 @@ void eximsg(void)
 {
   ub4 i,n,n0,n1,n2,i0,i1,i2;
   int fd;
-  enum Msglvl lvl;
+
 
   prefixlen = 0;
 

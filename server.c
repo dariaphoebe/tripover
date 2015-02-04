@@ -42,13 +42,10 @@ static ub4 msgfile;
 
 #include "util.h"
 
-#include "bitfields.h"
 #include "netbase.h"
 #include "net.h"
 
 #include "search.h"
-
-extern struct globs globs;
 
 static int memeq(const char *s,const char *q,ub4 n) { return !memcmp(s,q,n); }
 
@@ -61,9 +58,9 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   ub4 n,pos = 0,len = (ub4)req->len;
   ub4 ival;
   ub4 varstart,varend,varlen,valstart,valend,type;
-  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,tspan = 3,utcofs=2200;
+  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,ttdep = 0,tspan = 3,utcofs=2200;
   int rv;
-  enum Vars { Cnone,Cdep,Carr,Ctdep,Ctspan,Clostop,Chistop,Cutcofs } var;
+  enum Vars { Cnone,Cdep,Carr,Ctdep,Cttdep,Ctspan,Clostop,Chistop,Cutcofs } var;
   ub4 *evpool;
 
   if (len == 0) return 1;
@@ -98,6 +95,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     if (varlen == 3 && memeq(vp,"dep",3)) var = Cdep;
     else if (varlen == 3 && memeq(vp,"arr",3)) var = Carr;
     else if (varlen == 7 && memeq(vp,"deptmin",7)) var = Ctdep;
+    else if (varlen == 8 && memeq(vp,"depttmin",8)) var = Cttdep;
     else if (varlen == 5 && memeq(vp,"tspan",5)) var = Ctspan;
     else if (varlen == 6 && memeq(vp,"lostop",6)) var = Clostop;
     else if (varlen == 6 && memeq(vp,"histop",6)) var = Chistop;
@@ -108,6 +106,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     case Cdep: dep = ival; break;
     case Carr: arr = ival; break;
     case Ctdep: tdep = ival; break;
+    case Cttdep: ttdep = ival; break;
     case Ctspan: tspan = ival; break;
     case Clostop:  lostop = ival; break;
     case Chistop: histop = ival; break;
@@ -120,6 +119,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   clear(src);
   src->evpool = evpool;
 
+  src->depttmin_cd = ttdep;
   src->deptmin_cd = tdep;
   src->utcofs12 = utcofs;
   src->tspan = tspan;
@@ -138,7 +138,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   } else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
   vrb0(0,"reply len %u",len);
   rep->len = len;
-  osmillisleep(50);
+  osmillisleep(10);
   return 0;
 }
 

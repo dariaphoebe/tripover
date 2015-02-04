@@ -24,7 +24,6 @@ static ub4 msgfile;
 #include "msg.h"
 
 #include "util.h"
-#include "bitfields.h"
 #include "net.h"
 #include "condense.h"
 
@@ -40,12 +39,12 @@ void inicondense(void)
 int condense(struct gnetwork *net)
 {
   ub4 port,portcnt = net->portcnt;
-  ub4 hop,hopcnt = net->hopcnt;
-  ub4 zportcnt = 0,zhopcnt = 0,nzportcnt = 0;
+  ub4 hopcnt = net->hopcnt;
+  ub4 zportcnt = 0,nzportcnt = 0;
   struct port *pp,*parr,*pdep,*zpp,*zepp,*ports = net->ports;
-  struct hop *hp,*hops = net->hops;
-  ub4 dep,arr,noda = 0,norid = 0,noda2 = 0,norid2 = 0;;
-  ub4 nd,na,zlen,dhop,ahop,zdhop,eahop,edhop,drid,zid;
+
+  ub4 dep,arr;
+  ub4 nd,na,zlen,dhop,ahop,zdhop,edhop,drid,zid;
   int docondense;
   ub4 iv;
   ub4 stats[20];
@@ -144,10 +143,6 @@ int condense(struct gnetwork *net)
     if (zepp->ndep) edhop = zepp->deps[0];
     else edhop = hi32;
     zpp->zedhop = edhop;
-
-    eahop = zepp->arrs[0];
-
-    dhop = zpp->deps[0];
   }
 
   // double case a=b=c : 2 rid's, but same dep,arr
@@ -231,8 +226,6 @@ int condense(struct gnetwork *net)
     if (zepp->ndep) edhop = zepp->deps[0];
     else edhop = hi32;
     zpp->zedhop = edhop;
-
-    eahop = zepp->arrs[0];
 
     dhop = zpp->deps[0];
     info(0,"dhop %u",dhop);

@@ -32,11 +32,10 @@ static int  __attribute__ ((format (printf,3,4))) rsidlogfln(ub4 fln,ub4 rsid,co
 {
   va_list ap;
   char buf[2048];
-  ub4 n;
 
   if (rsid2logcnt && rsid2log(rsid,0)) {
     va_start(ap, fmt);
-    n = myvsnprintf(buf,0,sizeof(buf),fmt,ap);
+    myvsnprintf(buf,0,sizeof(buf),fmt,ap);
     va_end(ap);
     infofln(fln,0,"rsid \ax%u: %s",rsid,buf);
     return 1;
@@ -66,11 +65,10 @@ static int  __attribute__ ((format (printf,4,5))) hoplogfln(ub4 fln,ub4 hop,ub4 
 {
   va_list ap;
   char buf[2048];
-  ub4 n;
 
   if (hop2logcnt && hop2log(hop,lvl)) {
     va_start(ap, fmt);
-    n = myvsnprintf(buf,0,sizeof(buf),fmt,ap);
+    myvsnprintf(buf,0,sizeof(buf),fmt,ap);
     va_end(ap);
     infofln(fln,0,"hop %u: %s",hop,buf);
     return 1;

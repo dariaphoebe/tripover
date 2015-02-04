@@ -34,7 +34,7 @@ static const char logitemfile[] = "watches.cfg";
 ub4 str2ub4(const char *s, ub4 *pv)
 {
   unsigned long n;
-  ub4 pos = 0;
+
   char *ep;
 
   *pv = 0;
@@ -62,7 +62,7 @@ int hex2ub4(const char *s, ub4 *pv)
 
 void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln)
 {
-  vrbfln(fln,0,"");
+  vrbfln(fln,0,"len %u",len);
   if (len == 0) vrbfln(fln,0,"zero copy");
   else if (src < dst && src + len > dst) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %u",src,dst,len);
   else if (src > dst && dst + len > src) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %u",src,dst,len);
@@ -73,7 +73,7 @@ void do_clear(void *p,ub4 len) { memset(p,0,len); }
 
 int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln)
 {
-  vrbfln(fln,0,"");
+  vrbfln(fln,0,"cmp %s %s",sa,sb);
   if (a == NULL) return errorfln(fln,Exit,FLN,"strcmp(%s:nil,%s",sa,sb);
   else if (b == NULL) return errorfln(fln,Exit,FLN,"strcmp(%s,%s:nil",sa,sb);
   else return strcmp(a,b);
@@ -690,7 +690,7 @@ static void rdwatchitems(void)
     break;
 
     case Hex:
-      if (c >= '0' && c <= '9') val = (val << 4) | c - '0';
+      if (c >= '0' && c <= '9') val = (val << 4) | (c - '0');
       else if (c >= 'a' && c <= 'f') val = (val << 4) | (c - 'a' + 10);
       else if (c == '\n') {
         li->val = val;

@@ -20,8 +20,8 @@ use strict;
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 16;
-my $lastchanged = "2 feb 2015";
+my $version_min = 17;
+my $lastchanged = "4 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -323,7 +323,7 @@ sub iplan($$)
 {
   my ($dep,$arr) = @_;
 
-  my ($depname,$arrname,$qstr,$hh,$mm);
+  my ($depname,$arrname,$qstr,$hh,$mm,$dot,$starttime);
 
   if ($haveportrefs) {
     if (exists($portids{$dep})) { $depname = $portids{$dep}; }
@@ -354,17 +354,30 @@ sub iplan($$)
     info("using default display tz $tz utc$utcofs from portrefs");
   }
 
+  $dot = index($startdate,'.');
+  $starttime = 0;
+  if ($dot == 0) {
+    $starttime = substr($startdate,1);
+    $startdate = 0;
+  } elsif ($dot > 0) {
+    $starttime = substr($startdate,$dot+1);
+    $startdate = substr($startdate,0,$dot);
+    $starttime = 0 unless defined $starttime and length $starttime;
+  }
+
   if ($dep eq '*') {
     readportrefs($portrefname) unless $haveportrefs;
     foreach $dep (keys %portids) {
       $dep = $idbysub{$dep};
-      $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\ndeptmin i $startdate\n";
+      $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\n";
+      $qstr .= "deptmin i $startdate\ndepttmin i $starttime\n";
       $qstr .= "histop i $maxstop\nutcofs i $utcofs12\n";
       query('p',$region,$qstr);
     }
     return;
   }
-  $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\ndeptmin i $startdate\n";
+  $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\n";
+  $qstr .= "deptmin i $startdate\ndepttmin i $starttime\n";
   $qstr .= "histop i $maxstop\nutcofs i $utcofs12\n";
   query('p',$region,$qstr);
 }
@@ -566,7 +579,6 @@ sub query($$$)
   unlink $qname_rep or return error("cannot remove $qname_rep:$!");
 
   return error("$qname_rep is empty") unless (scalar @lines);
-#  foreach my $line (@lines) info("$line");
   print @lines;
   unlink $qname_rcv or return error("cannot remove $qname_rcv:$!");
 }

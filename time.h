@@ -37,5 +37,6 @@ extern ub4 utc12ofs(ub4 uo12);
 extern ub4 cdday2wday(ub4 cd);
 extern ub4 cd2day(ub4 cd);
 extern ub4 day2cd(ub4 day);
+extern ub4 hhmm2min(ub4 ct);
 
 extern void initime(int iter);

@@ -30,7 +30,6 @@ static ub4 msgfile;
 #include "msg.h"
 
 #include "util.h"
-#include "bitfields.h"
 #include "net.h"
 #include "compound.h"
 
@@ -45,12 +44,12 @@ void inicompound(void)
 // add compound hops
 int compound(gnet *net)
 {
-  ub4 rportcnt,port2,rport2,portcnt = net->portcnt;
+  ub4 rportcnt,rport2,portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
-  ub4 hop,chop,prvchop,chopcnt,newhopcnt = 0,newcnt;
+  ub4 hop,chop,chopcnt,newhopcnt = 0,newcnt;
   ub4 rid,rrid,ridcnt = net->ridcnt;
   ub4 chain,chaincnt = net->chaincnt;
-  ub4 chainhopcnt = net->chainhopcnt;
+
   ub4 hichainlen = net->hichainlen;
   ub4 hiportlen;
   struct hop *hp,*hops = net->hops;
@@ -62,8 +61,7 @@ int compound(gnet *net)
   ub4 maxperm2 = maxperm * maxperm;
 
   ub4 dep,arr,deparr,da,prvda,rdep,rarr;
-  int docompound,dbg;
-  ub4 chainlen,hopofs;
+  int docompound;
 
   net->chopcnt = hopcnt;
 
@@ -74,8 +72,6 @@ int compound(gnet *net)
   if (portcnt < 3) return info(0,"skip compound on %u port\as",portcnt);
   if (hopcnt < 2) return info(0,"skip compound on %u hop\as",hopcnt);
   if (ridcnt == 0) return info(0,"skip compound on no rids for %u hop\as",hopcnt);
-
-  port2 = portcnt * portcnt;
 
   docompound = dorun(FLN,Runcompound);
 
@@ -89,9 +85,10 @@ int compound(gnet *net)
   ub4 *orghopdur = net->hopdur;
   ub4 midur,dur,sumdur,durdif;
 
-  ub4 ghop,hop1,hop2,dep1,arr2;
-  ub4 dist1,dist2,midur1,midur2,dist = 0;
-  ub4 tdep,tarr,tdep1,tdep2,tarr2;
+  ub4 hop1,hop2,dep1,arr2;
+  ub4 dist1,dist2,dist = 0,dirdist;
+  double fdist;
+  ub4 tdep,tarr,tdep1,tarr2;
   ub4 ci,ci1,ci2,pchlen,cmpcnt;
 
   ub4 pchain[Chainlen];
@@ -122,10 +119,6 @@ int compound(gnet *net)
 #endif
 
   ub4 cnt,cmphopcnt = 0;
-
-  routes = net->routes;
-  chains = net->chains;
-  chaincnt = net->chaincnt;
 
   error_z(chaincnt,ridcnt);
 
@@ -237,7 +230,6 @@ int compound(gnet *net)
           if (duphops[deparr] == hi32) continue;
           duphops[deparr] = 0;
           cmpcnt++;
-//          if (cmpcnt >= maxperm2) break;
         } // each c2
         if (cmpcnt >= maxperm2) {
           warning(0,"limiting compound on rid %u to %u combis",rid,cmpcnt);
@@ -277,8 +269,6 @@ int compound(gnet *net)
   ub4 *hopcdur = alloc(newhopcnt,ub4,0,"cmp hopcdur",newhopcnt);
 
   ub4 *choporg = alloc(newhopcnt * 2,ub4,0,"cmp choporg",newhopcnt);
-
-  midur = 0;
 
   ub8 cumpchainlen = 0, cumgchainlen = 0, pchaincnt = 0;
   ub4 eqdurs = 0,aeqdurs = 0;
@@ -393,9 +383,14 @@ int compound(gnet *net)
           choporg[chop * 2] = hop1;
           choporg[chop * 2 + 1] = hop2;
 
-//          error_lt(dist2,dist1);
+//          error_lt(dist2,dist1); todo
+          dist2 = max(dist1,dist2);
           dist = dist2 - dist1;
-          hopdist[chop] = dist;
+          pdep = ports + dep;
+          parr = ports + arr;
+          fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
+          dirdist = (ub4)fdist;
+          hopdist[chop] = max(dist,dirdist);
 
           error_lt(tarr2,tdep1);
           midur = tarr2 - tdep1;
@@ -408,7 +403,6 @@ int compound(gnet *net)
 
           chop++;
           cmpcnt++;
-//          if (cmpcnt >= maxperm2) break;
         } // each c2
         if (chop >= newhopcnt) break;
         else if (cmpcnt >= maxperm2) {

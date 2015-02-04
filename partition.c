@@ -39,10 +39,10 @@ void inipartition(void)
   iniassert();
 }
 
+// mark local links
 static int marklocal(struct network *net)
 {
-  // mark local links
-  ub4 ndep,narr,nudep,nuarr,nvdep,nvarr;
+  ub4 ndep,narr;
   struct hop *hp,*hops = net->hops;
   struct port *pdep,*parr,*ports = net->ports;
   ub4 *portsbyhop = net->portsbyhop;
@@ -81,11 +81,6 @@ static int marklocal(struct network *net)
 
     rrid = hp->rrid;
 
-    nudep = pdep->nudep;
-    nvdep = pdep->nvdep;
-    nuarr = parr->nuarr;
-    nvarr = parr->nvarr;
-
     if (ndep < Nlocal) {
       pdep->deps[ndep] = arr; pdep->drids[ndep] = rrid;
     }
@@ -97,7 +92,7 @@ static int marklocal(struct network *net)
   return 0;
 }
 
-static void cpfromgnet(gnet *gnet,net *net)
+static void cpfromgnet(gnet *gnet,lnet *net)
 {
   net->chains = gnet->chains;
   net->chaincnt = gnet->chaincnt;
@@ -134,26 +129,23 @@ int partition(gnet *gnet)
 
   struct port *ports,*pports,*pdep,*parr,*pp,*gp;
   struct hop *hops,*phops,*hp,*ghp;
-  struct route *routes,*rp;
+  struct route *routes;
 
   char *dname,*aname;
 
   ub4 portcnt,tportcnt;
-  ub4 hopcnt,chopcnt,nilhopcnt,pridcnt;
+  ub4 hopcnt,chopcnt;
   ub4 dep,arr,depp,arrp;
   ub4 ridcnt;
-  ub4 nlen,cnt,acnt,dcnt,tcnt,sid,rid,rrid,part,tpart,xmaplen;
-  ub4 pportcnt,zpportcnt,phopcnt,pchopcnt,pxhopcnt,partcnt,part2,newpartcnt;
-  enum txkind kind;
-  ub4 hop,port,zport,zpport,chain,phop,pport;
-  ub4 hirrid;
+  ub4 cnt,acnt,dcnt,tcnt,rid,part,tpart;
+  ub4 pportcnt,phopcnt,pchopcnt,pxhopcnt,partcnt,part2,newpartcnt;
+
+  ub4 hop,port,phop,pport;
+
   ub4 *hopcnts,*xhopcnts,*portcnts;
   ub4 *g2p,*p2g,*g2phop,*p2ghop;
-  ub4 *p2zp,*zp2p,*port2zport;
   ub4 *pportsbyhop;
   ub4 *pchoporg;
-  ub4 t0,t1,evcnt;
-  struct partition *parts,*partp;
 
   ports = gnet->ports;
   hops = gnet->hops;
@@ -181,8 +173,6 @@ int partition(gnet *gnet)
   // prepare partitioning
   hopcnts = gnet->hopcnts;
   xhopcnts = gnet->xhopcnts;
-  portcnts = gnet->portcnts;
-  parts = gnet->parts;
 
   ub1 *gportparts;
 
@@ -222,9 +212,6 @@ int partition(gnet *gnet)
     net->vportcnt = pportcnt;
 
     for (hop = 0; hop < hopcnt; hop++) {
-      ghp = hops + hop;
-      dist = ghp->dist;
-      midur = ghp->tp.midur;
       g2phop[hop] = hop;
       p2ghop[hop] = hop;
     }
@@ -357,8 +344,6 @@ int partition(gnet *gnet)
 
   sumcnt = 0;
   for (port = 0; port < portcnt; port++) {
-    pdep = ports + port;
-//    info(0,"port %u cnt %u %s",port,partcnts[port],pdep->name);
     cnt = partcnts[port];
     sumcnt += cnt;
     partstats[min(cnt,partivs)]++;
@@ -456,7 +441,6 @@ int partition(gnet *gnet)
     sumcnt = 0;
     for (port = 0; port < portcnt; port++) {
       sumcnt += partcnts[port];
-//      info(0,"cnt %u iter %u",partcnts[port],itercnts[port]);
     }
     if (sumcnt == prvsumcnt) break;
     iter++;
@@ -608,8 +592,6 @@ int partition(gnet *gnet)
       if (rid1 == rid2 || ridhis[rid1] || ridhis[rid2]) continue;
       if (iter > 8) info(0,"rid1 %u rid2 %u cnt  %u his %u %u",rid1,rid2,cnt,ridhis[rid1],ridhis[rid2]);
 //      if (rid2his[rid1 * ridcnt + rid2]) continue;
-
-//      if (hino < 12) info(0,"rid1 %u rid2 %u cnt %u",rid1,rid2,cnt);
 
       cnt2 = lrid2cnts[rid1 * ridcnt + rid2];
       if (iter == 9) info(0,"rid1 %u rid2 %u cnt2 %u",rid1,rid2,cnt2);
@@ -766,7 +748,6 @@ int partition(gnet *gnet)
         rid1 = lmpp[mi];
         error_ne_cc(partmerges[rid1],rid1,"port %u rid %u at %u of %u",port,rid1,mi,lcnt);
         error_ne_cc(lppm[rid1],1,"port %u lcnt %u pos %u",port,lcnt,mi);
-//        if (rid1 == 1101) info(0,"port %u rid %u ppp %u",port,rid1,portsperpart[rid1]);
         pportcnt = portsperpart[rid1];
         error_ge(pportcnt,portcnt);
         portsperpart[rid1] = pportcnt + 1;
@@ -815,7 +796,6 @@ int partition(gnet *gnet)
 
   aclear(partstats);
 
-  iv = cnt2 = 0;
   for (port = 0; port < portcnt; port++) {
     cnt = lpartcnts[port];
     partstats[min(partivs,cnt)]++;
@@ -849,7 +829,6 @@ int partition(gnet *gnet)
     lcnt = lpartcnts[port];
     lmpp = lportparts + port * Npart;
     lppm = lpartportcnts + port * ridcnt;
-//    pdep = ports + port;
 
     nclear(lppm,partcnt);
     for (mi = 0; mi < lcnt; mi++) {
@@ -942,7 +921,6 @@ int partition(gnet *gnet)
   // make all parts represented in topnet
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
-    lcnt = lpartcnts[port];
     lmpp = lportparts + port * Npart;
     lppm = lpartportcnts + port * ridcnt;
 
@@ -1046,7 +1024,7 @@ int partition(gnet *gnet)
   error_z(hidcon,0);
   hidcon = max(hidcon,2);
 
-  ub4 portcon,*portconns = alloc(hidcon+1,ub4,0,"part portconns",hidcon);
+  ub4 *portconns = alloc(hidcon+1,ub4,0,"part portconns",hidcon);
   ub4 hiaddcnt,hiportcnt,coniv;
 
   for (port = 0; port < portcnt; port++) {
@@ -1156,19 +1134,15 @@ int partition(gnet *gnet)
   // separate into partitions
   for (part = 0; part < partcnt; part++) {
     net = getnet(part);
-    partp = parts + part;
 
     pportcnt = portcnts[part];
     phopcnt = hopcnts[part];
     pxhopcnt = xhopcnts[part];
-    pridcnt = ridcnts[part];
 
     if (part == tpart) {
       error_ne(part,partcnt-1);
       error_ne(tportcnt,pportcnt);
     }
-
-    zpportcnt = 0;
 
     if (pportcnt == 0) {
       warning(0,"partition %u has no ports",part);
@@ -1191,9 +1165,6 @@ int partition(gnet *gnet)
     p2g = alloc(pportcnt,ub4,0xff,"p2g-ports",pportcnt);
     g2phop = alloc(chopcnt,ub4,0xff,"g2p-hops",chopcnt);
     p2ghop = alloc(pchopcnt,ub4,0xff,"part p2g-hops",pchopcnt);
-
-    p2zp = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
-    zp2p = alloc(portcnt,ub4,0xff,"p2zp-ports",portcnt);
 
     pportsbyhop = alloc(pchopcnt * 2, ub4,0xff,"net portsbyhop",pchopcnt);
     pchoporg = alloc(pchopcnt * 2, ub4,0xff,"cmp choporg",pchopcnt);
@@ -1256,17 +1227,12 @@ int partition(gnet *gnet)
       error_ge(dep,portcnt);
       error_ge(arr,portcnt);
 
- //     infocc(part == 2,0,"hop %u of %u,%u",hop,hopcnt,chopcnt);
-
       if (gportparts[dep * partcnt + part] == 0 && gportparts[arr * partcnt + part] == 0) {
-//        infocc(part == 2,0,"hop %u of %u,%u %u-%u",hop,hopcnt,chopcnt,dep,arr);
         continue;
       } else if (gportparts[dep * partcnt + part] == 0 || gportparts[arr * partcnt + part] == 0) {
         if (hop >= hopcnt) continue;
         hxcnt2++;
       }
-
-      infocc(part == 2,0,"hop %u of %u,%u = %u",hop,hopcnt,chopcnt,phop);
 
       error_ge(phop,pchopcnt);
 
@@ -1307,7 +1273,7 @@ int partition(gnet *gnet)
         error_ge(arrp,pportcnt);
       } else arrp = hi32;
 
-      error_eq_cc(depp,arrp,"hop %u dep %u arr %u",hop,dep,arr);
+      error_eq_cc(depp,arrp,"hop %u dep %u arr %u %s to %s",hop,dep,arr,dname,aname);
 
       pportsbyhop[phop * 2] = depp;
       pportsbyhop[phop * 2 + 1] = arrp;
@@ -1330,10 +1296,6 @@ int partition(gnet *gnet)
         hp->dep = depp;
         hp->arr = arrp;
         hp->gid = hop;
-        t0 = hp->tp.t0;
-        t1 = hp->tp.t1;
-        midur = hp->tp.midur;
-//      info(0,"hop %u tt range %u-%u",hop,t0,t1);
 
         hp->dist = dist;
         hp++;
