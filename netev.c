@@ -132,7 +132,11 @@ static ub4 avgdurcc(lnet *net,ub4 hop1,ub4 hop2)
   rt2 = (ub4)ev2[0]; t2 = rt2 + gt02;
   dur1 = hopdur[hop1];
   dur2 = hopdur[hop2];
-  if (dur1 == hi32 || dur2 == hi32) return 1000; // todo hopadur[]
+
+  if (dur1 == hi32 || dur2 == hi32) {
+    return 1000; // todo hopadur[]
+  }
+
   for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / samplescc) ) {
     rt1 = (ub4)ev1[gndx * 2];
     t1 = rt1 + gt01;

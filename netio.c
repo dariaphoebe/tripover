@@ -316,7 +316,7 @@ static enum extresult nextchar(struct extfmt *ef)
         case '\t': case ' ': state = Val0; break;
       }
       break;
-    
+
     case Hex1:  // hex number
       if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
       x = hexmap[(ub4)c];
@@ -1083,7 +1083,7 @@ static int rdexttimes(netbase *net,const char *dir)
       t0lo = min(t0lo,t0);
       t1hi = max(t1hi,t1);
 
-      rsidlog(rsid,"%u days in dow %x %u..%u \ad%u-\ad%u",daycnt,dow,t0_cd,t1_cd,t0,t1);
+      vrb0(0,"rsid \ax%u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daycnt,dow,t0_cd,t1_cd,t0,t1);
 
       error_le(t1,t0);
 
@@ -1313,11 +1313,11 @@ static int rdexthops(netbase *net,const char *dir)
   ub4 kinds[Kindcnt];
   enum txkind tx;
 
-  ub4 *tbp,*timesbase = NULL;
+  ub4 *tbp,*tbp2,*timesbase = NULL;
   ub4 timespos = 0;
   ub4 rtid,tid,tdep,tarr,tripseq,tdepsec,tarrsec,prvsid,prvtid,prvtdep,prvtarr;
   ub4 t0,t1,ht0,ht1;
-  ub4 fmt,vndx,tndx;
+  ub4 fmt,vndx,tndx,tndx2;
 
   struct eta eta;
 
@@ -1364,6 +1364,7 @@ static int rdexthops(netbase *net,const char *dir)
   int inited = 0;
   ub4 cumhoprefs = 0;
   chaincnt = 0;
+  ub4 duptndx = 0;
 
   do {
 
@@ -1461,7 +1462,10 @@ static int rdexthops(netbase *net,const char *dir)
       error_zp(timesbase,timecnt);
       tbp = timesbase + timespos * 5;
 
-      timecnt = min(timecnt,timecntlimit); // todo tmp
+      if (timecnt > timecntlimit) {
+        warn(Iter,"%s.%u: hop %u has %u time entries, max %u",fname,linno,hop,timecnt,timecntlimit);
+        timecnt = timecntlimit;
+      }
 
       tndx = 0; vndx = 6;
       rsid = rtid = tdep = tarr = tdepsec = tarrsec = 0;
@@ -1525,7 +1529,6 @@ static int rdexthops(netbase *net,const char *dir)
           tarrsec = tdepsec;
         } else if (tarrsec == tdepsec) {
           parsewarn(FLN,fname,linno,colno,"hop %u arr time %u equals dep",hop,tarrsec);
-          tarrsec = tdepsec;
         }
 
         if (rsid > maxsid) return inerr(FLN,fname,linno,colno,"service id %u above highest id %u",rsid,maxsid);
@@ -1545,6 +1548,18 @@ static int rdexthops(netbase *net,const char *dir)
         ht0 = min(ht0,t0);
         ht1 = max(ht1,t1);
 
+        tbp2 = timesbase + timespos * 5;
+        for (tndx2 = 0; tndx2 < tndx; tndx2++) { // check for duplicates
+          if (tbp[0] == sid
+            && tbp[1] == tid
+            && tbp[2] == tdepsec
+            && tbp[3] == tarrsec) {
+            tndx++;
+            duptndx++;
+            continue;
+          }
+          tbp2 += 5;
+        }
         tbp[0] = sid;
         tbp[1] = tid;
         tbp[2] = tdepsec;
@@ -1554,7 +1569,7 @@ static int rdexthops(netbase *net,const char *dir)
         tndx++;
       }
       if (tndx != timecnt) parsewarn(FLN,fname,linno,colno,"%u time entries, but only %u args",timecnt,valndx);
-      error_ne(tndx,timecnt);
+      timecnt = tndx;
       if (tndx) {
         hp->t0 = ht0;
         hp->t1 = ht1 + 1440; // tdep can be above 24h
@@ -1598,6 +1613,8 @@ static int rdexthops(netbase *net,const char *dir)
   hopcnt = hop;
   progress(&eta,"reading hop %u of %u, \ah%u time entries",hop,hopcnt,timespos);
 
+  infocc(duptndx,0,"\ah%u of \ah%u duplicate time entries",duptndx,timespos);
+
   if (hopcnt == 0) return error(0,"0 hops from %u",rawhopcnt);
 
   if (hirrid != net->hirrid) {
@@ -1634,8 +1651,9 @@ static int rdexthops(netbase *net,const char *dir)
     else if (cnt == 1) info(0,"r.rid %u.%u has 1 hop %s",rrid,rid,rp->name);
   }
 
-#if 0
-  ub4 dupcnt = 0;
+#if 1
+  ub4 hop2,dupcnt = 0;
+  struct hopbase *hp2;
 
   // check for duplicates
   for (hop = 0; hop < hopcnt; hop++) {

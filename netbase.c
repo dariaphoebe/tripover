@@ -412,7 +412,7 @@ int prepbasenet(void)
       cnt = fillxtime(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid);
       hoplog(hop,0,"r.tid %u.%u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",rtid,tid,rsid,t0,t1,tdep,tarr,cnt);
       if (cnt == 0) {
-        vrb0(0,"tid %u r.sid %u.%u \ad%u \ad%u dep \ad%u arr \ad%u no events",tid,rsid,sid,t0,t1,tdep,tarr);
+        vrb0(Iter,"tid %u r.sid %u.%u \ad%u \ad%u dep \ad%u arr \ad%u no events",tid,rsid,sid,t0,t1,tdep,tarr);
         tbp[0] = sidcnt; // disable for next pass
         tbp += 5;
         continue;
@@ -451,7 +451,7 @@ int prepbasenet(void)
           chp2 = chainhops + ofs;
           for (i = 0; i < chcnt; i++) {
             if (chp2[i].hop == hop) {
-              vrb0(Iter,"rrid %u r.tid %u.%u skip equal hop %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,i,pdep->name,parr->name,pp->name,hp->name);
+              warn(Iter,"rrid %u r.tid %u.%u equal hop %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,i,pdep->name,parr->name,pp->name,hp->name);
               break;
             } else if ( (chip[i] >> 32) == tripseq) {
               warn(Iter,"rrid %x tid %u skip equal seq %u at %u %s to %s start %s",rrid,tid,tripseq,i,pdep->name,parr->name,pp->name);
@@ -489,12 +489,12 @@ int prepbasenet(void)
     } // each time entry
 
     if (evcnt == 0) {
-      genmsg(timecnt > 600 ? Info : Vrb,0,"hop %u no events for %u time entries",hop,timecnt);
+      infovrb(timecnt > 600,Iter,"hop %u no events for %u time entries",hop,timecnt);
       tp->t0 = min(tp->t0,tp->t1);
       continue;
     }
     evhops++;
-    hoplog(hop,0,"final date range \ad%u-\ad%u",tp->t0 + gt0,tp->t1 + gt0);
+    vrb0(0,"final date range \ad%u-\ad%u",tp->t0 + gt0,tp->t1 + gt0);
 
     lodur = min(lodur,hidur);
     tp->lodur = lodur;
@@ -517,7 +517,7 @@ int prepbasenet(void)
       tp->midur = hidur;
       eqdur++;
     } else if (hidur - lodur <= duracc) {
-      tp->midur = hidur;
+      tp->midur = hidur + lodur / 2;
       accdur++;
     } else if (hidur - lodur > 60 * 12) {
       warn(Iter,"hop %u duration %u-%u",hop,lodur,hidur);

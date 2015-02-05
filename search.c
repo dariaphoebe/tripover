@@ -128,7 +128,6 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
 
   ub4 gt0 = tp->gt0;
 
-
   ub4 t0 = tp->t0;
   ub4 t1 = tp->t1;
 
@@ -178,8 +177,13 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
         if (tdep1 != hi32 && tarr2 != hi32) {
           if (tarr2 >= tdep1) {
             dur = tarr2 - tdep1;
+          } else {
+            warn(Iter,"chop %u-%u tdep %u-%u",ghop1,ghop2,tdep1,tarr2);
+            dur = midur;
           }
-          else warn(0,"chop %u-%u tdep %u-%u",ghop1,ghop2,tdep1,tarr2);
+        } else { // this trip does not include hop
+          info(Iter,"chop %u-%u no dep at \ad%u",ghop1,ghop2,t);
+          continue;
         }
       }
     } else dur = (ub4)(x >> 32); // from event
@@ -334,7 +338,6 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
       }
 
       // lookup current chain to get compound duration
-      // many have constant end-to-end time, but account for variation
       if (hop >= hopcnt) {
         dur = hopcdur[hop];
         if (dur == hi32) { // no constant dur, search in chain
@@ -353,7 +356,13 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
           }
           if (tdep1 != hi32 && tarr2 != hi32) {
             if (tarr2 >= tdep1) dur = tarr2 - tdep1;
-            else warn(Iter,"chop %u-%u tdep %u-%u",ghop1,ghop2,tdep1,tarr2); // todo
+            else {
+              warn(Iter,"chop %u-%u tdep %u-%u",ghop1,ghop2,tdep1,tarr2);
+              dur = midur; // todo
+            }
+          } else {
+            info(Iter,"chop %u-%u no dep at \ad%u",ghop1,ghop2,t);
+            continue;
           }
         }
       } else dur = (ub4)(x >> 32);  // plain hops have duration in event

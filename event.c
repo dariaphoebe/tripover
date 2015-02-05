@@ -157,7 +157,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
     if (n + tp->evcnt == evlimit) warning(0,"hop %u exceeding event limit %u",hop,evlimit);
     tp->t0 = tlo; tp->t1 = thi;   // keep track of first and last actual departure
     hoplog(hop,0,"%u event\as tlo %u thi %u",n,tlo,thi);
-  } else if (ndup) vrb0(0,"all events duplicate for rsid %u range %u-%u",rsid,tlo,thi);
+  } else if (ndup) vrb0(0,"duplicate events for rsid %u range %u-%u",rsid,tlo,thi);
   else vrb0(0,"no events for r.sid %u.%u range %u-%u",rsid,sid,t0,t1);
   return n;
 }

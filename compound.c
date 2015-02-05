@@ -143,6 +143,8 @@ int compound(gnet *net)
   ub4 *rport2port = alloc(hiportlen,ub4,0,"cmp rportmap",hiportlen);
 
   ub4 *duphops = alloc(hiport2,ub4,0xff,"cmp duphops",hiportlen);
+  ub4 *cduphops = alloc(hiport2,ub4,0xff,"cmp cduphops",hiportlen);
+
   ub4 *rport2hop = alloc(hiport2,ub4,0xff,"cmp rport2hop",hiportlen);
   ub4 *rhopcdur = alloc(hiport2,ub4,0,"cmp hopcdur",newhopcnt);
   ub4 *hopccnt = alloc(hiport2,ub4,0,"cmp hopccnt",newhopcnt);
@@ -176,7 +178,7 @@ int compound(gnet *net)
     }
     warncc(rportcnt > hichainlen + 1,0,"r.rid %u.%u len %u above %u",rrid,rid,rportcnt,hichainlen);
     rport2 = rportcnt * rportcnt;
-    nclear(duphops,rport2);
+    nsethi(duphops,rport2);
     newcnt = 0;
     for (rdep = 0; rdep < rportcnt; rdep++) duphops[rdep * rportcnt + rdep] = 0;
 
@@ -219,7 +221,7 @@ int compound(gnet *net)
       if (pchlen < 3) continue;
 
       // generate all not yet existing compounds
-      // let compounds span ports not in part: search supposed to handle
+      memcpy(cduphops,duphops,rport2 * sizeof(*duphops));
       cmpcnt = 0;
       for (ci1 = 0; ci1 < pchlen - 1; ci1++) {
         dep1 = pdeps[ci1];
@@ -227,9 +229,10 @@ int compound(gnet *net)
           arr2 = parrs[ci2];
           if (dep1 == arr2) continue;
           deparr = dep1 * rportcnt + arr2;
-          if (duphops[deparr] == hi32) continue;
+          if (cduphops[deparr] != hi32) continue;
           duphops[deparr] = 0;
           cmpcnt++;
+          if (cmpcnt >= maxperm2) break;
         } // each c2
         if (cmpcnt >= maxperm2) {
           warning(0,"limiting compound on rid %u to %u combis",rid,cmpcnt);
@@ -241,7 +244,7 @@ int compound(gnet *net)
     cmphopcnt += newcnt;
     vrb0(0,"rid %u len %u cmp %u",rid,rportcnt,newcnt);
   } // each rid
-  info(0,"\ah%u compound hops",cmphopcnt);
+  info(0,"\ah%u compound hops added to \ah%u",cmphopcnt,hopcnt);
 
   if (cmphopcnt == 0) return 0;
 
@@ -270,7 +273,7 @@ int compound(gnet *net)
 
   ub4 *choporg = alloc(newhopcnt * 2,ub4,0,"cmp choporg",newhopcnt);
 
-  ub8 cumpchainlen = 0, cumgchainlen = 0, pchaincnt = 0;
+  ub8 cumchainlen = 0,pchaincnt = 0;
   ub4 eqdurs = 0,aeqdurs = 0;
 
   // pass 2
@@ -298,8 +301,6 @@ int compound(gnet *net)
       cp = chains + chain;
       cnt = cp->hopcnt;
       if (cp->rid != rid || cnt < 3) continue;
-
-      pchaincnt++;
 
       pchlen = 0;
       for (ci = 0; ci < cnt; ci++) {
@@ -332,11 +333,14 @@ int compound(gnet *net)
         pchlen++;
         if (pchlen == maxperm) { warning(0,"limiting rid %u chain to %u",rid,maxperm); break; }
       }
-      cumpchainlen += pchlen;
-      cumgchainlen += cnt;
       if (pchlen < 3) continue;
 
+      pchaincnt++;
+      cumchainlen += pchlen;
+
       // generate all not yet existing compounds
+      // note that some chains visit ports more than once
+      memcpy(cduphops,duphops,rport2 * sizeof(*duphops));
       cmpcnt = 0;
       for (ci1 = 0; ci1 < pchlen - 1; ci1++) {
         dep1 = pdeps[ci1];
@@ -344,8 +348,8 @@ int compound(gnet *net)
           arr2 = parrs[ci2];
           if (dep1 == arr2) continue;
           deparr = dep1 * rportcnt + arr2;
-          prvda = duphops[deparr];
-          if (prvda != hi32) {  // accumulate duration if constant
+          prvda = cduphops[deparr];
+          if (prvda != hi32) {  // existing: accumulate duration if constant
             tdep1 = ptdep[ci1];
             tarr2 = ptarr[ci2];
             error_lt(tarr2,tdep1);
@@ -439,13 +443,14 @@ int compound(gnet *net)
         dur = hi32;
       }
       hopcdur[hop] = dur;
+      hopdur[hop] = min(hopdur[hop],dur);
     }
 
   } // each rid
   chopcnt = chop;
 
-  info(0,"%u compound hops, %u with constant duration, %u within 10 min",chop - hopcnt,eqdurs,aeqdurs);
-  info(0,"avg chain len %lu, global %lu",cumpchainlen / pchaincnt,cumgchainlen / pchaincnt);
+  info(0,"\ah%u compound hops, \ah%u with constant duration, \ah%u within 10 min",chop - hopcnt,eqdurs,aeqdurs);
+  info(0,"avg chain len %u",(ub4)(cumchainlen / chaincnt));
 
   net->chopcnt = chopcnt;
   net->choporg = choporg;

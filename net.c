@@ -831,7 +831,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
               midur = prepestdur(net,lst11,nleg1);
 
-              if (dist1 > distlim && midur > durlim) { cntstats[1]++; continue; }
+              if (dist1 >= distlim && midur >= durlim) { cntstats[1]++; continue; }
 
               checktrip(net,lst11,nleg1,dep,mid,dist1);
 
@@ -844,12 +844,12 @@ static int mknetn(struct network *net,ub4 nstop)
                   error_ge(leg,whopcnt);
                   dist12 += hopdist[leg];
                   dur = hopdur[leg];
-                  if (dur != hi32 && midur != hi32) midur += hopdur[leg];
+                  if (dur != hi32 && midur != hi32) midur += dur;
                   else info(Iter,"hop %u %s to %s no dur",leg,dname,aname);
                   trip2ports[leg2 * 2] = portsbyhop[leg * 2];
                   trip2ports[leg2 * 2 + 1] = portsbyhop[leg * 2 + 1];
                 }
-                if (dist12 > distlim && midur > durlim) { cntstats[2]++; break; }
+                if (dist12 >= distlim && midur >= durlim) { cntstats[2]++; break; }
 
                 dupcode = 0;
                 for (legport2 = 1; legport2 < nleg2 * 2 - 1; legport2++) {
@@ -1069,7 +1069,7 @@ static int mknetn(struct network *net,ub4 nstop)
             }
             if (durlim != hi32) midur = prepestdur(net,lst11,nleg1);
             else midur = hi32;
-            if (dist1 > distlim && midur > durlim) { v1++; continue; }
+            if (dist1 >= distlim && midur >= durlim) { v1++; continue; }
 
             error_ne(trip1ports[0],dep);
             error_eq(trip1ports[0],mid);
@@ -1098,11 +1098,11 @@ static int mknetn(struct network *net,ub4 nstop)
                 error_ge(leg,whopcnt);
                 dist2 += hopdist[leg];
                 dur = hopdur[leg];
-                if (dur != hi32 && midur != hi32) midur += hopdur[leg];
+                if (dur != hi32 && midur != hi32) midur += dur;
                 trip2ports[leg2 * 2] = portsbyhop[leg * 2];
                 trip2ports[leg2 * 2 + 1] = portsbyhop[leg * 2 + 1];
               }
-              if (dist1 + dist2 > distlim && midur > durlim) { v2++; continue; }
+              if (dist1 + dist2 >= distlim && midur >= durlim) { v2++; continue; }
 
               error_ne(trip2ports[0],mid);
               error_eq(trip2ports[0],dep);
@@ -1141,7 +1141,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
               if (durlim != hi32) midur = estdur(net,lst11,nleg1,lst22,nleg2);
 
-              if (dist12 > distlim || midur > durlim) { v2++; continue; }
+              if (dist12 >= distlim && midur >= durlim) { v2++; continue; }
 
               gen++;
               for (leg1 = 0; leg1 < nleg1; leg1++) {
