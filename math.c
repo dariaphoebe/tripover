@@ -248,7 +248,6 @@ int mkheightmap(ub4 *map,ub4 n)
 }
 
 // lat,lon to distance functions and vars
-static double mean_earth_radius = 6371.0;
 
 double lat2rad(ub4 lat,ub4 scale)
 {
@@ -281,10 +280,15 @@ void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt])
   bbox[Boxcnt]++;
 }
 
-static double geolow = M_PI * 0.0002;   // ~ 4 km
-static double geolimit = M_PI * 1.0e-8;
+static double geolow = M_PI * 2.0e-5;   // ~ 500 m
+static double geolimit = M_PI * 1.0e-7;
+static double approx_earth_surface = 9009.955; // sqrt(radius^2 * 2)
+static double mean_earth_radius = 6371.0;
 
-// great circle lat/lon to Km.
+/* great circle lat/lon to Km.
+  Adapted from Wikipedia article http://en.wikipedia.org/wiki/Great-circle_distance
+  tested with http://andrew.hedges.name/experiments/haversine/
+*/
 double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
 {
   double fdist, dlat, dlon;
@@ -308,8 +312,8 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
     return 0.0;
   } else if (dlam > -geolow && dlam < geolow && dphi > -geolow && dphi < geolow) { // approx trivial case
     vrbcc(vrbena,0,"geodist trivial %e %e between |%e|",dlam,dphi,geolow);
-    dlat = dlam * mean_earth_radius * 2;
-    dlon = dphi * mean_earth_radius * 2;
+    dlat = dlam * approx_earth_surface * 2 / M_PI;
+    dlon = dphi * approx_earth_surface * 2 / M_PI;
     fdist = sqrt(dlat * dlat + dlon * dlon);
     return fdist;
   }
@@ -322,7 +326,7 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
 
   if (isnan(dsig)) error(0,"geodist %e %e-%e %e nan",rlat1,rlon1,rlat2,rlon2);
 
-  dist = dsig * 2 * mean_earth_radius;
+  dist = dsig * mean_earth_radius;
 
   return dist;
 }

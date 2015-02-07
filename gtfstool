@@ -45,12 +45,12 @@ my $verbose_hops = 1;
 my $idprefix = '';
 
 my $merge_dup = 1;  # merge if lat,lon,name almost identical: nl
-my $dup_limit = 2.5; # todo in feedcfg
+my $dup_limit = 0.2; # todo in feedcfg
 my $showmerge = 0;
 
 my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
 my $infer_parent = 1;   # infer parent when seemingly missing : seq
-my $infer_limit = 1.5;
+my $infer_limit = 0.1;
 my $showinfer = 0;
 
 my $geoacc = 6; # decimals for lat/lon in canon output
@@ -760,8 +760,8 @@ sub readfeedinfo($)
   return 1;
 }
 
-my $latscale = 10000000;
-my $lonscale = 10000000;
+my $latscale = 1000000;  # 10 cm
+my $lonscale = 1000000;  # 20 cm
 my $pi = 3.141592655;
 
 # todo autoscale on bbox and have tripover read bbox+scale
@@ -801,12 +801,14 @@ sub ilon2lon($)
   return sprintf("%.*f",$geoacc,$lon);
 }
 
-my $geolow = $pi * 1.0e-4;
-my $geolimit = $pi * 1.0e-8;
+my $geolow = $pi * 2.0e-5;  # ~500m
+my $geolimit = $pi * 1.0e-7;
 my $mean_earth_radius = 6371.0;
+my $approx_surface = sqrt($mean_earth_radius * $mean_earth_radius + $mean_earth_radius * $mean_earth_radius);
 
 sub acos { atan2( sqrt(1 - $_[0] * $_[0]), $_[0] ) }
 
+# Adapted from Tripover:math.c which in turn is adapted from Wikipedia article
 sub geodist($$$$)
 {
   my ($slat,$slon,$lat,$lon) = @_;
@@ -825,10 +827,10 @@ sub geodist($$$$)
     if (abs($dlam) < $geolimit and abs($dphi) < $geolimit) { # flush to zero
       return 0;
     }
-    $dlat = ($dlam * $mean_earth_radius * 2) / $pi;
-    $dlon = ($dphi * $mean_earth_radius * 2) / $pi;
+    $dlat = $dlam * $approx_surface * 2 / $pi;
+    $dlon = ($dphi * $approx_surface * 2) / $pi;
     $dist = sqrt( ($dlat * $dlat) + ($dlon * $dlon));
-#    info("geodist $dist");
+#    info(sprintf("geodist trivial %.5f,%.5f %.5f,%.5f  dist %.3f",$slat,$slon,$lat,$lon,$dist));
     return $dist;
   }
 # info("geodist $dlon $dlat");
@@ -841,7 +843,9 @@ sub geodist($$$$)
 
   $dsig = acos($d);
 
-  return $dsig * $mean_earth_radius;
+  $dist = $dsig * $mean_earth_radius;
+#  info(sprintf("geodist %.5f,%.5f %.5f,%.5f  dist %.3f",$slat,$slon,$lat,$lon,$dist));
+  return $dist;
 }
 
 my (%rstops,%rstopids,%rstopbyid,%stopmerge,%rstopbyname);
@@ -1034,8 +1038,8 @@ sub readstops($)
 
     if ($infer_parent and not $isparent and not $hasparent and length($name) > 3) {
 
-      $ilatcell = ($ilat / 1000) + 1;
-      $iloncell = ($ilon / 1000) + 1;
+      $ilatcell = ($ilat >> 13) + 1; # ~ 300m
+      $iloncell = ($ilon >> 13) + 1;
 
       $candidates = '';
       for ($acell = $ilatcell - 1; $acell < $ilatcell + 2; $acell++) {

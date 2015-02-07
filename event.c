@@ -143,7 +143,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
     if (tt < utcofs) { tday++; continue; }
     tt = lmin2min(tt,utcofs);
     if ( (xp[tt] & hi32) == hi32) {
-      xp[tt] = tid | (dayid << 24);
+      xp[tt] = (ub8)tid | ((ub8)dayid << 24);
       tlo = min(tlo,tt);
       thi = max(thi,tt);
       n++;
@@ -201,8 +201,8 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
       tt = lmin2min(tt,utcofs);
       error_ge(tt,xlen);
       if ( (xp[tt] & hi32) == hi32) {
-        x = tid | (dayid << 24);
-        x |= (ub8)dur << 32;
+        x = (ub8)tid | ((ub8)dayid << 24);
+        x |= ((ub8)dur << 32);
         xp[tt] = x;
         n++;
         xpacc[tt >> 4] = 1;
@@ -241,7 +241,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
     x = xp[t];
     if ( (x & hi32) == hi32) { t++; continue; }
 
-    tid = x & 0xffffff;
+    tid = x & hi24;
     dayid = (ub4)(x >> 24);       // first day in localtime this dep is valid
 
     tlo = min(tlo,t);
@@ -255,7 +255,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
     while (rt >= daymin) rt -= daymin;
 
     while (rt < t1) { // count days with identical dep at exactly 24h time difference, including self
-      if ( (xp[rt] & 0xffffff) == tid) { // same trip ID, same 24h time
+      if ( (xp[rt] & hi24) == tid) { // same trip ID, same 24h time
         rep++;
         sum1 = (sum1 + ~dayid) % hi32;   // fletcher64 holds the entire date list signature
         sum2 = (sum2 + sum1) % hi32;
@@ -267,7 +267,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
 
     xp2[2 * t] = rep;
     xp2[2 * t + 1] = sum;
-    if (rep > hirep) { vrb(CC,"hirep %u at %u sum %lx",rep,t,sum); hirep = rep; hit = t; }
+    if (rep > hirep) { vrb(0,"hirep %u at %u sum %lx",rep,t,sum); hirep = rep; hit = t; }
 //    else info(CC,"rep %u at %u sum %lx",rep,t,sum);
     prvt = t;
 

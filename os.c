@@ -378,7 +378,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
 
     iter++;
     namelen = strlen(dname);
-    if (namelen + 1 < sizeof(namepattern)) { info(0,"expected pattern %s",namepattern); continue; }
+    if (namelen + 1 < sizeof(namepattern)) { info(0,"expected pattern %s, found %s",namepattern,dname); continue; }
     extpos = strstr(dname,ext);
     if (!extpos) { vrb(0,"skip %s on extension",dname); continue; }
 

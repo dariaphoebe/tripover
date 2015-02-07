@@ -314,10 +314,11 @@ int prepnet(netbase *basenet)
       bchp = bchainhops + bofs + idx;
       prvseq = seq;
       seq = (ub4)(bchip[i] >> 32);
-      infocc(seq == 0,0,"tid %u rtid %u idx %u/%u",chain,rtid,i,cnt);
-      error_le(seq,prvseq);
-      chp->hop = bchp->hop;
+      hop = bchp->hop;
       tdep = bchp->tdep;
+      infocc(rtid == 109966 || hop == 21300,0,"tid %u rtid %u hop %u tdep \ad%u idx %u/%u",chain,rtid,hop,tdep,i,cnt);
+      error_le(seq,prvseq);
+      chp->hop = hop;
       chp->tdep = tdep;
       error_lt(tdep,prvtdep);
       prvtdep = tdep;

@@ -306,6 +306,7 @@ int prepbasenet(void)
 
   double fdist;
   ub4 dist;
+  int dbg;
 
   ub4 ofs,chainofs = 0;
   for (chain = 0; chain < rawchaincnt; chain++) {
@@ -325,6 +326,8 @@ int prepbasenet(void)
 
     msgprefix(0,"hop %u",hop);
 
+    dbg = (hop == 21295 || hop == 21300);
+
     dep = hp->dep;
     arr = hp->arr;
     error_ge(dep,portcnt);
@@ -343,15 +346,15 @@ int prepbasenet(void)
       fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
       if (fdist < 1e-10) warning(Iter,"port %u-%u distance ~0 for latlon %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
       else if (fdist < 0.001) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-      else if (fdist > 1.0e+8) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-      dist = (ub4)fdist;
+      else if (fdist > 42000) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+      dist = (ub4)(fdist * Geoscale);
     }
     hp->dist = dist;
 
     rrid = hp->rrid;
     rid = hp->rid;
 
-    if (rrid == rrid2watch) info(0,"hop %u rrid %u rid %u %s to %s route %s",hop,rrid,rid,pdep->name,parr->name,hp->name);
+    if (rrid == rrid2watch || dbg) info(Notty,"r.rid %u.%u %s to %s route %s",rrid,rid,pdep->name,parr->name,hp->name);
 
     hoplog(hop,0,"rrid %x %u-%u %s to %s",rrid,dep,arr,pdep->name,parr->name);
 
@@ -411,6 +414,7 @@ int prepbasenet(void)
 
       cnt = fillxtime(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid);
       hoplog(hop,0,"r.tid %u.%u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events",rtid,tid,rsid,t0,t1,tdep,tarr,cnt);
+      infocc(dbg,Notty,"r.tid %u.%u rsid %u \ad%u \ad%u td \ad%u ta \ad%u %u events",rtid,tid,rsid,t0,t1,tdep,tarr,cnt);
       if (cnt == 0) {
         vrb0(Iter,"tid %u r.sid %u.%u \ad%u \ad%u dep \ad%u arr \ad%u no events",tid,rsid,sid,t0,t1,tdep,tarr);
         tbp[0] = sidcnt; // disable for next pass
@@ -433,6 +437,8 @@ int prepbasenet(void)
         pp = ports + cp->dep;
         error_z(tripseq,tid);
         error_ge(chcnt,cp->hoprefs);
+
+        vrbcc(dbg,0,"pos %u tdep %u",chcnt,tdep);
         if (chcnt == 0) {
           chip[0] = (ub8)tripseq << 32;
           error_z(chip[0],tid);
@@ -451,15 +457,15 @@ int prepbasenet(void)
           chp2 = chainhops + ofs;
           for (i = 0; i < chcnt; i++) {
             if (chp2[i].hop == hop) {
-              warn(Iter,"rrid %u r.tid %u.%u equal hop %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,i,pdep->name,parr->name,pp->name,hp->name);
+              warn(0,"rrid %u r.tid %u.%u equal hop %u td %u vs %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,tdep,chp2[i].tdep,i,pdep->name,parr->name,pp->name,hp->name);
               break;
             } else if ( (chip[i] >> 32) == tripseq) {
-              warn(Iter,"rrid %x tid %u skip equal seq %u at %u %s to %s start %s",rrid,tid,tripseq,i,pdep->name,parr->name,pp->name);
+              warn(0,"rrid %x tid %u skip equal seq %u at %u %s to %s start %s",rrid,tid,tripseq,i,pdep->name,parr->name,pp->name);
               break;
             }
           }
           if (i == chcnt) {
-            if (tid == tid2watch || hop == hop2watch) info(0,"add hop %u tid %u at %u",hop,tid,i);
+            if (tid == tid2watch || hop == hop2watch) info(Notty,"add hop %u tid %u at %u",hop,tid,i);
             chip[chcnt] = chcnt | ((ub8)tripseq << 32);
             chp->hop = hop;
             chp->tdep = tdep;
@@ -494,7 +500,7 @@ int prepbasenet(void)
       continue;
     }
     evhops++;
-    vrb0(0,"final date range \ad%u-\ad%u",tp->t0 + gt0,tp->t1 + gt0);
+    infovrb(dbg,0,"final date range \ad%u-\ad%u",tp->t0 + gt0,tp->t1 + gt0);
 
     lodur = min(lodur,hidur);
     tp->lodur = lodur;
@@ -552,7 +558,7 @@ int prepbasenet(void)
     }
 
     hp->zevcnt = zevcnt;
-    vrb(0,"hop %u \ah%u to %u time events %s",hop,evcnt,zevcnt,hp->name);
+    infovrb(dbg,0,"hop %u \ah%u to %u time events %s",hop,evcnt,zevcnt,hp->name);
     cumevcnt += evcnt;
 
     cumzevcnt += zevcnt;

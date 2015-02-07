@@ -116,7 +116,7 @@ Run tripover server with this network:
 
 `./tripover data`
 
-This will initialise and precompute the network. It takes several minutes.
+This will initialise and precompute the network. For 7000-stops Queensland with default settings it takes about an hour.
 
 Invoke the commandline client :
 

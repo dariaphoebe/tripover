@@ -87,7 +87,6 @@ int compound(gnet *net)
 
   ub4 hop1,hop2,dep1,arr2;
   ub4 dist1,dist2,dist = 0,dirdist;
-  double fdist;
   ub4 tdep,tarr,tdep1,tarr2;
   ub4 ci,ci1,ci2,pchlen,cmpcnt;
 
@@ -135,8 +134,8 @@ int compound(gnet *net)
     if (rp->hopcnt > hicnt) { hicnt = rp->hopcnt; hirid = rid; }
   }
   rp = routes + hirid;
-  info(0,"r.rid %u.%u has %u hops for len %u",rp->rrid,rid,hicnt,rp->hichainlen);
-  hiportlen = max(hichainlen,hicnt) + 2;
+  info(0,"r.rid %u.%u has %u hops for len %u",rp->rrid,hirid,hicnt,rp->hichainlen);
+  hiportlen = max(hichainlen,hicnt) + 10;
   ub4 hiport2 = hiportlen * hiportlen;
 
   ub4 *port2rport = alloc(portcnt,ub4,0,"cmp rportmap",portcnt);
@@ -176,7 +175,8 @@ int compound(gnet *net)
         rport2port[rportcnt++] = arr;
       }
     }
-    warncc(rportcnt > hichainlen + 1,0,"r.rid %u.%u len %u above %u",rrid,rid,rportcnt,hichainlen);
+    warncc(rportcnt >= hiportlen,0,"r.rid %u.%u len %u above %u",rrid,rid,rportcnt,hiportlen);
+    rportcnt = min(rportcnt,hiportlen);
     rport2 = rportcnt * rportcnt;
     nsethi(duphops,rport2);
     newcnt = 0;
@@ -292,6 +292,7 @@ int compound(gnet *net)
       if (port2rport[dep] == hi32) { port2rport[dep] = rportcnt; rport2port[rportcnt++] = dep; }
       if (port2rport[arr] == hi32) { port2rport[arr] = rportcnt; rport2port[rportcnt++] = arr; }
     }
+    rportcnt = min(rportcnt,hiportlen);
     rport2 = rportcnt * rportcnt;
     nsethi(duphops,rport2);
     nclear(rhopcdur,rport2);
@@ -392,8 +393,7 @@ int compound(gnet *net)
           dist = dist2 - dist1;
           pdep = ports + dep;
           parr = ports + arr;
-          fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
-          dirdist = (ub4)fdist;
+          dirdist = fgeodist(pdep,parr);
           hopdist[chop] = max(dist,dirdist);
 
           error_lt(tarr2,tdep1);

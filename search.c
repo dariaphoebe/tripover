@@ -25,6 +25,7 @@
 #include "base.h"
 #include "cfg.h"
 #include "mem.h"
+#include "math.h"
 #include "time.h"
 #include "util.h"
 #include "os.h"
@@ -116,7 +117,7 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
   } else if (hop < chopcnt) {
     hop1 = choporg[hop * 2];
     hop2 = choporg[hop * 2 + 1];
-  } else return 1;
+  } else return error(0,"unexpected walk link %u on initial leg",hop);
 
   error_ge(hop1,hopcnt);
   hp1 = hops + hop1;
@@ -124,12 +125,12 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
 
   gencnt = tp->genevcnt;
 
-  if (gencnt == 0) return 0;
-
   ub4 gt0 = tp->gt0;
 
   ub4 t0 = tp->t0;
   ub4 t1 = tp->t1;
+
+  if (gencnt == 0) return vrb0(Notty,"no events for hop %u at \ad%u - \ad%u",hop,t0 + gt0,t1 + gt0);
 
   if (t0 == t1) return info(0,"hop %u tt range %u-%u, dep window %u-%u",hp1->gid,t0,t1,deptmin,deptmax);
 //  else if (ht0 > deptmax) return info(0,"hop %u tt range %u-%u, dep window %u-%u",hp->gid,ht0,ht1,deptmin,deptmax);
@@ -182,7 +183,7 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
             dur = midur;
           }
         } else { // this trip does not include hop
-          info(Iter,"chop %u-%u no dep at \ad%u",ghop1,ghop2,t);
+          info(Iter|Notty,"chop %u-%u no dep at \ad%u",ghop1,ghop2,t);
           continue;
         }
       }
@@ -211,7 +212,7 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
 
   src->dtcurs[0] = lodur;
   src->devcurs[0] = lodev;
-  infocc(src->varcnt < 20,Iter,"%u dep events for leg 0",dcnt);
+  info(Iter|Notty,"%u dep events for leg 0",dcnt);
   return dcnt;
 }
 
@@ -269,7 +270,6 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   if (gencnt == 0) return 0;
 
   ub4 gt0 = tp->gt0;
-
 
   ub4 t0 = tp->t0;
   ub4 t1 = tp->t1;
@@ -361,7 +361,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
               dur = midur; // todo
             }
           } else {
-            info(Iter,"chop %u-%u no dep at \ad%u",ghop1,ghop2,t);
+            info(Notty|Iter,"chop %u-%u r.tid %u.%u no dep at \ad%u from \ad%u",ghop1,ghop2,cp->rtid,tid,t,atarr);
             continue;
           }
         }
@@ -399,7 +399,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   src->dtcurs[leg] = lodt;
   src->devcurs[leg] = lodev;
   src->devcurs[aleg] = loadev;
-  infocc(src->varcnt < 20,Iter,"%u dep events for leg %u, locost %u",dcnt,leg,lodt);
+  infocc(src->varcnt < 20,Iter|Notty,"%u dep events for leg %u, locost %u",dcnt,leg,lodt);
   return dcnt;
 }
 
@@ -463,7 +463,7 @@ static ub4 fwdevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
   src->devcurs[aleg] = loadev;
   src->duraccs[leg] = 1;
 
-  infocc(src->varcnt < 20,Iter,"%u dep events for leg %u",dcnt,leg);
+  infocc(src->varcnt < 20,Iter|Notty,"%u dep events for leg %u",dcnt,leg);
 
   return dcnt;
 }
@@ -517,7 +517,7 @@ static ub4 frqevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
   src->devcurs[leg] = lodev;
   src->duraccs[leg] = 0;
 
-  infocc(src->varcnt < 20,Iter,"%u freq events for leg %u",dcnt,leg);
+  infocc(src->varcnt < 20,Iter|Notty,"%u freq events for leg %u",dcnt,leg);
   return dcnt;
 }
 
@@ -568,6 +568,7 @@ static ub4 prvevs(search *src,ub4 leg)
   }
   if (loadev == hi32) warn(Iter,"no preceding dep at leg %u between \ad%u and \ad%u",aleg,at,t); // todo
   else src->devcurs[aleg] = loadev;
+  vrb0(0,"prv dt %u lo %u",dt,lodt);
   return min(dt,lodt);
 }
 
@@ -623,8 +624,8 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
     at = t;
 
     if (tid == hi32) {
-      if (hop1 >= hopcnt) info(0,"whop %u part %u ev %u of %u leg %u t \ad%u dt %u",hop1,part,lodev,dcnt,l,t,dt);
-      else info(0,"hop %u part %u ev %u of %u leg %u t \ad%u dt %u no tid",hop1,part,lodev,dcnt,l,t,dt);
+      if (hop1 >= hopcnt) info(Notty,"whop %u part %u ev %u of %u leg %u t \ad%u dt %u",hop1,part,lodev,dcnt,l,t,dt);
+      else info(Notty,"hop %u part %u ev %u of %u leg %u t \ad%u dt %u no tid",hop1,part,lodev,dcnt,l,t,dt);
     } else {
       warncc(hop1 >= hopcnt,0,"walk link with tid %u",tid);
       error_ge(tid,tidcnt);
@@ -704,7 +705,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
   struct trip *stp;
   ub4 ln = callee & 0xffff;
 
-  if (stop > histop) { info(0,"%s: net part %u only has %u-stop connections, skip %u",desc,part,histop,stop); return 0; }
+  if (stop > histop) return info(Notty,"%s: net part %u only has %u-stop connections, skip %u",desc,part,histop,stop);
 
   deptmin = src->deptmin;
   deptmax = src->deptmax;
@@ -750,17 +751,17 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
         stp->trip[leg * 2 + 1] = vp[leg];
         stp->trip[leg * 2] = part;
         stp->t[leg] = 0;
-        fmtstring(stp->desc,"shortest route-only, distance %u",dist / 2);
+        fmtstring(stp->desc,"shortest route-only, %u Km",dist / Geoscale);
       }
       stp->cnt = 1;
       stp->len = nleg;
-      if (dist && dist == lodists[da]) info(0,"%u-stop found lodist %u at var %u %s:%u",stop,dist,v0,desc,ln);
+      if (dist && dist == lodists[da]) info(Notty,"%u-stop found lodist %u at var %u %s:%u",stop,dist,v0,desc,ln);
     }
 
     // time
     dtcur = dthi = hi32;
     evcnt = addevs(caller,src,net,vp,nleg,0,dthi,&dtcur);
-    infocc(evcnt,0,"%u event\as",evcnt);
+    info(Notty,"%u event\as dtcur %u lodt %u",evcnt,dtcur,lodt);
 
     stp = src->trips;
     if (evcnt && (dtcur < lodt || stp->cnt == 0)) {
@@ -771,7 +772,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
           if (dtcur == 0) break;
         }
       }
-      if (dtcur == 0) { src->stat_noprv++; v0++; vp += nleg; continue; }
+      if (dtcur == 0) { info(0,"no prv for var %u",v0); src->stat_noprv++; v0++; vp += nleg; continue; }
 
       evcnt = getevs(src,gnet,nleg);
       error_z(evcnt,nleg);
@@ -787,7 +788,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
       }
       leg = nleg - 1;
       sumdt = src->curts[leg] - src->curts[0] + src->curdurs[leg];
-      fmtstring(stp->desc,"fastest, time %u distance %u",sumdt,dist / 2);
+      fmtstring(stp->desc,"fastest: %u minutes, %u Km",sumdt,dist / Geoscale);
       stp->cnt = 1;
       stp->len = nleg;
       if (leg) {
@@ -804,15 +805,22 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
     src->locvarcnt++;
   } while (v0 < cnt && cost > costlim && globs.sigint == 0);
 
-  if (src->trips[1].cnt == 0) info(0,"no time for trip %u-%u on \ad%u-\ad%u",dep,arr,deptmin,deptmax);
-  if (src->trips[1].cnt == 0 && src->trips[0].cnt == 0) return info(0,"no route for trip %u-%u",dep,arr);
+  if (src->trips[0].cnt) {
+    src->locsrccnt++;
+    src->lodist = lodist;
+    info(0,"%s: found %u-stop conn %u-%u",desc,stop,dep,arr);
+    return 1;
+  }
 
-  src->locsrccnt++;
+  info(0,"no time for %u-stop trip %u-%u on \ad%u-\ad%u",stop,dep,arr,deptmin,deptmax);
 
-  src->lodist = lodist;
-  info(0,"%s: found %u-stop conn %u-%u",desc,stop,dep,arr);
+  if (src->trips[1].cnt == 0) info(0,"no route for %u-stop trip %u-%u",stop,dep,arr);
 
-  return 1;
+  if (stop < histop || stop == src->histop) return 0;
+
+  // todo: if no time, search for new via. if no route, search with one added via
+
+  return 0;
 }
 
 // within single part
@@ -906,8 +914,6 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
   arr = anet->g2pport[garr];
   amidarr = amid * aportcnt + arr;
 
-  distrange = max(src->geodist,1) * 10;
-
   // todo: verification
   tcnt = 0;
   for (tstop = 0; tstop <= min(tnet->histop,histop); tstop++) {
@@ -919,7 +925,7 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
     }
   }
   if (tcnt == 0) {
-    info(Iter,"no conn for top %u-%u",tdmid,tamid);
+    info(Iter|Notty,"no conn for top %u-%u",tdmid,tamid);
     return 0;
   }
 
@@ -943,6 +949,8 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
     lst = blkdata(lstblk,0,ub4);
     error_ge(ofs,dnet->lstlen[dstop]);
     vp = lst + ofs * nleg;
+
+    distrange = max(lodist,1) * 10;
 
     for (var = 0; var < cnt; var++) {
 
@@ -992,7 +1000,7 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
         tlodist = tlodists[tdepmid];
         tlst = blkdata(tlstblk,0,ub4);
         if (tofs >= tnet->lstlen[tstop]) {
-          info(Iter,"ofs %u stop %u part %u",tofs,tstop,tpart);
+          info(Iter|Notty,"ofs %u stop %u part %u",tofs,tstop,tpart);
         }
         bound(tlstblk,tofs * ntleg,ub4);
         error_ge(tofs,tnet->lstlen[tstop]);
@@ -1005,8 +1013,7 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
             error_ge(l,twhopcnt);
             dist += thopdist[l];
           }
-          dist = max(dist,tlodist + lodist);
-          noexit error_lt(dist,tlodist + lodist); // todo
+          dist = max(dist,lodist + tlodist);
           distiv = (dist - lodist - tlodist) * Distbins / distrange;
           if (totvarcnt > 5 && distiv >= Distbins) { tvp += ntleg; continue; }
 
@@ -1018,7 +1025,7 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
           dtcur = hi32;
 
           evcnt = addevs(caller,src,tnet,tvp,ntleg,nleg,dthi,&dtcur);
-          infocc(evcnt,Iter,"%u event\as",evcnt);
+          infocc(evcnt,Iter|Notty,"%u event\as",evcnt);
 
           if (evcnt == 0 || dtcur >= topdts[topdt1]) {
             tvp += ntleg; continue;
@@ -1058,7 +1065,6 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
                 dist += ahopdist[l];
               }
               dist = max(dist,lodist + tlodist + alodist);
-//              noexit error_lt(dist,alodist + tlodist + lodist);  todo
               distiv = (dist - lodist - tlodist - alodist) * Distbins / distrange;
               if (totvarcnt > 5 && distiv >= Distbins) { avp += naleg; continue; }
 
@@ -1075,7 +1081,7 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
               dtcur = hi32;
 
               evcnt = addevs(caller,src,anet,avp,naleg,nleg + ntleg,dthi,&dtcur);
-              infocc(evcnt,Iter,"%u event\as",evcnt);
+              infocc(evcnt,Iter|Notty,"%u event\as",evcnt);
 
               if (evcnt == 0 || dtcur >= topdts[topdt1]) { avp += naleg; continue; }
 
@@ -1099,7 +1105,7 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
               if (dtndx == topdt1) topdts[dtndx] = dtcur;
               else if (dtndx < topdt1) {
                 for (dtndx2 = topdt1; dtndx2 > dtndx; dtndx2--) topdts[dtndx2] = topdts[dtndx2-1];
-                info(Iter,"put dt %u at pos %u",dtcur,dtndx);
+                info(Iter|Notty,"put dt %u at pos %u",dtcur,dtndx);
                 topdts[dtndx] = dtcur;
               }
               dthi = topdts[topdt1];
@@ -1160,7 +1166,7 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
   src->avarxcnt += avarxcnt;
   src->varcnt += varcnt;
 
-  if (varcnt) info(0,"%u of %u depvars %u of %u midvars %u of %u arrvars %u total",dvarxcnt,dvarcnt,tvarxcnt,tvarcnt,avarxcnt,avarcnt,varcnt);
+  if (varcnt) info(Notty,"%u of %u depvars %u of %u midvars %u of %u arrvars %u total",dvarxcnt,dvarcnt,tvarxcnt,tvarcnt,avarxcnt,avarcnt,varcnt);
 
   return varcnt;
 }
@@ -1229,8 +1235,6 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
   arr = anet->g2pport[garr];
   amidarr = amid * aportcnt + arr;
 
-  distrange = max(src->geodist,1) * 10;
-
   for (pct = 0; pct < Percbins; pct++) distlims[pct] = pct * 5;
 
   for (dstop = 0; dstop <= min(dnet->histop,histop); dstop++) {
@@ -1251,6 +1255,8 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
     lst = blkdata(lstblk,0,ub4);
     error_ge(ofs,dnet->lstlen[dstop]);
     vp = lst + ofs * nleg;
+
+    distrange = max(lodist,1) * 10;
 
     for (var = 0; var < cnt; var++) {
 
@@ -1318,7 +1324,6 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
                 dist += ahopdist[l];
               }
               dist = max(dist,lodist + alodist);
-//              noexit error_lt(dist,alodist + tlodist + lodist);  todo
               distiv = (dist - lodist - alodist) * Distbins / distrange;
               if (totvarcnt > 5 && distiv >= Distbins) { avp += naleg; continue; }
 
@@ -1335,7 +1340,7 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
               dtcur = hi32;
 
               evcnt = addevs(caller,src,anet,avp,naleg,nleg + ntleg,dthi,&dtcur);
-              infocc(evcnt,Iter,"%u event\as",evcnt);
+              infocc(evcnt,Iter|Notty,"%u event\as",evcnt);
 
               if (evcnt == 0 || dtcur >= topdts[topdt1]) { avp += naleg; continue; }
 
@@ -1359,7 +1364,7 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
               if (dtndx == topdt1) topdts[dtndx] = dtcur;
               else if (dtndx < topdt1) {
                 for (dtndx2 = topdt1; dtndx2 > dtndx; dtndx2--) topdts[dtndx2] = topdts[dtndx2-1];
-                info(Iter,"put dt %u at pos %u",dtcur,dtndx);
+                info(Iter|Notty,"put dt %u at pos %u",dtcur,dtndx);
                 topdts[dtndx] = dtcur;
               }
               dthi = topdts[topdt1];
@@ -1409,7 +1414,7 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
   src->avarxcnt += avarxcnt;
   src->varcnt += varcnt;
 
-  if (varcnt) info(0,"%u of %u depvars %u of %u midvars %u of %u arrvars %u total",dvarxcnt,dvarcnt,tvarxcnt,tvarcnt,avarxcnt,avarcnt,varcnt);
+  if (varcnt) info(Notty,"%u of %u depvars %u of %u midvars %u of %u arrvars %u total",dvarxcnt,dvarcnt,tvarxcnt,tvarcnt,avarxcnt,avarcnt,varcnt);
 
   return varcnt;
 }
@@ -1512,7 +1517,7 @@ static ub4 srcxpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *re
     }
   }
 
-  for (iv = 0; iv < niv; iv++) info(0,"stats %u %u",iv,stats[iv]);
+  for (iv = 0; iv < niv; iv++) info(Notty,"stats %u %u",iv,stats[iv]);
 
   return conn;
 }
@@ -1595,7 +1600,7 @@ static ub4 srcxdpart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *r
     }
   }
 
-  for (iv = 0; iv < niv; iv++) info(0,"stats %u %u",iv,stats[iv]);
+  for (iv = 0; iv < niv; iv++) info(Notty,"stats %u %u",iv,stats[iv]);
 
   return conn;
 }
@@ -1669,7 +1674,7 @@ static ub4 srcxapart(struct gnetwork *gnet,ub4 gdep,ub4 garr,search *src,char *r
     }
   }
 
-  for (iv = 0; iv < niv; iv++) info(0,"stats %u %u",iv,stats[iv]);
+  for (iv = 0; iv < niv; iv++) info(Notty,"stats %u %u",iv,stats[iv]);
 
   return conn;
 }
@@ -1694,20 +1699,20 @@ static ub4 dosrc(struct gnetwork *gnet,ub4 nstoplo,ub4 nstophi,search *src,char 
     if (portparts[gdep] == 0) return info(0,"port %u not in partmap",gdep);
     if (portparts[garr] == 0) return info(0,"port %u not in partmap",garr);
     for (stop = nstoplo; stop < nstophi; stop++) {
-      info(0,"search %u stops",stop);
+      info(Notty,"search %u stops",stop);
       conn = srcglocal(gnet,0,gdep,garr,stop,src);
-      if (conn) { info(0,"found trip at %u stops",stop); return conn; }
+      if (conn) { info(Notty,"found trip at %u stops",stop); return conn; }
     }
     return 0;
   }
 
   for (part = 0; part < partcnt; part++) {
     if (portparts[gdep * partcnt + part] == 0 || portparts[garr * partcnt + part] == 0) continue;
-    info(0,"dep %u and arr %u share part %u",gdep,garr,part);
+    info(Notty,"dep %u and arr %u share part %u",gdep,garr,part);
     for (stop = nstoplo; stop < nstophi; stop++) {
-      info(0,"search %u stops in part %u",stop,part);
+      info(Notty,"search %u stops in part %u",stop,part);
       conn = srcglocal(gnet,part,gdep,garr,stop,src);
-      if (conn) { info(0,"found trip at %u stops in part %u ",stop,part); return conn; }
+      if (conn) { info(Notty,"found trip at %u stops in part %u ",stop,part); return conn; }
     }
     if (nstophi < 2) return 0;
   }
@@ -1788,18 +1793,20 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   src->deptmax = deptmax;
   src->histop = nstophi;
 
+  info(CC,"search dep %u arr %u on \ad%u-\ad%u %s to %s geodist %u",dep,arr,deptmin,deptmax,pdep->name,parr->name,src->geodist);
+
   t0 = gettime_usec();
   src->querytlim = t0 + 1000 * 1000 * Timelimit;
 
-  info(CC,"search dep %u arr %u on \ad%u-\ad%u %s to %s geodist %u",dep,arr,deptmin,deptmax,pdep->name,parr->name,src->geodist);
   conn = dosrc(net,nstoplo,nstophi,src,ref);
-  info(0,"searched %u local variants in %u local searches %u noloc",src->avarxcnt,src->locsrccnt,src->locnocnt);
-  info(0,"%u of %u depvars %u of %u midvars %u of %u arrvars %u stored",src->dvarxcnt,src->dvarcnt,src->tvarxcnt,src->tvarcnt,src->avarxcnt,src->avarcnt,src->varcnt);
 
   dt = gettime_usec() - t0;
 
+  info(0,"searched %u local variants in %u local searches %u noloc",src->avarxcnt,src->locsrccnt,src->locnocnt);
+  infocc(net->partcnt > 1,0,"%u of %u depvars %u of %u midvars %u of %u arrvars %u stored",src->dvarxcnt,src->dvarcnt,src->tvarxcnt,src->tvarcnt,src->avarxcnt,src->avarcnt,src->varcnt);
+
   if (dt > 2000000) info(0,"search took %u sec",(ub4)(dt / 1000000));
-  if (dt > 2000) info(0,"search took \a.%u usec",(ub4)(dt / 1000));
+  if (dt > 2000) info(0,"search took \a.%u msec",(ub4)(dt / 1000));
   else info(0,"search took %u usec",(ub4)dt);
 
   if (conn == 0) {
