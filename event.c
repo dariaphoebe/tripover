@@ -406,7 +406,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
   ub4 hop = tp->hop;
   ub4 t0,t1,t,tdays,tdays5,day;
   ub4 tid,rep,zevcnt = 0;
-  ub8 x;
+  ub8 x,dur;
   ub4 rt,dayid;
   ub8 sum,sum1,sum2;
 
@@ -454,8 +454,9 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
 
       error_ge(gndx,tp->genevcnt * 2);
       bound(evmem,gen + gndx * 2 + 2,ub8);
-      evs[gen + gndx++] = t;
-      evs[gen + gndx++] = x;
+      dur = x >> 32;
+      evs[gen + gndx++] = (ub8)t | (dur << 32);
+      evs[gen + gndx++] = x;  // dur + tid + dayid
       day = (t - t0) / daymin;
       error_ge(genday + day,tdays5);
       days[genday + day]++;

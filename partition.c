@@ -97,9 +97,9 @@ static void cpfromgnet(gnet *gnet,lnet *net)
   net->chains = gnet->chains;
   net->chaincnt = gnet->chaincnt;
   net->chainhops = gnet->chainhops;
+  net->chainrhops = gnet->chainrhops;
   net->chainhopcnt = gnet->chainhopcnt;
   net->tid2rtid = gnet->tid2rtid;
-
   net->eventmem = gnet->eventmem;
   net->evmapmem = gnet->evmapmem;
   net->events = gnet->events;
@@ -140,7 +140,7 @@ int partition(gnet *gnet)
   ub4 cnt,acnt,dcnt,tcnt,rid,part,tpart;
   ub4 pportcnt,phopcnt,pchopcnt,pxhopcnt,partcnt,part2,newpartcnt;
 
-  ub4 hop,port,phop,pport;
+  ub4 hop,rhop,port,phop,pport;
 
   ub4 *hopcnts,*xhopcnts,*portcnts;
   ub4 *g2p,*p2g,*g2phop,*p2ghop;
@@ -163,6 +163,7 @@ int partition(gnet *gnet)
   ub4 *phopdist,*hopdist = gnet->hopdist;
   ub4 *phopdur,*hopdur = gnet->hopdur;
   ub4 *phopcdur,*hopcdur = gnet->hopcdur;
+  ub4 *pridhops,*ridhops = gnet->ridhop;
 
   ub4 hpcnt2,hxcnt2;
   ub4 dist;
@@ -238,6 +239,8 @@ int partition(gnet *gnet)
     net->hopdist = gnet->hopdist;
     net->hopdur = gnet->hopdur;
     net->hopcdur = gnet->hopcdur;
+
+    net->ridhops = gnet->ridhops;
 
     // global
     cpfromgnet(gnet,net);
@@ -1171,6 +1174,7 @@ int partition(gnet *gnet)
     phopdist = alloc(pchopcnt, ub4,0xff,"net hopdist",pchopcnt);
     phopdur = alloc(pchopcnt, ub4,0xff,"net hopdur",pchopcnt);
     phopcdur = alloc(pchopcnt, ub4,0xff,"net hopcdur",pchopcnt);
+    pridhop = alloc(ridcnt * phopcnt,ub4,0xff,"net ridhop",ridcnt);
 
     // assign ports : members of this part
     pp = pports;
@@ -1331,6 +1335,14 @@ int partition(gnet *gnet)
     }
 #endif
 
+    for (phop = 0; phop < phopcnt; phop++) {
+      hop = p2ghop[phop];
+      hp = hops + hop;
+      rid = hp->rid;
+      rhop = ridhops[rid * hopcnt + hop];
+      pridhops[rid * phopcnt + phop] = rhop;
+    }
+
     net->part = part;
     net->istpart = (part == tpart && partcnt > 1);
 
@@ -1350,6 +1362,8 @@ int partition(gnet *gnet)
     net->hopdist = phopdist;
     net->hopdur = phopdur;
     net->hopcdur = phopcdur;
+
+    net->ridhops = pridhops;
 
     net->routes = routes;  // not partitioned
     net->ridcnt = ridcnt;

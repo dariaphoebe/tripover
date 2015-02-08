@@ -70,7 +70,7 @@ static ub4 avgdurhh(lnet *net,ub4 hop1,ub4 hop2)
   rt2 = (ub4)ev2[0]; t2 = rt2 + gt02;
   for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / sampleshh) ) {
     rt1 = (ub4)ev1[gndx * 2];
-    dur1 = (ub4)(ev1[gndx * 2 + 1] >> 32);
+    dur1 = (ub4)(ev1[gndx * 2] >> 32);
     t1 = rt1 + gt01;
     while (t2 < t1 + dur1 + ttmin) {
       if (++gndx2 >= cnt2) break;
@@ -80,7 +80,7 @@ static ub4 avgdurhh(lnet *net,ub4 hop1,ub4 hop2)
     if (gndx2 >= cnt2) break;
     if (t2 - (t1 + dur1) > ttmax) continue;
     dtcnt++;
-    dur2 = (ub4)(ev2[gndx2 * 2 + 1] >> 32);
+    dur2 = (ub4)(ev2[gndx2 * 2] >> 32);
     dt = t2 + dur2 - t1;
     lodt = min(lodt,dt);
     dtsum += dt;
@@ -94,33 +94,50 @@ static ub4 avgdurhh(lnet *net,ub4 hop1,ub4 hop2)
 // take a handful of samples.
 static ub4 avgdurcc(lnet *net,ub4 hop1,ub4 hop2)
 {
-  struct hop *hp1,*hp2,*hops = net->hops;
-  struct timepat *tp1,*tp2;
+  struct hop *hp11,*hp21,*hops = net->hops;
+  struct timepat *tp11,*tp21;
+  struct chain *cp1,*cp2,*chains = net->chains;
+  ub4 hopcnt = net->hopcnt;
   ub4 *choporg = net->choporg;
   ub4 *hopdur = net->hopdur;
+  ub4 *ridhops = net->ridhops;
+  ub8 *crp1,*crp2,*chainrhops = net->chainrhops;
   ub4 ttmax = 120,ttmin = 5; // todo
   ub4 gndx,gndx2;
-  ub4 h11,h22;
+  ub4 h11,h12,h21,h22;
   ub4 dt,dur1,dur2,dtsum,avgdt;
+  ub4 tdep1,tarr1,tdep2,tarr2;
+  ub4 tid1,tid2;
   ub8 *events = net->events;
 
   h11 = choporg[hop1 * 2];
+  h12 = choporg[hop1 * 2 + 1];
+  h21 = choporg[hop2 * 2];
   h22 = choporg[hop2 * 2 + 1];
 
-  hp1 = hops + h11;
-  hp2 = hops + h22;
-  tp1 = &hp1->tp;
-  tp2 = &hp2->tp;
+  hp11 = hops + h11;
+  hp21 = hops + h21;
 
-  ub4 cnt1 = tp1->genevcnt;
-  ub4 cnt2 = tp2->genevcnt;
+  tp11 = &hp11->tp;
+  tp21 = &hp21->tp;
+
+  ub4 cnt1 = tp11->genevcnt;
+  ub4 cnt2 = tp21->genevcnt;
   if (cnt1 == 0 || cnt2 == 0) return hi32;
 
-  ub8 *ev1 = events + tp1->evofs;
-  ub8 *ev2 = events + tp2->evofs;
+  ub4 rid1 = hp11->rid;
+  ub4 rid2 = hp21->rid;
 
-  ub4 gt01 = tp1->gt0;
-  ub4 gt02 = tp2->gt0;
+  ub4 rh11 = ridhops[rid1 * hopcnt + h11];
+  ub4 rh12 = ridhops[rid1 * hopcnt + h12];
+  ub4 rh21 = ridhops[rid2 * hopcnt + h21];
+  ub4 rh22 = ridhops[rid2 * hopcnt + h22];
+
+  ub8 *ev1 = events + tp11->evofs;
+  ub8 *ev2 = events + tp21->evofs;
+
+  ub4 gt01 = tp11->gt0;
+  ub4 gt02 = tp21->gt0;
 
   ub4 rt1,rt2,t1,t2;
 
@@ -129,17 +146,26 @@ static ub4 avgdurcc(lnet *net,ub4 hop1,ub4 hop2)
   gndx2 = dtsum = 0;
   ub4 lodt = hi32;
 
-  rt2 = (ub4)ev2[0]; t2 = rt2 + gt02;
-  dur1 = hopdur[hop1];
-  dur2 = hopdur[hop2];
-
-  if (dur1 == hi32 || dur2 == hi32) {
-    return 1000; // todo hopadur[]
-  }
+  rt2 = (ub4)ev2[0];
+  t2 = rt2 + gt02;
 
   for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / samplescc) ) {
     rt1 = (ub4)ev1[gndx * 2];
     t1 = rt1 + gt01;
+    tid1 = ev1[gndx * 2 + 1] & hi24;
+    cp1 = chains + tid1;
+    if (cp1->hopcnt < 3) continue;
+    error_ge(rh11,cp1->rhopcnt);
+    error_ge(rh12,cp1->rhopcnt);
+    rid1 = cp1->rid;
+    crp1 = chainrhops + cp1->rhopofs;
+    tdep1 = (crp1[rh11] >> 32);
+    tarr1 = crp1[rh12] & hi32;
+    if (tdep1 == hi32 || tarr1 == hi32) continue;
+    if (tdep1 > tarr1) continue;
+//    noexit error_gt(tdep1,tarr1,rh11);
+    dur1 = tarr1 - tdep1;
+
     while (t2 < t1 + dur1 + ttmin) {
       if (++gndx2 >= cnt2) break;
       rt2 = (ub4)ev2[gndx2 * 2];
@@ -148,6 +174,21 @@ static ub4 avgdurcc(lnet *net,ub4 hop1,ub4 hop2)
     if (gndx2 >= cnt2) break;
     if (t2 - (t1 + dur1) > ttmax) continue;
     dtcnt++;
+
+    tid2 = ev2[gndx2 * 2 + 1] & hi24;
+    cp2 = chains + tid2;
+    if (cp2->hopcnt < 3) continue;
+    error_ge(rh21,cp2->rhopcnt);
+    error_ge(rh22,cp2->rhopcnt);
+    rid2 = cp2->rid;
+    crp2 = chainrhops + cp2->rhopofs;
+    tdep2 = (crp2[rh21] >> 32);
+    tarr2 = crp2[rh22] & hi32;
+    if (tdep2 == hi32 || tarr2 == hi32) continue;
+    if (tdep2 > tarr2) continue; // todo make compound generate extra cmp for this
+//    noexit error_gt_cc(tdep2,tarr2,"chop %u-%u rid %u %u-%u ta1 %lu td2 %lu",h21,h22,rid2,rh21,rh22,crp2[rh21] & hi32,crp2[rh22] >> 32);
+//    infocc(tdep2 <= tarr2,0,"chop %u-%u rid %u %u-%u ta1 %lu td2 %lu",h21,h22,rid2,rh21,rh22,crp2[rh21] & hi32,crp2[rh22] >> 32);
+    dur2 = tarr2 - tdep2;
     dt = t2 + dur2 - t1;
     lodt = min(lodt,dt);
     dtsum += dt;

@@ -1083,7 +1083,7 @@ static int rdexttimes(netbase *net,const char *dir)
       t0lo = min(t0lo,t0);
       t1hi = max(t1hi,t1);
 
-      vrb0(0,"rsid \ax%u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daycnt,dow,t0_cd,t1_cd,t0,t1);
+      rsidlog(rsid,"rsid \ax%u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daycnt,dow,t0_cd,t1_cd,t0,t1);
 
       error_le(t1,t0);
 
@@ -1300,7 +1300,7 @@ static int rdexthops(netbase *net,const char *dir)
   struct sidbase *sids,*sp;
   struct chainbase *chains = NULL,*cp;
   struct routebase *rp,*routes;
-  ub4 *rtid2tid = NULL,*tid2rtid = NULL,*rtidrefs = NULL;
+  ub4 *rtid2tid = NULL,*tid2rtid = NULL,*rtidrefs = NULL,*tidrrid = NULL;
   ub4 *id2ports, *subid2ports;
   ub4 rsid,sid,sidcnt,*rsid2sids;
   int rv;
@@ -1391,6 +1391,7 @@ static int rdexthops(netbase *net,const char *dir)
           rtid2tid = alloc(hitripid + 1,ub4,0xff,"chain tripids",hitripid);
           tid2rtid = alloc(rawtripcnt,ub4,0xff,"chain tripids",rawtripcnt);
           rtidrefs = alloc(hitripid + 1,ub4,0,"chain triprefs",hitripid);
+          tidrrid = alloc(rawtripcnt,ub4,0,"chain triproutes",rawtripcnt);
         }
         inited = 1;
       }
@@ -1518,6 +1519,7 @@ static int rdexthops(netbase *net,const char *dir)
             tid2rtid[tid] = rtid;
           }
           rtidrefs[rtid]++;
+          tidrrid[tid] = routeid;
         } else tid = hi32;
         cumhoprefs++;
 
@@ -1720,10 +1722,12 @@ static int rdexthops(netbase *net,const char *dir)
   for (rtid = 0; rtid <= hitripid; rtid++) {
     tid = rtid2tid[rtid];
     if (tid == hi32) continue;
+    routeid = tidrrid[tid];
     cp = chains + tid;
     cp->hoprefs = rtidrefs[rtid];
     if (cp->hoprefs == 0) nilchains++;
     cp->rtid = rtid;
+    cp->rid = rrid2rid[routeid];
   }
   afree(rtid2tid,"rtid2tid");
   if (nilchains) info(0,"%u of %u chains with hops",chaincnt - nilchains,chaincnt);

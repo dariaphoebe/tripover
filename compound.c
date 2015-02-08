@@ -57,6 +57,8 @@ int compound(gnet *net)
   struct route *rp,*routes = net->routes;
   struct chain *cp,*chains = net->chains;
   struct chainhop *chp,*chainhops = net->chainhops;
+  ub4 *ridhops = net->ridhops;
+  ub8 *crp,*chainrhops = net->chainrhops;
   ub4 maxperm = min(160,Chainlen);
   ub4 maxperm2 = maxperm * maxperm;
 
@@ -85,7 +87,7 @@ int compound(gnet *net)
   ub4 *orghopdur = net->hopdur;
   ub4 midur,dur,sumdur,durdif;
 
-  ub4 hop1,hop2,dep1,arr2;
+  ub4 hop1,hop2,rhop1,rhop2,dep1,arr2;
   ub4 dist1,dist2,dist = 0,dirdist;
   ub4 tdep,tarr,tdep1,tarr2;
   ub4 ci,ci1,ci2,pchlen,cmpcnt;
@@ -388,8 +390,11 @@ int compound(gnet *net)
           choporg[chop * 2] = hop1;
           choporg[chop * 2 + 1] = hop2;
 
-//          error_lt(dist2,dist1); todo
-          dist2 = max(dist1,dist2);
+          rhop1 = ridhops[rid * hopcnt + hop1];
+          rhop2 = ridhops[rid * hopcnt + hop2];
+          crp = chainrhops + cp->rhopofs;
+
+          error_lt(dist2,dist1); // todo ?
           dist = dist2 - dist1;
           pdep = ports + dep;
           parr = ports + arr;
@@ -397,6 +402,11 @@ int compound(gnet *net)
           hopdist[chop] = max(dist,dirdist);
 
           error_lt(tarr2,tdep1);
+
+          infocc(hop1 == 16399,0,"chop %u-%u td %lu ta %lu",hop1,hop2,crp[rhop1] >> 32,crp[rhop2] & hi32);
+          error_ne(crp[rhop1] >> 32,tdep1);
+          error_ne(crp[rhop2] & hi32,tarr2);
+
           midur = tarr2 - tdep1;
           hopdur[chop] = midur;
 

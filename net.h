@@ -109,7 +109,9 @@ struct chain {
   ub4 rrid,rid;
   ub4 rtid,tid;
   ub4 hopcnt;
+  ub4 rhopcnt;
   ub4 hopofs;
+  ub4 rhopofs;
   ub8 code;
   ub1 uni;
 };
@@ -214,6 +216,8 @@ struct network {
   struct sidtable *sids;
 
   struct chainhop *chainhops;  // points to gnet
+  ub4 *ridhops;
+  ub8 *chainrhops;
 
   bool istpart;
 
@@ -264,7 +268,7 @@ struct network {
   size_t lstlen[Nstop];
 
   ub4 *lodist[Nstop];  // [port2] lowest over-route distance
-  ub4 *hidist[Nstop];  // [port2] lowest over-route distance
+//  ub4 *hidist[Nstop];  // [port2] lowest over-route distance
 
   ub4 *portdst[Nstop];  // [portcnt] #destinations per port
 
@@ -328,6 +332,8 @@ struct gnetwork {
   ub4 t0,t1;
 
   struct chainhop *chainhops;
+  ub4 *ridhops;
+  ub8 *chainrhops;
 
   ub4 *tid2rtid;   // [chaincnt]
 

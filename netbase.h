@@ -89,12 +89,14 @@ struct chainhopbase {
 
 struct chainbase {
   ub4 hoprefs;
+  ub4 rhopcnt;
   ub4 rtid;
   ub4 rrid;
   ub4 rid;
   ub4 dep;
   ub4 hopcnt;
   ub4 hopofs;
+  ub4 rhopofs;
   ub4 lotdep,lotarr,hitdep,hitarr;
   ub8 code;
 };
@@ -164,7 +166,8 @@ struct routebase {
 
   ub4 dist;
 
-  ub4 hopcnt;
+  ub4 hopcnt; // initial by reference
+  ub4 rhopcnt; // by chain assignment
   ub4 carriercnt;
   ub4 servicecnt;
   ub4 chaincnt;
@@ -250,6 +253,8 @@ struct networkbase {
 
   ub8 *chainidxs;    // seq,ndx
   struct chainhopbase *chainhops;
+  ub8 *chainrhops;
+  ub4 *ridhops;
 
   ub4 *routechains;
   ub4 *timesbase;

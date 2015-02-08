@@ -273,6 +273,7 @@ int prepnet(netbase *basenet)
   chains = alloc(bchaincnt,struct chain,0,"chains",bchaincnt);
   bchains = basenet->chains;
   bchainhops = basenet->chainhops;
+  ub8 *bcrp,*bchainrhops = basenet->chainrhops;
   bchainidxs = basenet->chainidxs;
   chaincnt = chainhopcnt = ofs = 0;
   for (chain = 0; chain < bchaincnt; chain++) {
@@ -296,6 +297,7 @@ int prepnet(netbase *basenet)
   ub4 *tid2rtid = alloc(chaincnt,ub4,0,"chain tid2rtid",chaincnt);
   struct chainhop *chp,*chainhops = alloc(chainhopcnt,struct chainhop,0,"chain hops",chainhopcnt);
 
+  // write in sorted order
   for (chain = 0; chain < chaincnt; chain++) {
     cp = chains + chain;
     bcp = bchains + chain;
@@ -303,9 +305,12 @@ int prepnet(netbase *basenet)
     rtid = cp->rtid;
     tid2rtid[chain] = rtid;
     if (cnt < 3) continue;
+
     ofs = cp->hopofs;
     bofs = bcp->hopofs;
     bchip = bchainidxs + bofs;
+    cp->rhopcnt = bcp->rhopcnt;
+    cp->rhopofs = bcp->rhopofs;
     seq = prvtdep = 0;
     for (i = 0; i < cnt; i++) {
       chp = chainhops + ofs + i;
@@ -346,7 +351,9 @@ int prepnet(netbase *basenet)
   gnet->hopdur = hopdur;
 
   gnet->chainhops = chainhops;
+  gnet->chainrhops = basenet->chainrhops;
   gnet->chainhopcnt = chainhopcnt;
+  gnet->ridhops = basenet->ridhops;
 
   gnet->tid2rtid = tid2rtid;
   gnet->hichainlen = basenet->hichainlen;

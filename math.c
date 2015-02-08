@@ -100,7 +100,8 @@ int mkhist(ub4 callee,ub4 *data, ub4 n,struct range *rp, ub4 ivcnt,ub4 *bins, co
 
 int mkhist2(ub2 *data, ub4 n,struct range *rp, ub4 ivcnt,ub4 *bins, const char *desc,enum Msglvl lvl)
 {
-  ub4 lo,hi,i,v,iv,cnt,ccnt,sum,csum;
+  ub4 lo,hi,i,v,iv,cnt,sum,csum;
+  ub8 perc,ccnt;
 
   error_lt(ivcnt,2);
   error_z(n,0);
@@ -132,7 +133,8 @@ int mkhist2(ub2 *data, ub4 n,struct range *rp, ub4 ivcnt,ub4 *bins, const char *
   for (iv = 0; iv < ivcnt; iv++) {
     cnt = bins[iv];
     ccnt += cnt;
-    genmsg(lvl,User,"  bin %u: %u %u%%", iv,cnt,ccnt * 100 / csum);
+    perc = ccnt * 100 / csum;
+    genmsg(lvl,User,"  bin %u: %u %u%%", iv,cnt,(ub4)perc);
   }
   return 0;
 }
