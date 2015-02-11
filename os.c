@@ -11,6 +11,8 @@
 
 #define _POSIX_C_SOURCE 200112L
 
+#undef USE_GLIBC_EXT
+
 #define _BSD_SOURCE
 #include <sys/mman.h>
 
@@ -206,7 +208,7 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
   int btcnt = backtrace(btbuf,Elemcnt(btbuf));
 
   backtrace_symbols_fd(btbuf,btcnt,2);
-  if (msgfd > 0 && msgfd != 2) backtrace_symbols_fd(btbuf,btcnt,msg_fd);
+  if (msgfd > 0 && msgfd != 2) backtrace_symbols_fd(btbuf,btcnt,msgfd);
 #endif
 
   switch(sig) {

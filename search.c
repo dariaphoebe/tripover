@@ -93,20 +93,19 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
   ub4 leg,gndx,dmax = Maxevs;
   ub4 t,prvt,dur,lodur,*dev;
   ub8 x,*ev;
-  ub4 tdep1,tarr2,ci,chcnt;
+  ub4 tdep1,tarr2;
   ub4 tid;
   struct timepat *tp;
-  struct chainhop *chp,*chainhops = net->chainhops;
+  ub8 *crp,*chainrhops = net->chainrhops;
   struct chain *cp,*chains = net->chains;
+  ub4 *ridhops = net->ridhops;
   struct hop *hp1,*hops = net->hops;
   ub4 *choporg = net->choporg;
   ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
   ub4 chaincnt = net->chaincnt;
-  ub4 *hopcdur = net->hopcdur;
-  ub4 *p2ghop = net->p2ghop;
   ub8 *events = net->events;
-  ub4 hop1,hop2,ghop1,ghop2;
+  ub4 hop1,hop2,rh1,rh2,rid;
 
   src->dcnts[0] = 0;
 
@@ -122,6 +121,7 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
   error_ge(hop1,hopcnt);
   hp1 = hops + hop1;
   tp = &hp1->tp;
+  rid = hp1->rid;
 
   gencnt = tp->genevcnt;
 
@@ -158,38 +158,35 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
     }
     x = ev[gndx * 2 + 1];
 
-    if (hop >= hopcnt) {
-      dur = hopcdur[hop];
-      if (dur == hi32) {
-        tid = x & hi24;
-        error_ge(tid,chaincnt);
-        cp = chains + tid;
-        chcnt = cp->hopcnt;
-        chp = chainhops + cp->hopofs;
-        ci = 0;
-        tdep1 = tarr2 = hi32;
-        ghop1 = p2ghop[hop1];
-        ghop2 = p2ghop[hop2];
-        while (ci < chcnt && (tdep1 == hi32 || tarr2 == hi32) ) {
-          if (chp[ci].hop == ghop1) { tdep1 = chp[ci].tdep; }
-          else if (chp[ci].hop == ghop2) { tarr2 = chp[ci].tarr; }
-          ci++;
-        }
-        if (tdep1 != hi32 && tarr2 != hi32) {
-          if (tarr2 >= tdep1) {
-            dur = tarr2 - tdep1;
-          } else {
-            warn(Iter,"chop %u-%u tdep %u-%u",ghop1,ghop2,tdep1,tarr2);
-            dur = midur;
-          }
-        } else { // this trip does not include hop
-          info(Iter|Notty,"chop %u-%u no dep at \ad%u",ghop1,ghop2,t);
+    if (hop < hopcnt) {
+      dur = (ub4)(x >> 32); // from event
+
+    } else { // compound: get dur from chain
+      tid = x & hi24;
+      error_ge(tid,chaincnt);
+      cp = chains + tid;
+      rh1 = ridhops[rid * hopcnt + hop1];
+      rh2 = ridhops[rid * hopcnt + hop2];
+      error_ge(rh1,cp->rhopcnt);
+      error_ge(rh2,cp->rhopcnt);
+      crp = chainrhops + cp->rhopofs;
+      tdep1 = (ub4)(crp[rh1] >> 32);
+      tarr2 = crp[rh2] & hi32;
+      if (tdep1 == hi32 || tarr2 == hi32) continue; // this trip does not have the compound
+      else if (tarr2 < tdep1) {
+        tdep1 = (ub4)(crp[rh2] >> 32);
+        tarr2 = crp[rh1] & hi32;
+        if (tarr2 < tdep1) {
+          warn(0,"chop %u-%u tdep %u tarr %u",hop1,hop2,tdep1,tarr2);
           continue;
         }
       }
-    } else dur = (ub4)(x >> 32); // from event
+      dur = tarr2 - tdep1;
+    }
+
     if (dur == hi32) dur = midur;
     error_eq(dur,hi32);
+
     dev[timefld(dcnt)] = t + gt0;
     dev[tidfld(dcnt)] = (ub4)x & hi24; // tid+dayid
     dev[dtfld(dcnt)] = dur;
@@ -229,19 +226,18 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   ub4 cost,acost;
   ub4 ttmax = 120,ttmin = 5; // todo
   ub8 x,*ev;
-  ub4 tdep1,tarr2,ci,chcnt;
+  ub4 tdep1,tarr2;
   struct timepat *tp;
-  struct chainhop *chp,*chainhops = net->chainhops;
+  ub8 *crp,*chainrhops = net->chainrhops;
   struct chain *cp,*chains = net->chains;
+  ub4 *ridhops = net->ridhops;
   struct hop *hp1,*hops = net->hops;
   ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
   ub4 chaincnt = net->chaincnt;
   ub4 *choporg = net->choporg;
-  ub4 *hopcdur = net->hopcdur;
-  ub4 *p2ghop = net->p2ghop;
   ub8 *events = net->events;
-  ub4 hop1,hop2,ghop1,ghop2,gid;
+  ub4 hop1,hop2,rh1,rh2,gid,rid;
   ub4 costperstop = src->costperstop;
 
   error_z(leg,0);
@@ -264,6 +260,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   hp1 = hops + hop1;
   tp = &hp1->tp;
   gid = hp1->gid;
+  rid = hp1->rid;
 
   gencnt = tp->genevcnt;
 
@@ -337,35 +334,32 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
         break;
       }
 
-      // lookup current chain to get compound duration
-      if (hop >= hopcnt) {
-        dur = hopcdur[hop];
-        if (dur == hi32) { // no constant dur, search in chain
-          error_ge(tid,chaincnt);
-          cp = chains + tid;
-          chcnt = cp->hopcnt;
-          chp = chainhops + cp->hopofs;
-          ci = 0;
-          tdep1 = tarr2 = hi32;
-          ghop1 = p2ghop[hop1];
-          ghop2 = p2ghop[hop2];
-          while (ci < chcnt && (tdep1 == hi32 || tarr2 == hi32) ) {
-            if (chp[ci].hop == ghop1) { tdep1 = chp[ci].tdep; }
-            else if (chp[ci].hop == ghop2) { tarr2 = chp[ci].tarr; }
-            ci++;
-          }
-          if (tdep1 != hi32 && tarr2 != hi32) {
-            if (tarr2 >= tdep1) dur = tarr2 - tdep1;
-            else {
-              warn(Iter,"chop %u-%u tdep %u-%u",ghop1,ghop2,tdep1,tarr2);
-              dur = midur; // todo
-            }
-          } else {
-            info(Notty|Iter,"chop %u-%u r.tid %u.%u no dep at \ad%u from \ad%u",ghop1,ghop2,cp->rtid,tid,t,atarr);
+      if (hop < hopcnt) {
+        dur = (ub4)(x >> 32); // from event
+
+      } else { // compound: get dur from chain
+        tid = x & hi24;
+        error_ge(tid,chaincnt);
+        cp = chains + tid;
+        crp = chainrhops + cp->rhopofs;
+        rh1 = ridhops[rid * hopcnt + hop1];
+        rh2 = ridhops[rid * hopcnt + hop2];
+        error_ge(rh1,cp->rhopcnt);
+        error_ge(rh2,cp->rhopcnt);
+        tdep1 = (ub4)(crp[rh1] >> 32);
+        tarr2 = crp[rh2] & hi32;
+        if (tdep1 == hi32 || tarr2 == hi32) continue; // this trip does not have the compound
+        else if (tarr2 < tdep1) {
+          tdep1 = (ub4)(crp[rh2] >> 32);
+          tarr2 = crp[rh1] & hi32;
+          if (tarr2 < tdep1) {
+            warn(0,"chop %u-%u tdep %u tarr %u",hop1,hop2,tdep1,tarr2);
             continue;
           }
         }
-      } else dur = (ub4)(x >> 32);  // plain hops have duration in event
+        dur = tarr2 - tdep1;
+      }
+
       if (dur == hi32) dur = midur;
       error_eq(dur,hi32);
 
@@ -566,7 +560,7 @@ static ub4 prvevs(search *src,ub4 leg)
     if (dt < lodt) { lodt = dt; loadev = adndx; }
     adndx++;
   }
-  if (loadev == hi32) warn(Iter,"no preceding dep at leg %u between \ad%u and \ad%u",aleg,at,t); // todo
+  if (loadev == hi32) return warn(Iter,"no preceding dep at leg %u between \ad%u and \ad%u",aleg,at,t); // todo
   else src->devcurs[aleg] = loadev;
   vrb0(0,"prv dt %u lo %u",dt,lodt);
   return min(dt,lodt);
@@ -719,21 +713,29 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
 
   ub4 da = dep * portcnt + arr;
 
-  cnt = cnts[da];
-  if (cnt == 0) { src->locnocnt++; vrb0(0,"no %u-stop connection %u-%u",stop,dep,arr); return 0; }
-
-  ofs = ofss[da];
-  lst = blkdata(lstblk,0,ub4);
-  error_ge(ofs,net->lstlen[stop]);
-  vp = lst + ofs * nleg;
   cost = hi32;
-
-  lodist = src->lodist;
-  if (lodist == 0) lodist = hi32;
-
+  lodist = hi32;
   lodt = hi32;
 
-  do {
+  cnt = cnts[da];
+
+  if (cnt) {
+    ofs = ofss[da];
+    lst = blkdata(lstblk,0,ub4);
+    error_ge(ofs,net->lstlen[stop]);
+    vp = lst + ofs * nleg;
+
+    lodist = src->lodist;
+    if (lodist == 0) lodist = hi32;
+
+    lodt = hi32;
+  } else {
+    vp = NULL;
+    src->locnocnt++;
+    vrb0(0,"no %u-stop connection %u-%u",stop,dep,arr);
+  }
+
+  while (v0 < cnt && cost > costlim && globs.sigint == 0) {
 
     // distance-only
     dist = 0;
@@ -817,6 +819,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
 
   if (havedist == 0) info(0,"no route for %u-stop trip %u-%u",stop,dep,arr);
 
+  info(0,"histop %u src hi %u",histop,src->histop);
   if (stop < histop || stop == src->histop || stop < 1) return 0;
 
   // if no time, search for new via. if no route, search with one added via
@@ -830,6 +833,8 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
   ub4 trip[Nleg];
 
   if (havedist == 0) stop++;
+
+  info(0,"continue search in %u-stops",stop);
 
   stp = src->trips;
 
@@ -902,25 +907,28 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
           if (dtcur == 0) { info(0,"no prv for var %u",v0); src->stat_noprv++; continue; }
 
           evcnt = getevs(src,gnet,nleg);
-          for (leg = 0; leg < nleg; leg++) {
-            stp->trip[leg * 2 + 1] = trip[leg];
-            stp->trip[leg * 2] = part;
+          dist = 0;
+          for (l = 0; l < nleg; l++) {
+            leg = trip[l];
+            stp->trip[l * 2 + 1] = leg;
+            stp->trip[l * 2] = part;
+            dist += hopdist[leg];
 
-            stp->t[leg] = src->curts[leg];
-            stp->dur[leg] = src->curdurs[leg];
-            stp->tid[leg] = src->curtids[leg];
-            info(0,"  leg %u dep \ad%u",leg,src->curts[leg]);
+            stp->t[l] = src->curts[l];
+            stp->dur[l] = src->curdurs[l];
+            stp->tid[l] = src->curtids[l];
+            info(0,"  leg %u hop %u dep \ad%u",l,leg,src->curts[l]);
           }
-          leg = nleg - 1;
-          sumdt = src->curts[leg] - src->curts[0] + src->curdurs[leg];
+          l = nleg - 1;
+          sumdt = src->curts[l] - src->curts[0] + src->curdurs[l];
           fmtstring(stp->desc,"fastest: %u minutes, %u Km",sumdt,dist / Geoscale);
           stp->cnt = havetime = 1;
           stp->len = nleg;
-          if (leg) {
-            leg--;
-            src->lodt = src->curdts[leg];
-            src->lot = src->curts[leg];
-            src->lotid = src->curtids[leg];
+          if (l) {
+            l--;
+            src->lodt = src->curdts[l];
+            src->lot = src->curts[l];
+            src->lotid = src->curtids[l];
           }
           src->lodist = dist;
 

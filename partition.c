@@ -163,7 +163,7 @@ int partition(gnet *gnet)
   ub4 *phopdist,*hopdist = gnet->hopdist;
   ub4 *phopdur,*hopdur = gnet->hopdur;
   ub4 *phopcdur,*hopcdur = gnet->hopcdur;
-  ub4 *pridhops,*ridhops = gnet->ridhop;
+  ub4 *pridhops,*ridhops = gnet->ridhops;
 
   ub4 hpcnt2,hxcnt2;
   ub4 dist;
@@ -238,7 +238,7 @@ int partition(gnet *gnet)
 
     net->hopdist = gnet->hopdist;
     net->hopdur = gnet->hopdur;
-    net->hopcdur = gnet->hopcdur;
+//    net->hopcdur = gnet->hopcdur;
 
     net->ridhops = gnet->ridhops;
 
@@ -1174,7 +1174,7 @@ int partition(gnet *gnet)
     phopdist = alloc(pchopcnt, ub4,0xff,"net hopdist",pchopcnt);
     phopdur = alloc(pchopcnt, ub4,0xff,"net hopdur",pchopcnt);
     phopcdur = alloc(pchopcnt, ub4,0xff,"net hopcdur",pchopcnt);
-    pridhop = alloc(ridcnt * phopcnt,ub4,0xff,"net ridhop",ridcnt);
+    pridhops = alloc(ridcnt * phopcnt,ub4,0xff,"net ridhop",ridcnt);
 
     // assign ports : members of this part
     pp = pports;
@@ -1361,7 +1361,7 @@ int partition(gnet *gnet)
 
     net->hopdist = phopdist;
     net->hopdur = phopdur;
-    net->hopcdur = phopcdur;
+//    net->hopcdur = phopcdur;
 
     net->ridhops = pridhops;
 

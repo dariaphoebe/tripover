@@ -187,7 +187,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     hp->dep = dep;
     hp->arr = arr;
     hp->id = curhop;
-    memcopy(hp->name,"noname",6);
+    memcpy(hp->name,"noname",6);
     hp->namelen = 6;
     curhop++;
   }
@@ -310,7 +310,7 @@ int prepbasenet(void)
 
   double fdist;
   ub4 dist;
-  int dbg;
+  int dbg = 0;
 
   cnt = 0;
   for (rid = 0; rid < ridcnt; rid++) {
@@ -346,7 +346,7 @@ int prepbasenet(void)
 
     msgprefix(0,"hop %u",hop);
 
-    dbg = (hop == 21295 || hop == 21300);
+//    dbg = (hop == 21295 || hop == 21300);
 
     dep = hp->dep;
     arr = hp->arr;

@@ -30,7 +30,7 @@
 // end of limits
 
 enum Engvars { Eng_periodlim,Eng_partsize,Eng_cnt };
-enum Netvars { Net_partsize,Net_cnt };
+enum Netvars { Net_partsize,Net_tpat0,Net_tpat1,Net_tpatmintt,Net_tpatmaxtt,Net_cnt };
 
 sassert(Net_cnt < sizeof(globs.netvars),"globs.netvars < Net_cnt")
 sassert(Net_cnt < Elemcnt(globs.netvars),"globs.netvars < Net_cnt")

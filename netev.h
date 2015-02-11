@@ -13,3 +13,4 @@ extern void ininetev(void);
 
 extern ub4 prepestdur(lnet *net,ub4 *trip,ub4 len);
 extern ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2);
+extern int mksubevs(lnet *net);

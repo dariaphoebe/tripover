@@ -19,9 +19,9 @@
 #include "base.h"
 struct globs globs;
 
+#include "time.h"
 #include "cfg.h"
 #include "os.h"
-#include "time.h"
 #include "mem.h"
 #include "util.h"
 #include "math.h"
@@ -70,11 +70,11 @@ static int init0(char *progname)
   info(User,"\ntripover %u.%u %s %s\n%s\n", Version_maj,Version_min,Version_phase,mtimestr,copyright);
 
   if (iniutil(0)) return 1;
+  initime(0);
   if (inicfg()) return 1;
   inimem();
   inios();
   iniserver();
-  initime(0);
   inimath();
   ininetbase();
   inigtfs();

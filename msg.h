@@ -41,7 +41,7 @@ struct eta {
 
 // arrange file coords
 #define FLN (__LINE__|msgfile)
-#define caller __LINE__|msgfile
+#define caller (__LINE__|msgfile)
 
 #define genmsg(lvl,code,fmt,...) genmsgfln(FLN,(lvl),(code),(fmt),__VA_ARGS__)
 #define vrb(code,fmt,...) vrbfln(FLN,(code),(fmt),__VA_ARGS__)
@@ -133,6 +133,7 @@ extern int osinfofln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((form
 extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 
 extern int info0fln(ub4 fln, ub4 code, const char *s);
+extern int infofln2(ub4 fln,ub4 code,ub4 fln2,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 
 extern ub4 limit_gt_fln(ub4 x,ub4 lim,ub4 arg,const char *sx,const char *slim,const char *sarg,ub4 fln);
 

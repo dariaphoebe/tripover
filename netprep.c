@@ -273,7 +273,6 @@ int prepnet(netbase *basenet)
   chains = alloc(bchaincnt,struct chain,0,"chains",bchaincnt);
   bchains = basenet->chains;
   bchainhops = basenet->chainhops;
-  ub8 *bcrp,*bchainrhops = basenet->chainrhops;
   bchainidxs = basenet->chainidxs;
   chaincnt = chainhopcnt = ofs = 0;
   for (chain = 0; chain < bchaincnt; chain++) {
@@ -321,7 +320,7 @@ int prepnet(netbase *basenet)
       seq = (ub4)(bchip[i] >> 32);
       hop = bchp->hop;
       tdep = bchp->tdep;
-      infocc(rtid == 109966 || hop == 21300,0,"tid %u rtid %u hop %u tdep \ad%u idx %u/%u",chain,rtid,hop,tdep,i,cnt);
+//      infocc(rtid == 109966 || hop == 21300,0,"tid %u rtid %u hop %u tdep \ad%u idx %u/%u",chain,rtid,hop,tdep,i,cnt);
       error_le(seq,prvseq);
       chp->hop = hop;
       chp->tdep = tdep;

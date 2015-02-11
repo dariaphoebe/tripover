@@ -103,6 +103,10 @@ static struct cfgvar {
 
   {"network",Bool,Section,0,0,0,0,"network settings"},
   {"net.partsize",Uint,Net_gen,Net_partsize,1,50000,6000,"aimed partition size"},
+  {"net.patternstart",Uint,Net_gen,Net_tpat0,0,20201231,20150215,"start day of transfer pattern base"},
+  {"net.patternend",Uint,Net_gen,Net_tpat1,0,20201231,20150315,"end day of transfer pattern base"},
+  {"net.patternmintt",Uint,Net_gen,Net_tpatmintt,0,120,3,"minimum tranfser time for transfer pattern"},
+  {"net.patternmaxtt",Uint,Net_gen,Net_tpatmaxtt,0,60 * 48,120,"maximum tranfser time for transfer pattern"},
 
   // interface
   {"interface",Bool,Section,0,0,0,0,"configure client-server interface"},
@@ -137,14 +141,24 @@ int inicfg(void)
 
   struct cfgvar *vp;
   ub4 x,gb = meminfo() >> 10;
+  ub4 now;
 
   if (gb == 0) return vrbfln(FLN,0,"cfg defaults not adjusted to available memory");
   vrb0(0,"adjusting cfg defaults to %u GB memory",gb);
 
-  // make some defaults depend on memory
+  // determine some defaults at runtime
   for (vp = cfgvars; vp->name; vp++) {
     if (vp->var != Net_gen) continue;
     switch(vp->subvar) {
+    case Net_tpat0:
+      now = nix2min(gettime_sec() / 60);
+      vp->def = day2cd(now / 1440);
+      break;
+    case Net_tpat1:
+      now = nix2min(gettime_sec() / 60);
+      vp->def = day2cd(now / 1440 + 30);
+      break;
+
     case Net_partsize:
       if (gb < 4) x = 1000;
       else if (gb < 8) x = 2000;
@@ -357,7 +371,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
   var = vp->var;
   error_ge(var,Cfgcnt);
 
-  if (var != Enable && var != Disable && var != Eng_opt && var != Eng_gen) {
+  if (var != Enable && var != Disable && var != Eng_opt && var != Eng_gen && var != Net_gen) {
     prvline = varseen[var];
     if (prvline) return warning(0,"%s: previously defined at line %u",fln,prvline);
   }

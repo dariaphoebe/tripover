@@ -123,7 +123,7 @@ Invoke the commandline client :
 `./plantrip plan nambour bunya`
 
 Currently, tripover calculates a single possible trip, preferring shorter overall travel time.
-Minimum and maximum transfer times are taken into account, yet you cannot specify these.
+Minimum and maximum transfer times are taken into account, yet you cannot specify these yet.
 
 No cost yet.
 
@@ -141,8 +141,6 @@ At the time of this writing, Tripover is in an early stage of development.
 Things start to work, some query results are good, some are not. You will likely hit issues when trying new data.
 
 * The commandline tools can be very verbose and disabling does not work properly.
-
-* Distance units are coarse approximations.
 
 * Larger networks that require partitioning can give surprising results.
 

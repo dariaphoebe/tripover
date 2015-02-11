@@ -60,16 +60,18 @@ int hex2ub4(const char *s, ub4 *pv)
   return 0;
 }
 
-void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln)
+void memcopyfln(void *dst,const void *src,size_t len,ub4 fln)
 {
-  vrbfln(fln,0,"len %u",len);
-  if (len == 0) vrbfln(fln,0,"zero copy");
-  else if (src < dst && src + len > dst) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %u",src,dst,len);
-  else if (src > dst && dst + len > src) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %u",src,dst,len);
+  char *d = dst;
+  const char *s = src;
+
+  if (len == 0) infofln(fln,0,"zero copy");
+  else if (s < d && s + len > d) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %lu",src,dst,(unsigned long)len);
+  else if (s > d && d + len > s) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %lu",src,dst,(unsigned long)len);
   else memcpy(dst,src,len);
 }
 
-void do_clear(void *p,ub4 len) { memset(p,0,len); }
+void do_clear(void *p,size_t len) { memset(p,0,len); }
 
 int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln)
 {

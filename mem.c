@@ -79,7 +79,7 @@ static void addsum(ub4 fln,const char *desc,ub4 mbcnt)
   memcpy(up->id,desc,idlen);
   up->fln = fln;
   up->sum += mbcnt;
-  if (mbcnt > 64) infofln(up->fln,0,"category %s memuse %u MB adding %u for %s",up->id,up->sum,mbcnt,desc);
+  if (mbcnt > 512) infofln2(up->fln,0,FLN,"category %s memuse %u MB adding %u for %s",up->id,up->sum,mbcnt,desc);
   if (mbcnt > up->hi) {
     up->hi = mbcnt;
     if (up->hifln == fln) up->hicnt++;
@@ -139,7 +139,8 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   vrbfln(fln,V0|CC,"alloc %s:\ah%u * %s:\ah%u for %s-%u",slen,elems,sel,elsize,desc,arg);
 
   // check for zero and overflow
-  error_z_fln(elems,arg,"elems","",fln);
+  if (elems == 0) errorfln(fln,Exit,FLN,"zero length block '%s - %u'",desc,arg);
+
   error_z_fln(elsize,arg,"elsize","",fln);
 
   error_zp(desc,0);
@@ -160,15 +161,15 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   }
 
   if (nm >= mmap_from_mb) {
-    if (nm > 64) infofln(fln,0,"alloc %u MB for %s-%u",nm,desc,arg);
+    if (nm > 64) infofln2(fln,0,FLN,"alloc %u MB for %s-%u",nm,desc,arg);
     p = osmmap(n);
     if (!p) { oserrorfln(fln,Exit,"%u: cannot allocate %u MB for %s-%u", __LINE__,nm, desc,arg); return NULL; }
     if (fill) memset(p, fill, n);
   } else {
-    if (nm > 64) infofln(fln,0,"alloc %u MB for %s-%u",nm,desc,arg);
+    if (nm > 64) infofln2(fln,0,FLN,"alloc %u MB for %s-%u",nm,desc,arg);
     p = malloc(n);
     if (!p) { errorfln(fln,Exit,FLN,"cannot allocate %u MB for %s-%u", nm, desc,arg); return NULL; }
-    if (nm > 64) infofln(fln,0,"clear %u MB for %s-%u",nm,desc,arg);
+    if (nm > 128) infofln(fln,0,"clear %u MB for %s-%u",nm,desc,arg);
     memset(p, fill, n);
   }
 
@@ -192,7 +193,7 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   ai->mb = nm;
   ai->len = n;
 
-  if (nm > 64) info(0,"alloced %u MB for %s, total %u", nm, desc, totalMB);
+  if (nm > 256) infofln2(fln,0,FLN,"alloced %u MB for %s, total %u", nm, desc, totalMB);
   return p;
 }
 

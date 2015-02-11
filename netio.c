@@ -1104,7 +1104,7 @@ static int rdexttimes(netbase *net,const char *dir)
         namelen = namemax;
       }
       sp->namelen = namelen;
-      memcopy(sp->name,name,namelen);
+      if (namelen) memcpy(sp->name,name,namelen);
       maxsid = max(maxsid,rsid);
       sp->mapofs = mapofs;
       mapofs += dtbox + 1;
@@ -1247,7 +1247,7 @@ static int rdextroutes(netbase *net,const char *dir)
         rp->namelen = 9;
       } else {
         rp->namelen = namelen;
-        memcopy(rp->name,name,namelen);
+        memcpy(rp->name,name,namelen);
       }
       if (rrid > hirrid) { parsewarn(FLN,fname,linno,colno,"rrid %u > hirrid %u",rrid,hirrid); continue; }
       else if (rrid2rid[rrid] != hi32) { parsewarn(FLN,fname,linno,colno,"duplicate rrid %u",rrid); continue; }
@@ -1595,7 +1595,7 @@ static int rdexthops(netbase *net,const char *dir)
 
       hp->rrid = routeid;
       hp->namelen = namelen;
-      memcopy(hp->name,name,namelen);
+      if (namelen) memcpy(hp->name,name,namelen);
       maxid = max(maxid,id);
       hp->timespos = timespos;
       hp->timecnt = timecnt;

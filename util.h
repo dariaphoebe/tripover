@@ -43,8 +43,8 @@ extern ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc);
 extern int cmdline(int argc, char *argv[], struct cmdarg *cap,const char *desc);
 extern int shortusage(void);
 
-#define memcopy(d,s,n) memcopyfln((d),(s),(n),FLN)
-extern void memcopyfln(char *dst,const char *src,ub4 len,ub4 fln);
+#define memcopy(d,s,n) { sassert(sizeof(d) == sizeof(s),"pointer size mismatch") memcopyfln((d),(s),(n),FLN); }
+extern void memcopyfln(void *dst,const void *src,size_t len,ub4 fln);
 
 #define strcomp(a,b) strcompfln((a),(b),#a,#b,FLN)
 extern int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln);
@@ -53,7 +53,7 @@ extern ub4 str2ub4(const char *s, ub4 *pv);
 extern int hex2ub4(const char *s, ub4 *pv);
 
 #define oclear(p) do_clear(&(p),sizeof(p))
-extern void do_clear(void *p,ub4 len);
+extern void do_clear(void *p,size_t len);
 
 #define limit(a,b,c) if ((a) > (b)) { (a) = (b); warningfln(FLN,0,"limit %s:%u to %s:%u for %s:%u",#a,(a),#b,(b),#c,(c)); }
 

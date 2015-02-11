@@ -462,7 +462,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
       days[genday + day]++;
       t++;
     }
-    infovrb(gndx > 2048,Iter,"hop %u fill %u nonrepeating events",hop,gndx / 2);
+    infovrb(gndx > 4096,Iter,"hop %u fill %u nonrepeating events",hop,gndx / 2);
     return gndx / 2;
   } else return warn(0,"repetition %u not yet supported",gen);
 

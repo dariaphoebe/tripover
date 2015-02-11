@@ -125,6 +125,7 @@ struct timepat {
   ub4 lodur,hidur,midur,avgdur,duracc;
   ub4 evcnt;
   ub4 genevcnt;
+  ub4 sevcnt;
   ub4 evofs;   // offset in net.events
   ub4 dayofs;  // offset in net.evmaps
 };
@@ -226,6 +227,8 @@ struct network {
   block *evmapmem;
   ub8 *events;       // <time,dur+tid> tuples
   ub2 *evmaps;       // day maps
+  ub8 *sevents;      // [samplecnt * chopcnt] dur+time
+  ub4 *sevcnts;      // [chopcnt]
 
 // access
   ub4 *g2pport;      // [gportcnt] global to partition port id
@@ -238,7 +241,9 @@ struct network {
   ub4 *dist0;      // [portcnt2] distance
   ub4 *hopdist;    // [chopcnt] idem
   ub4 *hopdur;     // [chopcnt] average duration
-  ub4 *hopcdur;     // [chopcnt] compound constant duration
+//  ub4 *hopcdur;     // [chopcnt] compound constant duration
+  ub4 *shopdur;     // [whopcnt] average duration for estdur
+
   ub4 *choporg;    // [chopcnt * 2] <first,last>
 
   ub4 *mac2port;   // [nmac < portcnt]
@@ -268,9 +273,11 @@ struct network {
   size_t lstlen[Nstop];
 
   ub4 *lodist[Nstop];  // [port2] lowest over-route distance
-//  ub4 *hidist[Nstop];  // [port2] lowest over-route distance
 
   ub4 *portdst[Nstop];  // [portcnt] #destinations per port
+
+  ub4 disthis[Nstop];   // highest values at end of nstop
+  ub4 durhis[Nstop];
 
   ub1 *conmask;         // [port2] overall connectivity stopmask
 

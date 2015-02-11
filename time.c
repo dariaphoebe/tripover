@@ -111,14 +111,21 @@ void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen)
 ub4 lmin2cd(ub4 min)
 {
   ub4 day;
+  ub4 pos;
+  char buf[1024];
 
   day = min / 1440;
+  if (day >= day2cdmax) {
+    pos = fmtstring(buf,"day %u after Epoch %u : %u\n",day,Erayear,day2cdmax);
+    msg_write(buf,pos);
+  }
   return day2cdtab[min(day,day2cdmax)];
 }
 
 // day to coded decimal yyyymmdd
 ub4 day2cd(ub4 day)
 {
+  if (day >= day2cdmax) warn(0,"day %u after Epoch %u",day,Erayear);
   return day2cdtab[min(day,day2cdmax)];
 }
 
@@ -190,4 +197,18 @@ ub4 gettime_sec(void)
 {
   ub8 usec = gettime_usec();
   return (ub4)(usec / (1000 * 1000));
+}
+
+ub4 nix2min(ub4 xmin)
+{
+  ub4 days = (Epochyear - 1970) * 365 + 7;
+  ub4 min,day;
+  if (days * 1440 > xmin) return warn(0,"unix minute time %u before Epoch %u",xmin,Epochyear);
+  min = xmin - (days * 1440);
+  day = min / 1440;
+  if (day >= day2cdmax) {
+    warn(0,"unix minute time %u after Era %u : day %u after %u",xmin,Erayear,day,day2cdmax);
+    return (day2cdmax - 1) * 1440;
+  }
+  return min;
 }

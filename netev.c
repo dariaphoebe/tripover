@@ -18,14 +18,13 @@
 static ub4 msgfile;
 #include "msg.h"
 
+#include "math.h"
 #include "time.h"
+#include "util.h"
 #include "net.h"
 #include "netev.h"
 
-
-
-static const ub4 sampleshh = 16;
-static const ub4 samplescc = 16;
+static const ub4 subsamples = 128;
 
 void ininetev(void)
 {
@@ -34,291 +33,401 @@ void ininetev(void)
   iniassert();
 }
 
-// get an average total duration between two plain hops
-// take a handful of samples.
-static ub4 avgdurhh(lnet *net,ub4 hop1,ub4 hop2)
+// prepare a subset of events for all plain and compound hops
+// use random sampling in a given timebox
+// estdur() only uses these
+int mksubevs(lnet *net)
 {
-  struct hop *hp1,*hp2,*hops = net->hops;
-  struct timepat *tp1,*tp2;
-  ub4 ttmax = 120,ttmin = 5; // todo
-  ub4 gndx,gndx2;
-  ub4 dt,dur1,dur2,dtsum,avgdt;
-  ub8 *events = net->events;
-
-  hp1 = hops + hop1;
-  hp2 = hops + hop2;
-  tp1 = &hp1->tp;
-  tp2 = &hp2->tp;
-
-  ub4 cnt1 = tp1->genevcnt;
-  ub4 cnt2 = tp2->genevcnt;
-  if (cnt1 == 0 || cnt2 == 0) return hi32;
-
-  ub8 *ev1 = events + tp1->evofs;
-  ub8 *ev2 = events + tp2->evofs;
-
-  ub4 gt01 = tp1->gt0;
-  ub4 gt02 = tp2->gt0;
-
-  ub4 rt1,rt2,t1,t2;
-
-  ub4 dtcnt = 0;
-
-  gndx2 = dtsum = 0;
-  ub4 lodt = hi32;
-
-  rt2 = (ub4)ev2[0]; t2 = rt2 + gt02;
-  for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / sampleshh) ) {
-    rt1 = (ub4)ev1[gndx * 2];
-    dur1 = (ub4)(ev1[gndx * 2] >> 32);
-    t1 = rt1 + gt01;
-    while (t2 < t1 + dur1 + ttmin) {
-      if (++gndx2 >= cnt2) break;
-      rt2 = (ub4)ev2[gndx2 * 2];
-      t2 = rt2 + gt02;
-    }
-    if (gndx2 >= cnt2) break;
-    if (t2 - (t1 + dur1) > ttmax) continue;
-    dtcnt++;
-    dur2 = (ub4)(ev2[gndx2 * 2] >> 32);
-    dt = t2 + dur2 - t1;
-    lodt = min(lodt,dt);
-    dtsum += dt;
-  }
-  if (dtsum == 0 || lodt == hi32) return 10000;
-  avgdt = dtsum / max(dtcnt,1);
-  return avgdt;
-}
-
-// get an average total duration between two compound hops
-// take a handful of samples.
-static ub4 avgdurcc(lnet *net,ub4 hop1,ub4 hop2)
-{
-  struct hop *hp11,*hp21,*hops = net->hops;
-  struct timepat *tp11,*tp21;
-  struct chain *cp1,*cp2,*chains = net->chains;
+  struct hop *hp,*hp1,*hp2,*hops = net->hops;
+  struct port *pdep,*parr,*ports = net->ports;
+  ub4 *portsbyhop = net->portsbyhop;
+  struct timepat *tp,*tp1,*tp2;
+  struct chain *cp,*chains = net->chains;
   ub4 hopcnt = net->hopcnt;
-  ub4 *choporg = net->choporg;
+  ub4 chopcnt = net->chopcnt;
+  ub4 whopcnt = net->whopcnt;
   ub4 *hopdur = net->hopdur;
+  ub4 *choporg = net->choporg;
   ub4 *ridhops = net->ridhops;
-  ub8 *crp1,*crp2,*chainrhops = net->chainrhops;
-  ub4 ttmax = 120,ttmin = 5; // todo
-  ub4 gndx,gndx2;
-  ub4 h11,h12,h21,h22;
-  ub4 dt,dur1,dur2,dtsum,avgdt;
-  ub4 tdep1,tarr1,tdep2,tarr2;
-  ub4 tid1,tid2;
-  ub8 *events = net->events;
+  ub8 *crp,*chainrhops = net->chainrhops;
+  ub4 e,i,r,rr,s,evcnt,sevcnt,scnt,hiscnt;
+  ub4 cnt1,cnt2;
+  ub4 hop,h1,h2,rh1,rh2;
+  ub4 dep,arr;
+  ub4 rid;
+  ub4 t,dur,sumdur;
+  ub4 tdep1,tarr2;
+  ub4 tid;
+  ub8 rtdur,*ev,*events = net->events;
+  ub8 *sev,*sevents;
 
-  h11 = choporg[hop1 * 2];
-  h12 = choporg[hop1 * 2 + 1];
-  h21 = choporg[hop2 * 2];
-  h22 = choporg[hop2 * 2 + 1];
+  ub4 st0_cd = globs.netvars[Net_tpat0];
+  ub4 st1_cd = globs.netvars[Net_tpat1];
+  ub4 st0 = cd2day(st0_cd) * 1440;
+  ub4 st1 = cd2day(st1_cd) * 1440;
+  ub4 gt0,gt01;
 
-  hp11 = hops + h11;
-  hp21 = hops + h21;
+  ub4 dtbins[60 * 12];
+  ub4 dthibin = Elemcnt(dtbins) - 1;
 
-  tp11 = &hp11->tp;
-  tp21 = &hp21->tp;
+  aclear(dtbins);
 
-  ub4 cnt1 = tp11->genevcnt;
-  ub4 cnt2 = tp21->genevcnt;
-  if (cnt1 == 0 || cnt2 == 0) return hi32;
+  info(0,"preparing %u sampling events in period \ad%u-\ad%u",subsamples,st0,st1);
 
-  ub4 rid1 = hp11->rid;
-  ub4 rid2 = hp21->rid;
+  sevcnt = chopcnt * subsamples;
+  sevents = alloc(sevcnt,ub8,0xff,"time subevs",sevcnt);
 
-  ub4 rh11 = ridhops[rid1 * hopcnt + h11];
-  ub4 rh12 = ridhops[rid1 * hopcnt + h12];
-  ub4 rh21 = ridhops[rid2 * hopcnt + h21];
-  ub4 rh22 = ridhops[rid2 * hopcnt + h22];
+  ub4 *shopdur = alloc(whopcnt,ub4,0,"net shopdur",whopcnt);
+  ub4 *sevcnts = alloc(chopcnt,ub4,0,"net sevcnts",chopcnt);
 
-  ub8 *ev1 = events + tp11->evofs;
-  ub8 *ev2 = events + tp21->evofs;
+  memcopy(shopdur + chopcnt,hopdur + chopcnt,(whopcnt - chopcnt) * sizeof(*shopdur));
 
-  ub4 gt01 = tp11->gt0;
-  ub4 gt02 = tp21->gt0;
+  hiscnt = 0;
 
-  ub4 rt1,rt2,t1,t2;
+  ub8 sumevcnt = 0,sumsevcnt = 0;
 
-  ub4 dtcnt = 0;
+  struct eta eta;
 
-  gndx2 = dtsum = 0;
-  ub4 lodt = hi32;
+  for (hop = 0; hop < hopcnt; hop++) {
 
-  rt2 = (ub4)ev2[0];
-  t2 = rt2 + gt02;
+    if (progress(&eta,"pass 1 hop %u of %u, \ah%lu from \ah%lu events",hop,chopcnt,sumsevcnt,sumevcnt)) return 1;
 
-  for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / samplescc) ) {
-    rt1 = (ub4)ev1[gndx * 2];
-    t1 = rt1 + gt01;
-    tid1 = ev1[gndx * 2 + 1] & hi24;
-    cp1 = chains + tid1;
-    if (cp1->hopcnt < 3) continue;
-    error_ge(rh11,cp1->rhopcnt);
-    error_ge(rh12,cp1->rhopcnt);
-    rid1 = cp1->rid;
-    crp1 = chainrhops + cp1->rhopofs;
-    tdep1 = (crp1[rh11] >> 32);
-    tarr1 = crp1[rh12] & hi32;
-    if (tdep1 == hi32 || tarr1 == hi32) continue;
-    if (tdep1 > tarr1) continue;
-//    noexit error_gt(tdep1,tarr1,rh11);
-    dur1 = tarr1 - tdep1;
-
-    while (t2 < t1 + dur1 + ttmin) {
-      if (++gndx2 >= cnt2) break;
-      rt2 = (ub4)ev2[gndx2 * 2];
-      t2 = rt2 + gt02;
+    sev = sevents + hop * subsamples;
+    hp = hops + hop;
+    tp = &hp->tp;
+    evcnt = tp->genevcnt;
+    if (evcnt == 0) continue;
+    sumevcnt += evcnt;
+    ev = events + tp->evofs;
+    gt0 = tp->gt0;
+    scnt = 0;
+    for (e = 0; e < evcnt; e++) { // count #evs within box
+      rtdur = ev[e * 2];
+      t = (ub4)(rtdur & hi32) + gt0;
+      dur = (ub4)(rtdur >> 32);
+      warncc(t == hi32,0,"hop %u ev %u t hi",hop,e);
+      warncc(dur == hi32,0,"hop %u ev %u dur hi",hop,e);
+//      vrb0(0,"t \ad%u",t);
+//    vrb0(0,"s0 \ad%u s1 \ad%u",st0,st1);
+      if (t < st0) continue;
+      else if (t >= st1) break;
+      scnt++;
     }
-    if (gndx2 >= cnt2) break;
-    if (t2 - (t1 + dur1) > ttmax) continue;
-    dtcnt++;
-
-    tid2 = ev2[gndx2 * 2 + 1] & hi24;
-    cp2 = chains + tid2;
-    if (cp2->hopcnt < 3) continue;
-    error_ge(rh21,cp2->rhopcnt);
-    error_ge(rh22,cp2->rhopcnt);
-    rid2 = cp2->rid;
-    crp2 = chainrhops + cp2->rhopofs;
-    tdep2 = (crp2[rh21] >> 32);
-    tarr2 = crp2[rh22] & hi32;
-    if (tdep2 == hi32 || tarr2 == hi32) continue;
-    if (tdep2 > tarr2) continue; // todo make compound generate extra cmp for this
-//    noexit error_gt_cc(tdep2,tarr2,"chop %u-%u rid %u %u-%u ta1 %lu td2 %lu",h21,h22,rid2,rh21,rh22,crp2[rh21] & hi32,crp2[rh22] >> 32);
-//    infocc(tdep2 <= tarr2,0,"chop %u-%u rid %u %u-%u ta1 %lu td2 %lu",h21,h22,rid2,rh21,rh22,crp2[rh21] & hi32,crp2[rh22] >> 32);
-    dur2 = tarr2 - tdep2;
-    dt = t2 + dur2 - t1;
-    lodt = min(lodt,dt);
-    dtsum += dt;
+    tp->sevcnt = scnt;
+    sumsevcnt += scnt;
+    hiscnt = max(hiscnt,scnt);
   }
-  if (dtsum == 0 || lodt == hi32) return 10000;
-  avgdt = dtsum / max(dtcnt,1);
-  return avgdt;
+  if (hiscnt < 2) return error(0,"no events to sample from \ah%lu",sumevcnt);
+
+  info(0,"sampling \ah%lu events from \ah%lu",sumsevcnt,sumevcnt);
+
+  ub4 hiscnt1 = hiscnt + 1;
+  ub4 *rndset,*rndsets = alloc(hiscnt1 * hiscnt1,ub4,0,"time randoms",hiscnt);
+  ub8 *cev = alloc(hiscnt,ub8,0xff,"time cevs",hiscnt);
+  ub4 *rnduniq = alloc(hiscnt,ub4,0,"time rndtmp",hiscnt);
+
+  // determine random subsample patterns once per #events
+  for (i = subsamples; i < hiscnt; i++) {
+    rndset = rndsets + hiscnt * i;
+    r = 0;
+    nclear(rnduniq,hiscnt);
+    while (r < i) {
+      rr = rnd(i);
+      if (rnduniq[rr]) continue;
+      rnduniq[rr] = 1;
+      rndset[r++] = rr;
+    }
+  }
+
+  sumsevcnt = 0;
+
+  // plain hops
+  for (hop = 0; hop < hopcnt; hop++) {
+
+    if (progress(&eta,"pass 2 hop %u of %u, \ah%lu from \ah%lu events",hop,chopcnt,sumsevcnt,sumevcnt)) return 1;
+
+    sev = sevents + hop * subsamples;
+    hp = hops + hop;
+    tp = &hp->tp;
+    evcnt = tp->genevcnt;
+    if (evcnt == 0) continue;
+    ev = events + tp->evofs;
+    gt0 = tp->gt0;
+    scnt = tp->sevcnt;
+    sumsevcnt += scnt;
+    if (scnt == 0) continue;
+
+    e = 0; t = 0;
+    while (e < evcnt) {
+      rtdur = ev[e * 2];
+      t = (ub4)(rtdur & hi32) + gt0;
+      dur = (ub4)(rtdur >> 32);
+      warncc(t == hi32,0,"hop %u ev %u hi",hop,e);
+      if (t >= st0) break;
+      e++;
+    }
+    s = 0; sumdur = 0;
+    error_gt(scnt,hiscnt,hop);
+    if (scnt > subsamples) {
+      rndset = rndsets + hiscnt * scnt;
+      for (r = 0; r < subsamples; r++) {
+        rr = rndset[r];
+        error_ge(rr+e,evcnt);
+        rtdur = ev[e+rr];
+        t = (ub4)(rtdur & hi32) + gt0;
+        dur = (ub4)(rtdur >> 32);
+        sev[r] = ((ub8)t << 32) | dur;
+        sumdur += dur;
+        dtbins[min(dur,dthibin)]++;
+        scnt = subsamples;
+      }
+      sort8(sev,scnt,FLN,"subevs");
+    } else {
+      while (s < scnt && e < evcnt) {
+        rtdur = ev[e * 2];
+        t = (ub4)(rtdur & hi32) + gt0;
+        dur = (ub4)(rtdur >> 32);
+        sev[s++] = ((ub8)t << 32) | dur;
+        e++;
+        sumdur += dur;
+        dtbins[min(dur,dthibin)]++;
+      }
+      warncc(s != scnt,0,"hop %u s %u scnt %u",hop,s,scnt);
+      shopdur[hop] = sumdur / scnt;
+      sevcnts[hop] = scnt;
+    }
+  }
+
+  // compound hops
+  for (hop = hopcnt; hop < chopcnt; hop++) {
+
+    if (progress(&eta,"pass 2 hop %u of %u, \ah%lu from \ah%lu events",hop,chopcnt,sumsevcnt,sumevcnt)) return 1;
+
+    h1 = choporg[hop * 2];
+    h2 = choporg[hop * 2 + 1];
+
+    hp1 = hops + h1;
+    hp2 = hops + h2;
+
+    tp1 = &hp1->tp;
+    tp2 = &hp2->tp;
+
+    cnt1 = tp1->genevcnt;
+    cnt2 = tp2->genevcnt;
+    if (cnt1 == 0 || cnt2 == 0) continue;
+
+    sev = sevents + hop * subsamples;
+
+    rid = hp1->rid;
+
+    rh1 = ridhops[rid * hopcnt + h1];
+    rh2 = ridhops[rid * hopcnt + h2];
+
+    ev = events + tp1->evofs;
+
+    gt01 = tp1->gt0;
+
+    e = 0; t = 0;
+    while (e < cnt1) {
+      rtdur = ev[e * 2];
+      t = (ub4)(rtdur & hi32) + gt01;
+      if (t >= st0) break;
+      e++;
+    }
+    scnt = 0;
+    sumdur = 0;
+
+    // count and copy
+    while (e < cnt1 && t < st1) {
+      rtdur = (ub4)ev[e * 2];
+      t = (ub4)(rtdur & hi32) + gt01;
+      tid = ev[e * 2 + 1] & hi24;
+      cp = chains + tid;
+      if (cp->hopcnt < 3) { e++; continue; }
+      rid = cp->rid;
+      rh1 = ridhops[rid * hopcnt + h1];
+      rh2 = ridhops[rid * hopcnt + h2];
+      error_ge(rh1,cp->rhopcnt);
+      error_ge(rh2,cp->rhopcnt);
+      crp = chainrhops + cp->rhopofs;
+      tdep1 = (ub4)(crp[rh1] >> 32);
+      tarr2 = crp[rh2] & hi32;
+      if (tdep1 == hi32 || tarr2 == hi32) { e++; continue; }
+      else if (tarr2 < tdep1) { // todo: assume reversed order for circular routes
+        vrb0(0,"chop %u-%u dep %u arr %u",h1,h2,tdep1,tarr2);
+        tdep1 = (ub4)(crp[rh2] >> 32);
+        tarr2 = crp[rh1] & hi32;
+        warncc(tarr2 < tdep1,0,"chop %u-%u dep %u arr %u",h1,h2,tdep1,tarr2);
+      }
+      dur = tarr2 - tdep1;
+      if (dur > 600) {
+        dep = portsbyhop[hop * 2];
+        arr = portsbyhop[hop * 2 + 1];
+        pdep = ports + dep;
+        parr = ports + arr;
+        info(0,"chop %u-%u %s to %s td %u ta %u",h1,h2,pdep->name,parr->name,tdep1,tarr2);
+      }
+      cev[scnt] = ((ub8)t << 32) | dur;
+      sumdur += dur;
+      dtbins[min(dur,dthibin)]++;
+      scnt++;
+      error_gt(scnt,tp1->sevcnt,hop);
+      e++;
+    }
+    if (scnt == 0) continue;
+
+    shopdur[hop] = sumdur / scnt;
+
+    if (scnt > subsamples) {
+      rndset = rndsets + hiscnt * scnt;
+      for (r = 0; r < subsamples; r++) {
+        rr = rndset[r];
+        warncc(rr >= scnt,0,"rr %u scnt %u",rr,scnt);
+        rtdur = cev[rr];
+        sev[r] = rtdur;
+      }
+      scnt = subsamples;
+      sort8(sev,scnt,FLN,"subevs");
+    } else memcopy(sev,cev,scnt * sizeof(*sev));
+    sevcnts[hop] = scnt;
+    sumsevcnt += scnt;
+  }
+  afree(rndsets,"time randoms");
+
+  ub8 sumcnt = 0;
+  sumevcnt = 0;
+  for (i = 0; i <= dthibin; i++) sumevcnt += dtbins[i];
+  for (i = 0; i <= dthibin; i++) {
+    scnt = dtbins[i];
+    sumcnt += scnt;
+    infocc(scnt,0,"dur %u cnt %u %lu%%",i,scnt,sumcnt * 100 / sumevcnt);
+  }
+
+  // verify
+  for (hop = 0; hop < chopcnt; hop++) {
+    scnt = sevcnts[hop];
+    sev = sevents + hop * subsamples;
+
+    for (s = 0; s < scnt; s++) {
+      rtdur = sev[s];
+      dur = rtdur & hi32;
+      if (dur > 600) {
+        t = (ub4)(rtdur >> 32);
+        dep = portsbyhop[hop * 2];
+        arr = portsbyhop[hop * 2 + 1];
+        pdep = ports + dep;
+        parr = ports + arr;
+        info(0,"hop %u %s to %s dur %u t %u",hop,pdep->name,parr->name,dur,t);
+      }
+    }
+  }
+
+  for (hop = 0; hop < whopcnt; hop++) {
+    warncc(shopdur[hop] == hi32,0,"hop %u sdur %u",hop,shopdur[hop]);
+  }
+
+  net->sevents = sevents;
+  net->sevcnts = sevcnts;
+  net->shopdur = shopdur;
+
+  return 0;
 }
 
-// get an average total duration between compound and plain hop
-// take a handful of samples.
-static ub4 avgdurch(lnet *net,ub4 hop1,ub4 hop2)
+// get an average total duration between two hops
+// based on a prepared handful of random samples
+static ub4 estdur2(lnet *net,ub4 hop1,ub4 hop2,ub4 ttmin,ub4 ttmax)
 {
-  struct hop *hp1,*hp2,*hops = net->hops;
-  struct timepat *tp1,*tp2;
-  ub4 *choporg = net->choporg;
-  ub4 *hopdur = net->hopdur;
-  ub4 ttmax = 120,ttmin = 5; // todo
-  ub4 gndx,gndx2;
-  ub4 h11;
-  ub4 dt,dur1,dur2,dtsum,avgdt;
-  ub8 *events = net->events;
+  ub8 tdur1,tdur2,*sev1,*sev2,*sevents = net->sevents;
+  ub4 scnt1,scnt2,*sevcnts = net->sevcnts;
+  ub4 e1,e2,i;
+  ub4 t1,t2,dur1,dur2,avgdt,dt;
+  ub4 dtcnt = 0,dtbcnt = 0;
+  ub8 dtsum = 0,dtbsum = 0;
 
-  h11 = choporg[hop1 * 2];
+static ub4 dtbins[60 * 12];
+static ub4 dthibin = Elemcnt(dtbins) - 1;
+static ub4 statcnt;
 
-  hp1 = hops + h11;
-  hp2 = hops + hop2;
-  tp1 = &hp1->tp;
-  tp2 = &hp2->tp;
+  error_zp(sevents,0);
 
-  ub4 cnt1 = tp1->genevcnt;
-  ub4 cnt2 = tp2->genevcnt;
-  if (cnt1 == 0 || cnt2 == 0) return hi32;
+  sev1 = sevents + hop1 * subsamples;
+  sev2 = sevents + hop2 * subsamples;
+  scnt1 = sevcnts[hop1];
+  scnt2 = sevcnts[hop2];
 
-  ub8 *ev1 = events + tp1->evofs;
-  ub8 *ev2 = events + tp2->evofs;
+  if (scnt1 == 0 || scnt2 == 0) return hi32;
 
-  ub4 gt01 = tp1->gt0;
-  ub4 gt02 = tp2->gt0;
+  // forward
+  e2 = 0;
+  tdur2 = sev2[e2];
+  t2 = (ub4)(tdur2 >> 32);
+  for (e1 = 0; e1 < scnt1; e1++) {
+    tdur1 = sev1[e1];
+    t1 = (ub4)(tdur1 >> 32);
+    dur1 = tdur1 & hi32;
 
-  ub4 rt1,rt2,t1,t2;
+//    warncc(t1 == hi32,0,"hop %u-%u ev %u t hi",hop1,hop2,e1);
+//    warncc(dur1 == hi32,0,"hop %u-%u ev %u dur hi",hop1,hop2,e1);
+//    warncc(dur1 > 600,0,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e1,scnt1,dur1);
 
-  ub4 dtcnt = 0;
-
-  gndx2 = dtsum = 0;
-  ub4 lodt = hi32;
-
-  rt2 = (ub4)ev2[0]; t2 = rt2 + gt02;
-  dur1 = hopdur[hop1];
-  if (dur1 == hi32) return 1000; // todo hopadur[]
-  for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / samplescc) ) {
-    rt1 = (ub4)ev1[gndx * 2];
-    t1 = rt1 + gt01;
-    while (t2 < t1 + dur1 + ttmin) {
-      if (++gndx2 >= cnt2) break;
-      rt2 = (ub4)ev2[gndx2 * 2];
-      t2 = rt2 + gt02;
+    while (e2 < scnt2 && t2 < t1 + dur1 + ttmin) {
+      tdur2 = sev2[e2++];
+      t2 = (ub4)(tdur2 >> 32);
+//      warncc(t2 == hi32,0,"hop %u-%u ev %u t hi",hop1,hop2,e2);
     }
-    if (gndx2 >= cnt2) break;
-    if (t2 - (t1 + dur1) > ttmax) continue;
-    dtcnt++;
-    dur2 = (ub4)(ev2[gndx2 * 2 + 1] >> 32);
-    dt = t2 + dur2 - t1;
-    lodt = min(lodt,dt);
+    if (e2 == scnt2) break;
+    else if (t2 - t1 + dur1 > ttmax) continue;
+    dur2 = tdur2 & hi32;
+//    warncc(dur2 == hi32,0,"hop %u-%u ev %u t hi",hop1,hop2,e2);
+//    warncc(dur2 > 600,0,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e2,scnt2,dur2);
+    dt = (t2 - t1) + dur2;
+//    warncc(dt > 600,0,"hop %u-%u ev %u/%u dur %u t1 %u t2 %u",hop1,hop2,e2,scnt2,dur2,t2,t1);
     dtsum += dt;
+    dtcnt++;
   }
-  if (dtsum == 0 || lodt == hi32) return 10000;
-  avgdt = dtsum / max(dtcnt,1);
-  return avgdt;
-}
 
-// get an average total duration between plain and compound hops
-// take a handful of samples.
-static ub4 avgdurhc(lnet *net,ub4 hop1,ub4 hop2)
-{
-  struct hop *hp1,*hp2,*hops = net->hops;
-  struct timepat *tp1,*tp2;
-  ub4 *choporg = net->choporg;
-  ub4 *hopdur = net->hopdur;
-  ub4 ttmax = 120,ttmin = 5; // todo
-  ub4 gndx,gndx2;
-  ub4 h22;
-  ub4 dt,dur1,dur2,dtsum,avgdt;
-  ub8 *events = net->events;
-
-  h22 = choporg[hop2 * 2 + 1];
-
-  hp1 = hops + hop1;
-  hp2 = hops + h22;
-  tp1 = &hp1->tp;
-  tp2 = &hp2->tp;
-
-  ub4 cnt1 = tp1->genevcnt;
-  ub4 cnt2 = tp2->genevcnt;
-  if (cnt1 == 0 || cnt2 == 0) return hi32;
-
-  ub8 *ev1 = events + tp1->evofs;
-  ub8 *ev2 = events + tp2->evofs;
-
-  ub4 gt01 = tp1->gt0;
-  ub4 gt02 = tp2->gt0;
-
-  ub4 rt1,rt2,t1,t2;
-
-  ub4 dtcnt = 0;
-
-  gndx2 = dtsum = 0;
-  ub4 lodt = hi32;
-
-  rt2 = (ub4)ev2[0]; t2 = rt2 + gt02;
-  dur2 = hopdur[hop2];
-  if (dur2 == hi32) return 1000; // todo hopadur[]
-  for (gndx = 0; gndx < cnt1; gndx += max(1,cnt1 / samplescc) ) {
-    rt1 = (ub4)ev1[gndx * 2];
-    dur1 = (ub4)(ev1[gndx * 2 + 1] >> 32);
-    t1 = rt1 + gt01;
-    while (t2 < t1 + dur1 + ttmin) {
-      if (++gndx2 >= cnt2) break;
-      rt2 = (ub4)ev2[gndx2 * 2];
-      t2 = rt2 + gt02;
+  // backward
+  e1 = 0;
+  tdur1 = sev1[e1];
+  t1 = (ub4)(tdur1 >> 32);
+  dur1 = tdur1 & hi32;
+//  warncc(dur1 > 600,0,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e1,scnt1,dur1);
+  for (e2 = 0; e2 < scnt2; e2++) {
+    tdur2 = sev2[e2];
+    t2 = (ub4)(tdur2 >> 32);
+    while (e1 < scnt1 && t1 + dur1 + ttmin < t2) {
+      tdur1 = sev1[e1++];
+      t1 = (ub4)(tdur1 >> 32);
     }
-    if (gndx2 >= cnt2) break;
-    if (t2 - (t1 + dur1) > ttmax) continue;
-    dtcnt++;
-    dt = t2 + dur2 - t1;
-    lodt = min(lodt,dt);
-    dtsum += dt;
+    if (e1 == scnt1 || t1 + dur1 + ttmax > t2) break;
+    else if (t2 - t1 + dur1 > ttmax) continue;
+    dur2 = tdur2 & hi32;
+//    warncc(dur2 > 600,0,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e2,scnt2,dur2);
+    dt = t2 - t1 + dur2;
+//    warncc(dt > 600,0,"hop %u-%u ev %u/%u dur %u t1 %u t2 %u",hop1,hop2,e2,scnt2,dur2,t2,t1);
+    dtbsum += dt;
+    dtbcnt++;
   }
-  if (dtsum == 0 || lodt == hi32) return 10000;
-  avgdt = dtsum / max(dtcnt,1);
+
+  if (dtcnt == 0 && dtbcnt == 0) return hi32;
+  else if (dtcnt == 0) avgdt = (ub4)(dtbsum / dtbcnt);
+  else if (dtbcnt == 0) avgdt = (ub4)(dtsum / dtcnt);
+  else avgdt = (ub4)min(dtsum / dtcnt,dtbsum / dtbcnt);
+
+  dtbins[min(avgdt,dthibin)]++;
+
+  if (++statcnt & hi20) return avgdt;
+
+  ub8 sumcnt = 0,sumscnt = 0;
+  ub4 scnt;
+  for (i = 0; i <= dthibin; i++) sumscnt += dtbins[i];
+
+  for (i = 0; i <= dthibin; i++) {
+    scnt = dtbins[i];
+    sumcnt += scnt;
+    infocc(scnt,0,"dur %u cnt %u %lu%%",i,scnt,sumcnt * 100 / sumscnt);
+  }
+
   return avgdt;
 }
 
@@ -327,10 +436,9 @@ static ub4 avgdurhc(lnet *net,ub4 hop1,ub4 hop2)
 ub4 prepestdur(lnet *net,ub4 *trip,ub4 len)
 {
   ub4 hopcnt = net->hopcnt;
-  ub4 chopcnt = net->chopcnt;
-  ub4 *hopdur = net->hopdur;
-  ub4 avgdur,midur;
-  ub4 h;
+  ub4 *shopdur = net->shopdur;
+  ub4 avgdur;
+  ub4 h,h1,h2;
   struct hop *hp,*hops = net->hops;
 
   if (len == 1) {  // basic net1 case
@@ -339,13 +447,15 @@ ub4 prepestdur(lnet *net,ub4 *trip,ub4 len)
       hp = hops + h;
       avgdur = hp->tp.avgdur;
       return avgdur;
-    } else if (h < chopcnt) { // compounds to be refined
-      midur = hopdur[h];
-      return midur;
-    } else { // walks
-      midur = hopdur[h];
-      return midur;
-    }
+    } else return shopdur[h];
+
+  } else if (len == 2) {
+    h1 = trip[0];
+    h2 = trip[1];
+    vrbcc(h1,0,"h2 %u todo",h2);
+// not yet, pending estdur
+//    if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2);
+//    else return hopdur[h1] + hopdur[h2];
   }
   // rest todo
   return 1000;
@@ -354,44 +464,31 @@ ub4 prepestdur(lnet *net,ub4 *trip,ub4 len)
 // estimate average total trip duration, using arrival times of preceding triplet
 ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
 {
-  ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
-  ub4 *hopdur = net->hopdur;
-  ub4 *choporg = net->choporg;
-  ub4 midur;
-  ub4 h1,h2,ch1;
-  struct hop *hops = net->hops;
-  struct timepat *tp;
+  ub4 *shopdur = net->shopdur;
+  ub4 h1,h2;
+
+  ub4 ttmax = globs.netvars[Net_tpatmaxtt];
+  ub4 ttmin = globs.netvars[Net_tpatmintt];
 
   if (len1 == 1 && len2 == 1) { // basic net1 case
     h1 = *trip1; h2 = *trip2;
-    if (h1 < hopcnt && h2 < hopcnt) {  // plain-plain
-      midur = avgdurhh(net,h1,h2);
-      return midur;
-    } else if (h1 < hopcnt && h2 < chopcnt) { // plain-cmp
-      midur = avgdurhc(net,h1,h2);
-      return midur;
-    } else if (h1 < chopcnt && h2 < hopcnt) { // cmp-plain
-      midur = avgdurch(net,h1,h2);
-      return midur;
-    } else if (h1 < chopcnt && h2 < chopcnt) { // cmp-cmp
-      midur = avgdurcc(net,h1,h2);
-      return midur;
-    } else if (h1 < chopcnt) { // x-walk
-      if (h1 < hopcnt) tp = &hops[h1].tp;
-      else { ch1 = choporg[h1 * 2]; tp = &hops[ch1].tp; }
-      midur = tp->avgdur + hopdur[h2] + 5;
-      return midur;
-    } else if (h2 < chopcnt) { // walks
-      if (h2 < hopcnt) tp = &hops[h2].tp;
-      else { ch1 = choporg[h2 * 2]; tp = &hops[ch1].tp; }
-      midur = tp->avgdur + hopdur[h1] + 5;
-      return midur;
-    } else { // walk-walk
-      midur = hopdur[h1] + hopdur[h2] + 5;
-      return midur;
+    if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,ttmin,ttmax);
+    else return shopdur[h1] + shopdur[h2];
+
+  } else if (len1 == 2 && len2 == 1) {
+#if 0  // not yet
+    h1 = trip1[0]; h2 = trip1[1]; h3 = trip2[0];
+    if (h1 < chopcnt && h2 < chopcnt && h3 < chopcnt) return estdur3(net,h1,h2,ttmin,ttmax);
+    else if (h1 < chopcnt && h2 < chopcnt) {
+      return estdur2(net,h1,h2,ttmin,ttmax) + hopdur[h3];
+    else if (h1 < chopcnt && h3 < chopcnt) {
+      return estdur2(net,h1,h3,ttmin + hopdur[h2],ttmax);
+    } else {
+      return estdur2(net,h2,h2,ttmin,ttmax) + hopdur[h1];
     }
-  }
+#endif
+  }  
 
 // todo
   return 1000;

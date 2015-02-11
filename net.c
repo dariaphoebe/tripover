@@ -490,7 +490,7 @@ static int mknetn(struct network *net,ub4 nstop)
   error_ge(nstop,Nstop);
   error_zz(portcnt,hopcnt);
 
-  info(0,"init %u-stop connections for %u port %u hop network",nstop,portcnt,hopcnt);
+  info(0,"init %u-stop connections for %u port %u hop network",nstop,portcnt,whopcnt);
 
   // todo configurable
   switch (nstop) {
@@ -703,6 +703,9 @@ static int mknetn(struct network *net,ub4 nstop)
       // limits precomputed from file
 //      if (distlims[deparr]) continue;
 
+      // todo: start with limits derived from previous nstop
+      // e.g. lodists[da] * 2
+
       // if too many options, sort on distance.
       if (cnt > varlimit) {
         cntstats[8]++;
@@ -783,7 +786,7 @@ static int mknetn(struct network *net,ub4 nstop)
               midur = prepestdur(net,lst11,nleg1);
 
               if (dist1 >= distlim && midur >= durlim) { cntstats[1]++; continue; }
-              else if (dist1 > distlim * 10) continue;
+              else if (distlim != hi32 && dist1 > distlim * 10) continue;
 //              checktrip(net,lst11,nleg1,dep,mid,dist1);
 
               for (v2 = 0; v2 < n2; v2++) {
@@ -797,7 +800,7 @@ static int mknetn(struct network *net,ub4 nstop)
                   dist12 += hopdist[leg];
                   dur = hopdur[leg];
                   if (dur != hi32 && midur != hi32) midur += dur;
-                  else info(Iter,"hop %u %s to %s no dur",leg,dname,aname);
+//                  else info(Iter,"hop %u %s to %s no dur",leg,dname,aname);
                   if (nstop > 3) {
                     trip2ports[leg2 * 2] = portsbyhop[leg * 2];
                     trip2ports[leg2 * 2 + 1] = portsbyhop[leg * 2 + 1];
@@ -805,7 +808,7 @@ static int mknetn(struct network *net,ub4 nstop)
                   if (midstop2) dupcode |= (portsbyhop[leg * 2] == dep || portsbyhop[leg * 2 + 1] == dep);
                 }
                 if (dist12 >= distlim && midur >= durlim) { cntstats[2]++; continue; }
-                else if (dist12 > distlim * 15) continue;
+                else if (distlim != hi32 && dist12 > distlim * 15) continue;
 
                 if (dupcode) continue;
 
@@ -1018,7 +1021,7 @@ static int mknetn(struct network *net,ub4 nstop)
             if (durlim != hi32) midur = prepestdur(net,lst11,nleg1);
             else midur = hi32;
             if (dist1 >= distlim && midur >= durlim) { v1++; continue; }
-            else if (dist1 > distlim * 10) { v1++; continue; }
+            else if (distlim != hi32 && dist1 > distlim * 10) { v1++; continue; }
 
             if (nstop > 3) {
               error_ne(trip1ports[0],dep);
@@ -1082,11 +1085,12 @@ static int mknetn(struct network *net,ub4 nstop)
               if (durlim != hi32) midur = estdur(net,lst11,nleg1,lst22,nleg2);
 
               if (dist12 >= distlim && midur >= durlim) { v2++; continue; }
-              else if (dist12 > distlim * 15) { v2++; continue; }
+              else if (distlim != hi32 && dist12 > distlim * 15) { v2++; continue; }
 
               lodists[deparr] = min(lodists[deparr],dist12);
 
               gen++;
+
               for (leg1 = 0; leg1 < nleg1; leg1++) {
                 leg = lst11[leg1];
 //                error_ge(leg,whopcnt);
@@ -1729,6 +1733,7 @@ int mknet(ub4 maxstop)
     limit_gt(histop,Nstop,0);
 
     if (dorun(FLN,Runnetn)) {
+      if (mksubevs(net)) return msgprefix(1,NULL);
       for (nstop = 1; nstop <= histop; nstop++) {
         if (mknetn(net,nstop)) return msgprefix(1,NULL);
         if (net->lstlen[nstop] == 0) {
