@@ -62,7 +62,6 @@ struct gnetwork *getgnet(void)
 }
 
 // todo configurable and with proper units
-static const ub4 walklimit = 80;
 static const ub4 walkspeed = 1;  // minutes per 10 dist units ( ~ 10m )
 
 static ub2 cnt0lim_part = 256; // todo configurable
@@ -78,6 +77,7 @@ static int mkwalks(struct network *net)
   ub4 hop;
   ub4 dist,lodist = hi32,hidist = 0;
   ub4 dep,arr,deparr,port2;
+  ub4 walklimit = net->walklimit;
 
   if (portcnt == 0) return error(0,"no ports for %u hops net",hopcnt);
   if (hopcnt == 0) return error(0,"no hops for %u port net",portcnt);
@@ -444,6 +444,7 @@ static int mknetn(struct network *net,ub4 nstop)
   ub4 part = net->part;
   ub4 portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
+  ub4 chopcnt = net->chopcnt;
   ub4 whopcnt = net->whopcnt;
   struct port *ports,*pmid,*pdep,*parr;
   char *dname,*aname;
@@ -461,13 +462,14 @@ static int mknetn(struct network *net,ub4 nstop)
   size_t lstlen,newlstlen;
   ub4 midstop1,midstop2;
   ub4 *lodists;
-  ub4 dist1,dist2,dist12,distlim;
+  ub4 dist1,dist2,dist12,distlim,walkdist1,walkdist2;
   ub4 cntlim,cntlimdist,cntlimdur,gen,outcnt;
   ub4 dur,midur,durndx,durcnt,durlim,distcnt,distndx;
   ub4 constats[16];
   ub4 *hopdur,*durlims;
   ub4 midurs[Durcnt];
   ub4 dists[Distcnt];
+  ub4 walklimit = net->walklimit;
 
   // only fill n-stop if no (nstop-1) exists
   bool nilonly;
@@ -766,7 +768,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
             // each dep-via alternative, except dep-*-arr-*-via
             for (v1 = 0; v1 < n1; v1++) {
-              dist1 = 0;
+              dist1 = walkdist1 = 0;
               lst11 = lst1 + v1 * nleg1;
 
               dupcode = 0;
@@ -774,6 +776,7 @@ static int mknetn(struct network *net,ub4 nstop)
                 leg = lst11[leg1];
                 error_ge(leg,whopcnt);
                 dist1 += hopdist[leg];
+                if (leg >= chopcnt) walkdist1 += dist1;
                 if (nstop > 3) {
                   trip1ports[leg1 * 2] = portsbyhop[leg * 2];
                   trip1ports[leg1 * 2 + 1] = portsbyhop[leg * 2 + 1];
@@ -782,6 +785,7 @@ static int mknetn(struct network *net,ub4 nstop)
               }
 
               if (dupcode) continue;
+              if (walkdist1 > walklimit) continue;
 
               midur = prepestdur(net,lst11,nleg1);
 
@@ -794,10 +798,12 @@ static int mknetn(struct network *net,ub4 nstop)
                 lst22 = lst2 + v2 * nleg2;
 
                 dupcode = 0;
+                walkdist2 = walkdist1;
                 for (leg2 = 0; leg2 < nleg2; leg2++) {
                   leg = lst22[leg2];
 //                  error_ge(leg,whopcnt);
                   dist12 += hopdist[leg];
+                  if (leg >= chopcnt) walkdist2 += hopdist[leg];
                   dur = hopdur[leg];
                   if (dur != hi32 && midur != hi32) midur += dur;
 //                  else info(Iter,"hop %u %s to %s no dur",leg,dname,aname);
@@ -809,6 +815,7 @@ static int mknetn(struct network *net,ub4 nstop)
                 }
                 if (dist12 >= distlim && midur >= durlim) { cntstats[2]++; continue; }
                 else if (distlim != hi32 && dist12 > distlim * 15) continue;
+                if (walkdist2 > walklimit) continue;
 
                 if (dupcode) continue;
 
@@ -1002,7 +1009,7 @@ static int mknetn(struct network *net,ub4 nstop)
 
           v1 = 0;
           while (v1 < n1 && gen < cnt) {
-            dist1 = 0;
+            dist1 = walkdist1 = 0;
             lst11 = lst1 + v1 * nleg1;
 
             dupcode = 0;
@@ -1010,6 +1017,7 @@ static int mknetn(struct network *net,ub4 nstop)
               leg = lst11[leg1];
               error_ge(leg,whopcnt);
               dist1 += hopdist[leg];
+              if (leg >= chopcnt) walkdist1 += hopdist[leg];
               if (nstop > 3) {
                 trip1ports[leg1 * 2] = portsbyhop[leg * 2];
                 trip1ports[leg1 * 2 + 1] = portsbyhop[leg * 2 + 1];
@@ -1017,6 +1025,7 @@ static int mknetn(struct network *net,ub4 nstop)
               if (midstop1) dupcode |= (portsbyhop[leg * 2] == arr || portsbyhop[leg * 2 + 1] == arr);
             }
             if (dupcode) { v1++; continue; }
+            if (walkdist1 > walklimit) { v1++; continue; }
 
             if (durlim != hi32) midur = prepestdur(net,lst11,nleg1);
             else midur = hi32;
@@ -1039,10 +1048,12 @@ static int mknetn(struct network *net,ub4 nstop)
               lst22 = lst2 + v2 * nleg2;
 
               dupcode = 0;
+              walkdist2 = walkdist1;
               for (leg2 = 0; leg2 < nleg2; leg2++) {
                 leg = lst22[leg2];
                 error_ge(leg,whopcnt);
                 dist2 += hopdist[leg];
+                if (leg >= chopcnt) walkdist2 += hopdist[leg];
                 dur = hopdur[leg];
                 if (dur != hi32 && midur != hi32) midur += dur;
                 if (nstop > 3) {
@@ -1053,6 +1064,7 @@ static int mknetn(struct network *net,ub4 nstop)
               }
               if (dupcode) { v2++; continue; }
               if (dist1 + dist2 >= distlim && midur >= durlim) { v2++; continue; }
+              if (walkdist1 > walklimit) { v2++; continue; }
 
               if (nstop > 3) {
                 error_ne(trip2ports[0],mid);
@@ -1732,7 +1744,7 @@ int mknet(ub4 maxstop)
 //    if (net->istpart) histop++;
     limit_gt(histop,Nstop,0);
 
-    if (dorun(FLN,Runnetn)) {
+    if (histop && dorun(FLN,Runnetn)) {
       if (mksubevs(net)) return msgprefix(1,NULL);
       for (nstop = 1; nstop <= histop; nstop++) {
         if (mknetn(net,nstop)) return msgprefix(1,NULL);

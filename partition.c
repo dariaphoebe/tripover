@@ -104,7 +104,10 @@ static void cpfromgnet(gnet *gnet,lnet *net)
   net->evmapmem = gnet->evmapmem;
   net->events = gnet->events;
   net->evmaps = gnet->evmaps;
+  net->t0 = gnet->t0;
+  net->t1 = gnet->t1;
   net->hichainlen = gnet->hichainlen;
+  net->walklimit = gnet->walklimit;
 
   net->ghopcnt = gnet->hopcnt;
 }

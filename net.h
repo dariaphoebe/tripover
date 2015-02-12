@@ -229,6 +229,7 @@ struct network {
   ub2 *evmaps;       // day maps
   ub8 *sevents;      // [samplecnt * chopcnt] dur+time
   ub4 *sevcnts;      // [chopcnt]
+  ub4 t0,t1;         // overalll period
 
 // access
   ub4 *g2pport;      // [gportcnt] global to partition port id
@@ -256,6 +257,7 @@ struct network {
 
   ub4 histop;      // highest n-stop connections inited
   ub4 maxstop;     // highest n-stop connections to be inited
+  ub4 walklimit;
 
   ub4 hirrid;
 
@@ -336,7 +338,7 @@ struct gnetwork {
   block *evmapmem;
   ub8 *events;
   ub2 *evmaps;
-  ub4 t0,t1;
+  ub4 t0,t1;  // overalll period
 
   struct chainhop *chainhops;
   ub4 *ridhops;
@@ -345,6 +347,7 @@ struct gnetwork {
   ub4 *tid2rtid;   // [chaincnt]
 
   ub4 histop;     // highest n-stop connections inited
+  ub4 walklimit;
 
   ub4 hirrid;
   ub4 hichainlen;

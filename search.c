@@ -135,8 +135,8 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
   if (t0 == t1) return info(0,"hop %u tt range %u-%u, dep window %u-%u",hp1->gid,t0,t1,deptmin,deptmax);
 //  else if (ht0 > deptmax) return info(0,"hop %u tt range %u-%u, dep window %u-%u",hp->gid,ht0,ht1,deptmin,deptmax);
 //  else if (ht1 <= deptmin) return info(0,"hop %u tt range %u-%u, dep window %u-%u",hp->gid,ht0,ht1,deptmin,deptmax);
-  if (t0 + gt0 > deptmax) return info(Iter,"hop %u tt range \aD%u - \aD%u, dep window \aD%u - \aD%u",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
-  else if (t1 + gt0 <= deptmin) return info(Iter,"hop %u tt range \aD%u - \aD%u, dep window \aD%u - \aD%u",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
+  if (t0 + gt0 > deptmax) return info(Iter|Notty,"hop %u tt range \aD%u - \aD%u, dep window \aD%u - \aD%u",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
+  else if (t1 + gt0 <= deptmin) return info(Iter|Notty,"hop %u tt range \aD%u - \aD%u, dep window \aD%u - \aD%u",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
 
   ev = events + tp->evofs;
   dev = src->depevs[0];
@@ -654,7 +654,12 @@ static ub4 addevs(ub4 callee,search *src,lnet *net, ub4 *legs,ub4 nleg,ub4 nxleg
 
     dtcur = src->dtcurs[0];
     *pdtcur = dtcur;
-    if (cnt == 0 || nleg == 1) { leave(callee); return cnt; }
+    if (cnt == 0 || nleg == 1) {
+      leave(callee);
+      src->totevcnt += cnt;
+      src->combicnt++;
+      return cnt;
+    }
     leg0 = 1;
   } else leg0 = 0;
 
@@ -673,7 +678,172 @@ static ub4 addevs(ub4 callee,search *src,lnet *net, ub4 *legs,ub4 nleg,ub4 nxleg
     if (cnt == 0) break;
   }
   leave(callee);
+  src->totevcnt += cnt;
+  src->combicnt++;
   return cnt;
+}
+
+// dynamic search for one extra stop
+static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int havetime,int havedist,ub4 lodist,ub4 lodt,const char *desc)
+{
+  ub4 portcnt = net->portcnt;
+  ub4 *hopdist = net->hopdist;
+  ub4 part = net->part;
+  ub4 midstop1,midstop2,mid,depmid,midarr;
+  ub4 ofs1,ofs2,stop1,leg1,leg2,nleg1,nleg2,n1,n2,v1,v2;
+  ub4 *conofs1,*conofs2;
+  ub2 *cnts1,*cnts2;
+  block *lstblk1,*lstblk2;
+  ub4 *conlst1,*conlst2,*lst1,*lst2,*lst11,*lst22;
+  ub4 dtcur,dthi,sumdt;
+  ub4 evcnt;
+  ub4 trip[Nleg];
+  struct trip *stp;
+  ub4 leg,l,nleg;
+  ub4 dist,dist1,dist2;
+  ub4 nethistop = min(net->histop,src->nethistop);
+
+  ub4 deptmin = src->deptmin;
+  ub4 deptmax = src->deptmax;
+
+  if (lodist == 0) lodist = hi32;
+
+  info(0,"dynamic search in %u-stops: precomputed to %u",stop,net->histop);
+
+  stp = src->trips;
+
+  dtcur = dthi = hi32;
+
+  stop1 = stop - 1;
+  if (nethistop < stop1) return warn(0,"ending %u-stop search on %u-stop precomputed net",stop,nethistop);
+
+  for (midstop1 = 0; midstop1 < stop; midstop1++) {
+    midstop2 = stop1 - midstop1;
+
+    nleg1 = midstop1 + 1;
+    nleg2 = midstop2 + 1;
+    nleg = nleg1 + nleg2;
+
+    cnts1 = net->concnt[midstop1];
+    cnts2 = net->concnt[midstop2];
+
+    lstblk1 = net->conlst + midstop1;
+    lstblk2 = net->conlst + midstop2;
+
+    conlst1 = blkdata(lstblk1,0,ub4);
+    conlst2 = blkdata(lstblk2,0,ub4);
+
+    conofs1 = net->conofs[midstop1];
+    conofs2 = net->conofs[midstop2];
+
+    for (mid = 0; mid < portcnt; mid++) {
+      if (mid == dep || mid == arr) continue;
+      depmid = dep * portcnt + mid;
+      n1 = cnts1[depmid];
+      if (n1 == 0) continue;
+
+      midarr = mid * portcnt + arr;
+      n2 = cnts2[midarr];
+      if (n2 == 0) continue;
+
+      info(Notty,"mid %u depmid %u midarr %u",mid,n1,n2);
+
+      ofs1 = conofs1[depmid];
+      ofs2 = conofs2[midarr];
+
+      lst1 = conlst1 + ofs1 * nleg1;
+      lst2 = conlst2 + ofs2 * nleg2;
+
+      for (v1 = 0; v1 < n1; v1++) {
+        lst11 = lst1 + v1 * nleg1;
+
+        dist1 = 0;
+        for (leg1 = 0; leg1 < nleg1; leg1++) {
+          leg = lst11[leg1];
+          trip[leg1] = leg;
+          dist1 += hopdist[leg];
+        }
+
+        for (v2 = 0; v2 < n2; v2++) {
+          lst22 = lst2 + v2 * nleg2;
+
+          dist2 = 0;
+          for (leg2 = 0; leg2 < nleg2; leg2++) {
+            leg = lst22[leg2];
+            trip[nleg1 + leg2] = leg;
+            dist2 += hopdist[leg];
+          }
+          dist = dist1 + dist2;
+          if (dist < lodist) { // route-only
+            stp = src->trips + 1;
+            lodist = dist1 + dist2;
+            for (l = 0; l < nleg; l++) {
+              leg = trip[l];
+              stp->trip[l * 2 + 1] = leg;
+              stp->trip[l * 2] = part;
+              stp->t[l] = 0;
+            }
+            fmtstring(stp->desc,"shortest route-only, %u Km",dist / Geoscale);
+            stp->cnt = havedist = 1;
+            stp->len = nleg;
+            info(0,"find route-only at dist %u",lodist);
+          }
+
+          evcnt = addevs(caller,src,net,trip,nleg,0,dthi,&dtcur);
+          infocc(evcnt,Notty,"%u event\as dtcur %u lodt %u",evcnt,dtcur,lodt);
+
+          stp = src->trips;
+          if (evcnt == 0 || (dtcur >= lodt && havetime)) continue;
+
+          lodt = dthi = dtcur;
+          if (nleg > 2) {
+            for (leg = nleg - 2; leg; leg--) {
+              dtcur = prvevs(src,leg);
+              if (dtcur == 0) break;
+            }
+          }
+          if (dtcur == 0) { info(0,"no prv for var %u",v1); src->stat_noprv++; continue; }
+
+          evcnt = getevs(src,gnet,nleg);
+
+          for (l = 0; l < nleg; l++) {
+            leg = trip[l];
+            stp->trip[l * 2 + 1] = leg;
+            stp->trip[l * 2] = part;
+
+            stp->t[l] = src->curts[l];
+            stp->dur[l] = src->curdurs[l];
+            stp->tid[l] = src->curtids[l];
+            info(0,"  leg %u hop %u dep \ad%u",l,leg,src->curts[l]);
+          }
+          l = nleg - 1;
+          sumdt = src->curts[l] - src->curts[0] + src->curdurs[l];
+          fmtstring(stp->desc,"fastest: %u minutes, %u Km",sumdt,dist / Geoscale);
+          stp->cnt = havetime = 1;
+          stp->len = nleg;
+          if (l) {
+            l--;
+            src->lodt = src->curdts[l];
+            src->lot = src->curts[l];
+            src->lotid = src->curtids[l];
+          }
+          src->lodist = dist;
+
+        } // each v2
+      } // each v1
+    } // each mid
+  } // each midstop
+
+  if (havetime) {
+    src->locsrccnt++;
+    src->lodist = lodist;
+    info(0,"%s: found %u-stop conn %u-%u",desc,stop,dep,arr);
+    return 1;
+  }
+
+  info(0,"no time for %u-stop trip %u-%u on \ad%u-\ad%u",stop,dep,arr,deptmin,deptmax);
+
+  return havedist;
 }
 
 // intra-partition search for given transfers
@@ -685,7 +855,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
   block *lstblk;
   ub4 *lodists,lodist;
   ub4 nleg = stop + 1;
-  ub4 histop = net->histop;
+  ub4 nethistop = min(net->histop,src->nethistop);
   ub4 deptmin,deptmax;
   ub4 evcnt;
   ub4 cost,dist = 0,leg,l;
@@ -698,9 +868,16 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
   ub4 whopcnt = net->whopcnt;
   struct trip *stp;
   ub4 ln = callee & 0xffff;
-  int havetime = 0,havedist = 0;
+  int rv,havetime = 0,havedist = 0;
 
-  if (stop > histop) return info(Notty,"%s: net part %u only has %u-stop connections, skip %u",desc,part,histop,stop);
+  cost = hi32;
+  lodist = hi32;
+  lodt = hi32;
+
+  if (stop > nethistop) {
+    if (stop > src->histop) return info(Notty,"%s: net part %u only has %u-stop connections, skip %u",desc,part,src->histop,stop);
+    else return srcdyn(gnet,net,src,dep,arr,stop,havetime,havedist,lodist,lodt,desc);
+  }
 
   deptmin = src->deptmin;
   deptmax = src->deptmax;
@@ -712,10 +889,6 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
   hopdist = net->hopdist;
 
   ub4 da = dep * portcnt + arr;
-
-  cost = hi32;
-  lodist = hi32;
-  lodt = hi32;
 
   cnt = cnts[da];
 
@@ -754,8 +927,8 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
         stp->trip[leg * 2 + 1] = vp[leg];
         stp->trip[leg * 2] = part;
         stp->t[leg] = 0;
-        fmtstring(stp->desc,"shortest route-only, %u Km",dist / Geoscale);
       }
+      fmtstring(stp->desc,"shortest route-only, %u Km",dist / Geoscale);
       stp->cnt = havedist = 1;
       stp->len = nleg;
       if (dist && dist == lodists[da]) info(Notty,"%u-stop found lodist %u at var %u %s:%u",stop,dist,v0,desc,ln);
@@ -819,134 +992,15 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
 
   if (havedist == 0) info(0,"no route for %u-stop trip %u-%u",stop,dep,arr);
 
-  info(0,"histop %u src hi %u",histop,src->histop);
-  if (stop < histop || stop == src->histop || stop < 1) return 0;
+  if (stop < nethistop || stop == src->histop) return havedist;
 
   // if no time, search for new via. if no route, search with one added via
-  ub4 midstop1,midstop2,mid,depmid,midarr;
-  ub4 ofs1,ofs2,stop1,leg1,leg2,nleg1,nleg2,n1,n2,v1,v2;
-  ub4 *conofs1,*conofs2;
-  ub2 *cnts1,*cnts2;
-  block *lstblk1,*lstblk2;
-  ub4 *conlst1,*conlst2,*lst1,*lst2,*lst11,*lst22;
-
-  ub4 trip[Nleg];
 
   if (havedist == 0) stop++;
+  if (stop == 0) return 0;
 
-  info(0,"continue search in %u-stops",stop);
-
-  stp = src->trips;
-
-  dtcur = dthi = hi32;
-
-  stop1 = stop - 1;
-  for (midstop1 = 0; midstop1 < stop; midstop1++) {
-    midstop2 = stop1 - midstop1;
-
-    nleg1 = midstop1 + 1;
-    nleg2 = midstop2 + 1;
-    nleg = nleg1 + nleg2;
-
-    cnts1 = net->concnt[midstop1];
-    cnts2 = net->concnt[midstop2];
-
-    lstblk1 = net->conlst + midstop1;
-    lstblk2 = net->conlst + midstop2;
-
-    conlst1 = blkdata(lstblk1,0,ub4);
-    conlst2 = blkdata(lstblk2,0,ub4);
-
-    conofs1 = net->conofs[midstop1];
-    conofs2 = net->conofs[midstop2];
-
-    for (mid = 0; mid < portcnt; mid++) {
-      if (mid == dep || mid == arr) continue;
-      depmid = dep * portcnt + mid;
-      n1 = cnts1[depmid];
-      if (n1 == 0) continue;
-      midarr = mid * portcnt + arr;
-      n2 = cnts2[midarr];
-      if (n2 == 0) continue;
-
-      ofs1 = conofs1[depmid];
-      ofs2 = conofs2[midarr];
-
-      lst1 = conlst1 + ofs1 * nleg1;
-      lst2 = conlst2 + ofs2 * nleg2;
-
-      for (v1 = 0; v1 < n1; v1++) {
-        lst11 = lst1 + v1 * nleg1;
-
-        for (leg1 = 0; leg1 < nleg1; leg1++) {
-          leg = lst11[leg1];
-          trip[leg1] = leg;
-        }
-
-        for (v2 = 0; v2 < n2; v2++) {
-          lst22 = lst2 + v2 * nleg2;
-
-          for (leg2 = 0; leg2 < nleg2; leg2++) {
-            leg = lst22[leg2];
-            trip[nleg1 + leg2] = leg;
-          }
-
-          evcnt = addevs(caller,src,net,trip,nleg,0,dthi,&dtcur);
-          infocc(evcnt,Notty,"%u event\as dtcur %u lodt %u",evcnt,dtcur,lodt);
-
-          stp = src->trips;
-          if (evcnt == 0 || (dtcur >= lodt && havetime)) continue;
-
-          lodt = dthi = dtcur;
-          if (nleg > 2) {
-            for (leg = nleg - 2; leg; leg--) {
-              dtcur = prvevs(src,leg);
-              if (dtcur == 0) break;
-            }
-          }
-          if (dtcur == 0) { info(0,"no prv for var %u",v0); src->stat_noprv++; continue; }
-
-          evcnt = getevs(src,gnet,nleg);
-          dist = 0;
-          for (l = 0; l < nleg; l++) {
-            leg = trip[l];
-            stp->trip[l * 2 + 1] = leg;
-            stp->trip[l * 2] = part;
-            dist += hopdist[leg];
-
-            stp->t[l] = src->curts[l];
-            stp->dur[l] = src->curdurs[l];
-            stp->tid[l] = src->curtids[l];
-            info(0,"  leg %u hop %u dep \ad%u",l,leg,src->curts[l]);
-          }
-          l = nleg - 1;
-          sumdt = src->curts[l] - src->curts[0] + src->curdurs[l];
-          fmtstring(stp->desc,"fastest: %u minutes, %u Km",sumdt,dist / Geoscale);
-          stp->cnt = havetime = 1;
-          stp->len = nleg;
-          if (l) {
-            l--;
-            src->lodt = src->curdts[l];
-            src->lot = src->curts[l];
-            src->lotid = src->curtids[l];
-          }
-          src->lodist = dist;
-
-        } // each v2
-      } // each v1
-    } // each mid
-  } // each midstop
-
-  if (havetime) {
-    src->locsrccnt++;
-    src->lodist = lodist;
-    info(0,"%s: found %u-stop conn %u-%u",desc,stop,dep,arr);
-    return 1;
-  }
-
-  info(0,"no time for %u-stop trip %u-%u on \ad%u-\ad%u",stop,dep,arr,deptmin,deptmax);
-
-  return 0;
+  rv = srcdyn(gnet,net,src,dep,arr,stop,havetime,havedist,lodist,lodt,desc);
+  return rv;
 }
 
 // within single part
@@ -1824,7 +1878,7 @@ static ub4 dosrc(struct gnetwork *gnet,ub4 nstoplo,ub4 nstophi,search *src,char 
   else if (partcnt == 1) {
     if (portparts[gdep] == 0) return info(0,"port %u not in partmap",gdep);
     if (portparts[garr] == 0) return info(0,"port %u not in partmap",garr);
-    for (stop = nstoplo; stop < nstophi; stop++) {
+    for (stop = nstoplo; stop <= nstophi; stop++) {
       info(Notty,"search %u stops",stop);
       conn = srcglocal(gnet,0,gdep,garr,stop,src);
       if (conn) { info(Notty,"found trip at %u stops",stop); return conn; }
@@ -1883,6 +1937,7 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   ub4 resmax = sizeof(src->resbuf);
   struct trip *stp,*stp2;
   int same;
+  char dtstr[128];
 
   if (dep >= portcnt) return error(0,"departure %u not in %u portlist",dep,portcnt);
   if (arr >= portcnt) return error(0,"arrival %u not in %u portlist",arr,portcnt);
@@ -1931,11 +1986,13 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
   info(0,"searched %u local variants in %u local searches %u noloc",src->avarxcnt,src->locsrccnt,src->locnocnt);
   infocc(net->partcnt > 1,0,"%u of %u depvars %u of %u midvars %u of %u arrvars %u stored",src->dvarxcnt,src->dvarcnt,src->tvarxcnt,src->tvarcnt,src->avarxcnt,src->avarcnt,src->varcnt);
 
-  if (dt > 2000000) info(0,"search took %u sec",(ub4)(dt / 1000000));
-  if (dt > 2000) info(0,"search took \a.%u msec",(ub4)(dt / 1000));
-  else info(0,"search took %u usec",(ub4)dt);
+  if (dt > 2000000) fmtstring(dtstr,"%u.%u ",(ub4)(dt / 1000000),(ub4)(dt % 1000000) / 10000);
+  if (dt > 2000) fmtstring(dtstr,"%u.%u milli",(ub4)(dt / 1000),(ub4)(dt % 1000) / 10);
+  else fmtstring(dtstr,"%u micro",(ub4)dt);
 
   if (conn == 0) {
+    src->reslen += mysnprintf(src->resbuf,src->reslen,resmax,"no trip found\n\nsearched \ah%lu combinations with \ah%lu departures in %sseconds\n",src->combicnt,src->totevcnt,dtstr);
+    info(0,"%s",src->resbuf);
     if (src->avarxcnt) return info(0,"no time found for %u stop\as",nstophi);
     else return info(0,"no route found for %u stop\as",nstophi);
   }
@@ -1953,6 +2010,8 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
     }
     if (same) continue;
     if (gtriptoports(net,stp,src->resbuf,resmax,&src->reslen,utcofs)) return 1;
+    src->reslen += mysnprintf(src->resbuf,src->reslen,resmax,"\nsearched \ah%lu combinations with \ah%lu departures in %sseconds\n",src->combicnt,src->totevcnt,dtstr);
   }
+  info(0,"%s",src->resbuf);
   return 0;
 }

@@ -103,6 +103,7 @@ static struct cfgvar {
 
   {"network",Bool,Section,0,0,0,0,"network settings"},
   {"net.partsize",Uint,Net_gen,Net_partsize,1,50000,6000,"aimed partition size"},
+  {"net.walklimit",Uint,Net_gen,Net_walklimit,0,10000,1000,"maximum walk distance in meters"},
   {"net.patternstart",Uint,Net_gen,Net_tpat0,0,20201231,20150215,"start day of transfer pattern base"},
   {"net.patternend",Uint,Net_gen,Net_tpat1,0,20201231,20150315,"end day of transfer pattern base"},
   {"net.patternmintt",Uint,Net_gen,Net_tpatmintt,0,120,3,"minimum tranfser time for transfer pattern"},

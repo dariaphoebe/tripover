@@ -65,12 +65,25 @@ int mksubevs(lnet *net)
   ub4 st1_cd = globs.netvars[Net_tpat1];
   ub4 st0 = cd2day(st0_cd) * 1440;
   ub4 st1 = cd2day(st1_cd) * 1440;
-  ub4 gt0,gt01;
+  ub4 gt0,gt01,nt0,nt1;
 
   ub4 dtbins[60 * 12];
   ub4 dthibin = Elemcnt(dtbins) - 1;
 
   aclear(dtbins);
+
+  nt0 = net->t0; nt1 = net->t1;
+  if (nt0 == 0 || nt1 == 0) return error0(0,"no overall time period");
+  else if (nt1 <= nt0)  return error(0,"no overall time period at \ad%u",nt0);
+  st0 = min(st0,nt1);
+  st0 = max(st0,nt0);
+  st1 = min(st0,nt1);
+  st1 = max(st0,nt0);
+  if (st1 == st0) {
+    if (st1 < nt1) st1 = nt1;
+    else st0 = nt0;
+    warn(0,"no sampling period: adjusted to \ad%u - \ad%u",st0,st1);
+  }
 
   info(0,"preparing %u sampling events in period \ad%u-\ad%u",subsamples,st0,st1);
 
@@ -425,7 +438,122 @@ static ub4 statcnt;
   for (i = 0; i <= dthibin; i++) {
     scnt = dtbins[i];
     sumcnt += scnt;
-    infocc(scnt,0,"dur %u cnt %u %lu%%",i,scnt,sumcnt * 100 / sumscnt);
+    infocc(scnt,Notty,"dur %u cnt %u %lu%%",i,scnt,sumcnt * 100 / sumscnt);
+  }
+
+  return avgdt;
+}
+
+// get an average total duration between 3 hops
+// based on a prepared handful of random samples
+static ub4 estdur3(lnet *net,ub4 hop1,ub4 hop2,ub4 hop3,ub4 ttmin,ub4 ttmax)
+{
+  ub8 tdur1,tdur2,tdur3,*sev1,*sev2,*sev3,*sevents = net->sevents;
+  ub4 scnt1,scnt2,scnt3,*sevcnts = net->sevcnts;
+  ub4 e1,e2,e3,i;
+  ub4 t1,t2,t3,dur1,dur2,dur3,avgdt,dt;
+  ub4 dtcnt = 0,dtbcnt = 0;
+  ub8 dtsum = 0,dtbsum = 0;
+
+static ub4 dtbins[60 * 12];
+static ub4 dthibin = Elemcnt(dtbins) - 1;
+static ub4 statcnt;
+
+  error_zp(sevents,0);
+
+  sev1 = sevents + hop1 * subsamples;
+  sev2 = sevents + hop2 * subsamples;
+  sev3 = sevents + hop3 * subsamples;
+  scnt1 = sevcnts[hop1];
+  scnt2 = sevcnts[hop2];
+  scnt3 = sevcnts[hop3];
+
+  if (scnt1 == 0 || scnt2 == 0 || scnt3 == 0) return hi32;
+
+  // forward
+  e2 = e3 = 0;
+  tdur2 = sev2[e2];
+  t2 = (ub4)(tdur2 >> 32);
+  tdur3 = sev2[e3];
+  t3 = (ub4)(tdur3 >> 32);
+  for (e1 = 0; e1 < scnt1; e1++) {
+    tdur1 = sev1[e1];
+    t1 = (ub4)(tdur1 >> 32);
+    dur1 = tdur1 & hi32;
+
+    while (e2 < scnt2 && t2 < t1 + dur1 + ttmin) {
+      tdur2 = sev2[e2++];
+      t2 = (ub4)(tdur2 >> 32);
+    }
+    if (e2 == scnt2) break;
+    else if (t2 - t1 + dur1 > ttmax) continue;
+    dur2 = tdur2 & hi32;
+
+    while (e3 < scnt3 && t3 < t2 + dur2 + ttmin) {
+      tdur3 = sev2[e3++];
+      t3 = (ub4)(tdur3 >> 32);
+    }
+    if (e3 == scnt3) break;
+    else if (t3 - t2 + dur2 > ttmax) continue;
+    dur3 = tdur3 & hi32;
+
+    dt = (t3 - t1) + dur3;
+    dtsum += dt;
+    dtcnt++;
+  }
+
+  // backward
+  e1 = e2 = 0;
+  tdur1 = sev1[e1];
+  t1 = (ub4)(tdur1 >> 32);
+  dur1 = tdur1 & hi32;
+  tdur2 = sev2[e2];
+  t2 = (ub4)(tdur2 >> 32);
+  dur2 = tdur2 & hi32;
+
+  for (e3 = 0; e3 < scnt3; e3++) {
+    tdur3 = sev3[e3];
+    t3 = (ub4)(tdur3 >> 32);
+
+    while (e2 < scnt2 && t2 + dur2 + ttmin < t3) {
+      tdur2 = sev2[e2++];
+      t2 = (ub4)(tdur2 >> 32);
+      dur2 = tdur2 & hi32;
+    }
+    if (e2 == scnt2 || t2 + dur2 + ttmax > t3) break;
+    else if (t3 - t2 + dur2 > ttmax) continue;
+
+    while (e1 < scnt1 && t1 + dur1 + ttmin < t2) {
+      tdur1 = sev1[e1++];
+      t1 = (ub4)(tdur1 >> 32);
+      dur1 = tdur1 & hi32;
+    }
+    if (e1 == scnt1 || t1 + dur1 + ttmax > t2) break;
+    else if (t2 - t1 + dur1 > ttmax) continue;
+    dur3 = tdur3 & hi32;
+
+    dt = t3 - t1 + dur3;
+    dtbsum += dt;
+    dtbcnt++;
+  }
+
+  if (dtcnt == 0 && dtbcnt == 0) return hi32;
+  else if (dtcnt == 0) avgdt = (ub4)(dtbsum / dtbcnt);
+  else if (dtbcnt == 0) avgdt = (ub4)(dtsum / dtcnt);
+  else avgdt = (ub4)min(dtsum / dtcnt,dtbsum / dtbcnt);
+
+  dtbins[min(avgdt,dthibin)]++;
+
+  if (++statcnt & hi20) return avgdt;
+
+  ub8 sumcnt = 0,sumscnt = 0;
+  ub4 scnt;
+  for (i = 0; i <= dthibin; i++) sumscnt += dtbins[i];
+
+  for (i = 0; i <= dthibin; i++) {
+    scnt = dtbins[i];
+    sumcnt += scnt;
+    infocc(scnt,Notty,"dur %u cnt %u %lu%%",i,scnt,sumcnt * 100 / sumscnt);
   }
 
   return avgdt;
@@ -436,10 +564,13 @@ static ub4 statcnt;
 ub4 prepestdur(lnet *net,ub4 *trip,ub4 len)
 {
   ub4 hopcnt = net->hopcnt;
+  ub4 chopcnt = net->chopcnt;
   ub4 *shopdur = net->shopdur;
   ub4 avgdur;
   ub4 h,h1,h2;
   struct hop *hp,*hops = net->hops;
+  ub4 ttmax = globs.netvars[Net_tpatmaxtt];
+  ub4 ttmin = globs.netvars[Net_tpatmintt];
 
   if (len == 1) {  // basic net1 case
     h = *trip;
@@ -452,10 +583,8 @@ ub4 prepestdur(lnet *net,ub4 *trip,ub4 len)
   } else if (len == 2) {
     h1 = trip[0];
     h2 = trip[1];
-    vrbcc(h1,0,"h2 %u todo",h2);
-// not yet, pending estdur
-//    if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2);
-//    else return hopdur[h1] + hopdur[h2];
+    if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,ttmin,ttmax);
+    else return shopdur[h1] + shopdur[h2];
   }
   // rest todo
   return 1000;
@@ -466,7 +595,7 @@ ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
 {
   ub4 chopcnt = net->chopcnt;
   ub4 *shopdur = net->shopdur;
-  ub4 h1,h2;
+  ub4 h1,h2,h3;
 
   ub4 ttmax = globs.netvars[Net_tpatmaxtt];
   ub4 ttmin = globs.netvars[Net_tpatmintt];
@@ -476,18 +605,18 @@ ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
     if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,ttmin,ttmax);
     else return shopdur[h1] + shopdur[h2];
 
-  } else if (len1 == 2 && len2 == 1) {
-#if 0  // not yet
-    h1 = trip1[0]; h2 = trip1[1]; h3 = trip2[0];
-    if (h1 < chopcnt && h2 < chopcnt && h3 < chopcnt) return estdur3(net,h1,h2,ttmin,ttmax);
+  } else if (len1 + len2 == 3) {
+    if (len1 == 2 && len2 == 1) { h1 = trip1[0]; h2 = trip1[1]; h3 = trip2[0]; }
+    else { h1 = trip1[0]; h2 = trip2[0]; h3 = trip2[1]; }
+
+    if (h1 < chopcnt && h2 < chopcnt && h3 < chopcnt) return estdur3(net,h1,h2,h3,ttmin,ttmax);
     else if (h1 < chopcnt && h2 < chopcnt) {
-      return estdur2(net,h1,h2,ttmin,ttmax) + hopdur[h3];
-    else if (h1 < chopcnt && h3 < chopcnt) {
-      return estdur2(net,h1,h3,ttmin + hopdur[h2],ttmax);
+      return estdur2(net,h1,h2,ttmin,ttmax) + shopdur[h3];
+    } else if (h1 < chopcnt && h3 < chopcnt) {
+      return estdur2(net,h1,h3,ttmin + shopdur[h2],ttmax);
     } else {
-      return estdur2(net,h2,h2,ttmin,ttmax) + hopdur[h1];
+      return estdur2(net,h2,h2,ttmin,ttmax) + shopdur[h1];
     }
-#endif
   }  
 
 // todo

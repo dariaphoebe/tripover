@@ -364,6 +364,9 @@ int prepnet(netbase *basenet)
   gnet->t0 = basenet->t0;
   gnet->t1 = basenet->t1;
 
+  gnet->walklimit = globs.engvars[Net_walklimit] / 10;
+  info(0,"global walk limit set to %u m",gnet->walklimit * 10);
+
   // write reference for name lookup
   if (wrportrefs(basenet)) return 1;
 

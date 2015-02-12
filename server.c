@@ -59,8 +59,9 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   ub4 ival;
   ub4 varstart,varend,varlen,valstart,valend,type;
   ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,ttdep = 0,tspan = 3,utcofs=2200;
+  ub4 nethistop = hi32;
   int rv;
-  enum Vars { Cnone,Cdep,Carr,Ctdep,Cttdep,Ctspan,Clostop,Chistop,Cutcofs } var;
+  enum Vars { Cnone,Cdep,Carr,Ctdep,Cttdep,Ctspan,Clostop,Chistop,Cnethistop,Cutcofs } var;
   ub4 *evpool;
 
   if (len == 0) return 1;
@@ -77,6 +78,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     type = lp[pos++];
     if (type == '\n' || pos == len) break;
     while (pos < len && lp[pos] == ' ') pos++;
+    lp[varend] = 0;
 
     valstart = valend = pos;
     while (valend < len && lp[valend] != '\n') valend++;
@@ -99,8 +101,12 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     else if (varlen == 5 && memeq(vp,"tspan",5)) var = Ctspan;
     else if (varlen == 6 && memeq(vp,"lostop",6)) var = Clostop;
     else if (varlen == 6 && memeq(vp,"histop",6)) var = Chistop;
+    else if (varlen == 9 && memeq(vp,"nethistop",9)) var = Cnethistop;
     else if (varlen == 6 && memeq(vp,"utcofs",6)) var = Cutcofs;
-    else var = Cnone;
+    else {
+      warn(0,"ignoring unknown var '%s'",vp);
+      var = Cnone;
+    }
     switch (var) {
     case Cnone: break;
     case Cdep: dep = ival; break;
@@ -110,6 +116,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     case Ctspan: tspan = ival; break;
     case Clostop:  lostop = ival; break;
     case Chistop: histop = ival; break;
+    case Cnethistop: nethistop = ival; break;
     case Cutcofs: utcofs = ival; break;
     }
   }
@@ -123,6 +130,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   src->deptmin_cd = tdep;
   src->utcofs12 = utcofs;
   src->tspan = tspan;
+  src->nethistop = min(nethistop,histop);
 
   // invoke actual plan here
   info(0,"plan %u to %u in %u to %u stop\as from %u for %u days",dep,arr,lostop,histop,tdep,tspan);

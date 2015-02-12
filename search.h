@@ -29,7 +29,7 @@ struct srcctx {
   ub4 deptmin,deptmax;
   ub4 deptmin_cd,depttmin_cd,tspan;
   ub4 utcofs12;
-  ub4 lostop,histop;
+  ub4 lostop,histop,nethistop;
   ub4 stop;
   ub4 costlim;
   ub4 costperstop;
@@ -49,6 +49,9 @@ struct srcctx {
   ub4 locsrccnt;
   ub4 varcnt;
   ub4 dvarcnt,tvarcnt,avarcnt,dvarxcnt,tvarxcnt,avarxcnt;
+
+  ub8 combicnt,totevcnt;
+
   ub4 stat_noprv;
   ub4 stat_nxtlim;
   ub4 stat_nxt0,stat_nxt3;

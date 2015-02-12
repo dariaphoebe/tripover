@@ -20,8 +20,8 @@ use strict;
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 17;
-my $lastchanged = "4 feb 2015";
+my $version_min = 19;
+my $lastchanged = "12 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -44,6 +44,7 @@ my $agelimit = 60; # seconds
 
 # defaults, modifyable with 'set' cmd or args
 my $maxstop = 4;
+my $maxnetstop = 4;
 my $dayrange = 3;
 my $startdate = 0; # implies start of service
 my $tzdef = 'Australia/Brisbane';
@@ -52,6 +53,10 @@ my $utcofs = '+10:00';
 
 my $utcofs12 = 2200;  # biased coded decimal
 my $utcofs12_def = 2200;
+
+my $stats_trip = 0;
+my $stats_notrip = 0;
+my $stats_error = 0;
 
 # stop at compile-time warnings
 local $SIG{__WARN__} = sub { print "$_[0]\n"; exit 1; };
@@ -74,7 +79,6 @@ my $orgfh = select STDOUT; $| = 1; select STDERR; $| = 1; select $orgfh;
 binmode(STDOUT,':utf8');
 
 my %portnames;
-my %portpnames;
 my %portids;
 my %idbysub;
 my (%portlats,%portlons);
@@ -113,7 +117,7 @@ sub filepatindir($$$$)
     $tstamp = hex($hstamp);
     $tid = hex($hid);
     if ($tstamp == $stamp and $tid == $clientid)  {
-      info("reply handled by server $serverid");
+      vrb("reply handled by server $serverid");
       return $serverid;
     } else { vrb("reply from $tstamp $tid, expect $stamp $clientid $serverid"); }
   }
@@ -230,18 +234,8 @@ sub readportrefs($)
     $portlons{$subid} = $lon;
   }
   $portcnt = scalar(keys %portids);
-  info("$portcnt ports");
+  vrb("$portcnt ports");
 
-  # prepare partial ( prefix) matching
-  while (($name,$subid) = each %portnames) {
-    $nlen = length($name);
-    next if $nlen < 4;
-    while ($nlen-- > 3) {
-      chop $name;
-      if (defined($portpnames{$name})) { $portpnames{$name} .= "\t" . $subid; }
-      else { $portpnames{$name} = $subid; }
-    }
-  }
   $haveportrefs = 1;
 }
 
@@ -250,7 +244,7 @@ sub portbyname($)
 {
   my ($name) = @_;
 
-  my ($port,$id,$subid,$seq,$lcname,$plen,$line);
+  my ($port,$id,$subid,$seq,$lcname,$cname,$plen,$line);
   my @plist;
 
   readportrefs($portrefname) unless $haveportrefs;
@@ -258,42 +252,53 @@ sub portbyname($)
   $lcname = lc($name);
   if (exists($portnames{$name})) { return $portnames{$name}; }
   if (exists($portnames{$lcname})) { return $portnames{$lcname}; }
-  $name = $lcname unless exists($portpnames{$name});
-  unless (exists($portpnames{$name})) {
-    info("no matches for prefix '$name'");
+
+  while (($cname,$subid) = each %portnames) {
+    next unless index($cname,$name) == 0;
+    push @plist,$subid;
+  }
+  return $plist[0] if @plist == 1 and length($name) > 3;
+
+  if (@plist == 0) {
+    while (($cname,$subid) = each %portnames) {
+      next unless index($cname,$name) > 0;
+      push @plist,$subid;
+    }
+  }
+  $plen = scalar(@plist);
+  return $plist[0] if $plen == 1 and length($name) > 3;
+  if ($plen == 0) {
+    info("no matches for '$name'");
     return '';
   }
-  @plist = split("\t",$portpnames{$name});
-  $plen = scalar(@plist);
+
   return $plist[0] if $plen == 1;
   info("$plen matches for $name");
-  if ($plen < 40) {
-    $seq = 1;
-    foreach $subid (@plist) {
-      printf("%2u %s\n",$seq++,$portids{$subid});
-    }
-    do {
-      print('Choose port by number or q to quit: ');
-      $line = <STDIN>;
-      next unless defined $line and length($line);
-      $line = trimws($line);
-      next unless length($line);
-      return '' if $line eq 'q' or $line eq 'x';
-      if ($line =~ qr'^[0-9]+$') {
-        $seq = $line;
-        if ($seq <= $plen and $seq != 0) {
-          return $plist[$seq - 1];
-        } else {
-          print("port number not in above list\n");
-        }
-      } else {
-        print("expected port number or command\n");
-      }
-    } while 1;
+  @plist = splice @plist,0,30;
 
-  } else {  # list too long
-    return ''; # todo
+  $seq = 1;
+  foreach $subid (@plist) {
+    printf("%2u %s\n",$seq++,$portids{$subid});
   }
+  do {
+    print("\nChoose port by number or q to quit: ");
+    $line = <STDIN>;
+    next unless defined $line and length($line);
+    $line = trimws($line);
+    next unless length($line);
+    return '' if $line eq 'q' or $line eq 'x';
+    if ($line =~ qr'^[0-9]+$') {
+      $seq = $line;
+      if ($seq <= $plen and $seq != 0) {
+        return $plist[$seq - 1];
+      } else {
+        print("port number not in above list\n");
+      }
+    } else {
+      print("expected port number or command\n");
+    }
+  } while 1;
+
   return '';
 }
 
@@ -319,23 +324,32 @@ sub portbygeo($$)
   return $loid;
 }
 
+sub doplan($$$$$$)
+{
+  my ($dep,$arr,$dayrange,$startdate,$starttime,$utcofs12) = @_;
+  my ($qstr);
+
+  $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\n";
+  $qstr .= "deptmin i $startdate\ndepttmin i $starttime\n";
+  $qstr .= "histop i $maxstop\nnethistop i $maxnetstop\n";
+  $qstr .= "utcofs i $utcofs12\n";
+
+  vrb("\n$qstr\n");
+
+  query('p','glob',$qstr);
+}
+
 sub iplan($$)
 {
   my ($dep,$arr) = @_;
 
-  my ($depname,$arrname,$qstr,$hh,$mm,$dot,$starttime);
+  my ($rdep,$rarr,$hh,$mm,$dot,$starttime);
+  my $depname = "unknown";
+  my $arrname = "unknown";
 
   if ($haveportrefs) {
     if (exists($portids{$dep})) { $depname = $portids{$dep}; }
-    else { $depname = "unknown"; }
     if (exists($portids{$arr})) { $arrname = $portids{$arr}; }
-    else { $arrname = "unknown"; }
-
-    info("dep $dep '$depname'");
-    info("arr $arr '$arrname'");
-  } else {
-    info("dep $dep");
-    info("arr $arr");
   }
 
   if ($dep ne '*' and $dep == $arr) {
@@ -343,15 +357,13 @@ sub iplan($$)
     return 1;
   }
 
-  my $region = 'glob';
-
   unless (defined $tz) {
     $utcofs12 = $utcofs12_def;
     $hh = ($utcofs12 / 100) - 12;
     $mm = $utcofs12 % 100;
     $utcofs = sprintf("%+02d:%02d",$hh,$mm);
     $tz = ofs2tz($utcofs);
-    info("using default display tz $tz utc$utcofs from portrefs");
+    vrb("using default display tz $tz utc$utcofs from portrefs");
   }
 
   $dot = index($startdate,'.');
@@ -365,21 +377,38 @@ sub iplan($$)
     $starttime = 0 unless defined $starttime and length $starttime;
   }
 
+  my $rndcnt = 0;
+
   if ($dep eq '*') {
     readportrefs($portrefname) unless $haveportrefs;
-    foreach $dep (keys %portids) {
-      $dep = $idbysub{$dep};
-      $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\n";
-      $qstr .= "deptmin i $startdate\ndepttmin i $starttime\n";
-      $qstr .= "histop i $maxstop\nutcofs i $utcofs12\n";
-      query('p',$region,$qstr);
+
+    foreach $rdep (keys %portids) {
+      $rdep = $idbysub{$rdep};
+      if (exists($portids{$rdep})) { $depname = $portids{$rdep}; }
+      else { $depname = "unknown"; }
+
+      if ($arr eq '*') {
+        foreach $rarr (keys %portids) {
+          $rarr = $idbysub{$rarr};
+          next if $rdep == $rarr;
+          if (exists($portids{$rarr})) { $arrname = $portids{$rarr}; }
+          else { $arrname = "unknown"; }
+          info("from $depname to $arrname  v    $rdep-$rarr");
+          doplan($rdep,$rarr,$dayrange,$startdate,$starttime,$utcofs12);
+          last unless $rndcnt++ < 10;
+        }
+      } else {
+        next if $rdep == $arr;
+        doplan($rdep,$arr,$dayrange,$startdate,$starttime,$utcofs12);
+        last unless $rndcnt++ < 10;
+      }
+      last unless $rndcnt++ < 10;
     }
+    info("$stats_trip found, $stats_notrip no route $stats_error no time");
     return;
   }
-  $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\n";
-  $qstr .= "deptmin i $startdate\ndepttmin i $starttime\n";
-  $qstr .= "histop i $maxstop\nutcofs i $utcofs12\n";
-  query('p',$region,$qstr);
+  info("from $depname ($dep) to $arrname ($arr) start $startdate.$starttime for $dayrange days in $maxstop stops utc $utcofs");
+  doplan($dep,$arr,$dayrange,$startdate,$starttime,$utcofs12);
 }
 
 sub plan($$)
@@ -459,34 +488,57 @@ sub setvar($$)
     print('variable: ');
     $var=<STDIN>;
   }
-  return unless defined $var and length($var);
+  return 0 unless defined $var and length($var);
   unless (defined $var and length($var)) {
     print('value: ');
     $var=<STDIN>;
   }
-  return unless defined $var and length($var);
+  return 0 unless defined $var and length($var);
 
-  info("set $var to '$val'");
-  $startdate = $val if index($var,'startdate') >= 0;
-  $dayrange = $val if index($var,'daterange') >= 0;
-  $maxstop = $val if index($var,'transerlimit') >= 0;
-  if (index($var,'timezone') >= 0) {
+  $val = '' unless defined $val and length $val;
+
+  vrb("set $var to '$val'");
+  if ($var eq 'date' or $var eq 'startdate') {
+    $startdate = $val;
+  } elsif ($var eq 'days') {
+    $dayrange = $val;
+  } elsif ($var eq 'maxstops') {
+    $maxstop = $val;
+  } elsif ($var eq 'maxnetstop') {
+    $maxnetstop = $val;
+  } elsif (index($var,'timezone') >= 0) {
     ($hh,$mm) = tz2ofs($val);
-    return unless defined $hh;
+    return 0 unless defined $hh;
     $tz = $val;
     $utcofs12 = ($hh + 12) * 100 + $mm;
     $utcofs = sprintf("%+02d:%02d",$hh,$mm);
     info("new utcofs $hh:$mm");
-  }
-  if (index($var,'utcoffset') >= 0) {
+  } elsif (index($var,'utcoffset') >= 0) {
     $col = index($val,':');
-    return unless $col > 0;
+    return 0 unless $col > 0;
     $hh = substr($val,0,$col);
     $mm = substr($val,$col+1);
     $utcofs12 = ($hh + 12) * 100 + $mm;
     info("new utcofs $hh:$mm");
     $tz = ofs2tz($val);
     info("new tz $tz");
+  } else {
+    return error("unknown variable $var");
+  }
+  return 1;
+}
+
+sub set_var($)
+{
+  my ($arg) = @_;
+  my ($eq,$var,$val);
+
+  vrb("arg '$arg'");
+  $eq = index($arg,'=');
+  if ($eq > 0) {
+    $var = substr($arg,0,$eq);
+    $val = substr($arg,$eq + 1);
+    setvar($var,$val);
   }
 }
 
@@ -494,7 +546,7 @@ sub stop($)
 {
   my ($cmd) = @_;
 
-  query('s','');
+  query('s','glob','');
 }
 
 my $clientid = "$$";
@@ -503,7 +555,7 @@ sub ret_close_err($$)
 {
   my ($fh,$msg) = @_;
 
-  error("$msg:$!");
+  error("$msg");
   close($fh);
   return 0;
 }
@@ -547,10 +599,7 @@ sub query($$$)
   my $pat = qr'^[a-z]_[a-z]+_([0-9a-f]+)_([0-9a-f]+)_([0-9a-f]+)\.rep';
 
   while (time() - $stamp < $timeout) {
-    {
-      no integer;
-      select(undef,undef,undef,0.1);  # = sleep 100 millisec
-    }
+    select(undef,undef,undef,0.1);  # = sleep 100 millisec
     $serverid = filepatindir($pat,$stamp,$clientid,$querydir);
     last if length($serverid);
   }
@@ -579,6 +628,14 @@ sub query($$$)
   unlink $qname_rep or return error("cannot remove $qname_rep:$!");
 
   return error("$qname_rep is empty") unless (scalar @lines);
+
+#  @lines = splice @lines,1;
+
+  if ($cmd eq 'p') {
+    if (index($lines[0],'no trip') >= 0) { $stats_notrip++; }
+    elsif (index($lines[0],'error code') >= 0) { $stats_error++; }
+    else { $stats_trip++; }
+  }
   print @lines;
   unlink $qname_rcv or return error("cannot remove $qname_rcv:$!");
 }
@@ -748,6 +805,10 @@ my ($arg,$opt,$inopt,$cmd,$line,$prvline);
 my ($dep,$arr);
 my @args;
 
+my ($sec,$min,$hour,$mday,$mon,$year) = localtime(time);
+$startdate = sprintf("%04u%02u%02u.%02u%02u",$year+1900,$mon+1,$mday,$hour,$min);
+info("$startdate");
+
 if (@ARGV > 0) {
   foreach $arg (@ARGV) {
     if (substr($arg,0,1) eq '-') {
@@ -782,17 +843,15 @@ if (@ARGV > 0) {
     } elsif ($cmd eq 'plan') {
       exit info("plan needs 'from' and 'to' arg") unless (@args > 2);
       $dep = $args[1]; $arr = $args[2];
-      $maxstop = $args[3] if (@args > 3);
-      $dayrange = $args[4] if (@args > 4);
-      $startdate = $args[5] if (@args > 5);
+      splice(@args,0,3);
+      foreach $arg (@args) { set_var($arg); }
       plan($dep,$arr);
       agedir($querydir,time() - $agelimit);
     } elsif ($cmd eq 'iplan') {
       exit info("iplan needs 'from' and 'to' arg") unless (@args > 2);
       $dep = $args[1]; $arr = $args[2];
-      $maxstop = $args[3] if (@args > 3);
-      $dayrange = $args[4] if (@args > 4);
-      $startdate = $args[5] if (@args > 5);
+      splice(@args,0,3);
+      foreach $arg (@args) { set_var($arg); }
       iplan($dep,$arr);
       agedir($querydir,time() - $agelimit);
     } else { info("unknown command"); }
