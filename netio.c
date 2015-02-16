@@ -685,13 +685,11 @@ static int rdextports(netbase *net,const char *dir)
     ep->subcnt = 0;
 
     if (id == subid) { // parent or plain port
-      if (id == 12792 || id == 7440 || id == 7285) info(0,"port %u id %u subid %u name %s",extport,id,subid,ep->name);
       if (id2ports[id] != hi32) warning(0,"port ID %u doubly defined as %x", id,id2ports[id]);
       else id2ports[id] = extport;
       if (subid2ports[id] != hi32) warning(0,"port subID %u doubly defined as %x", subid,subid2ports[subid]);
       else { subid2ports[id] = extport; if (extport == 0) info(0,"id %u port 0 %s",id,ep->namelen ? ep->name : "(no name)"); port++; }
     } else {
-      if (id == 12792 || id == 7440) info(0,"port %u id %u subid %u name %s",extport,id,subid,ep->name);
       if (subid2ports[subid] != hi32) warning(0,"port subID %u doubly defined as %x", subid,subid2ports[subid]);
       else { subid2ports[subid] = extport; if (extport == 0) info(0,"subid %u",subid); }
     }

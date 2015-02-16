@@ -9,7 +9,7 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-#define Maxevs 4096
+#define Maxevs 8192
 
 #define Topdts 32
 
@@ -17,32 +17,41 @@
 struct srcctx {
   char desc[256];
 
+  // result
   char resbuf[2 * Nxleg * 256];
   ub4 reslen;
-  ub8 querytlim;
-
+  ub8 querytlim,queryt0;
   struct trip trips[2];
 
+  // main search args
   ub4 dep,arr;
   ub4 vias[Nvia];
   ub4 viacnt;
+
+  // search params
   ub4 deptmin,deptmax;
   ub4 deptmin_cd,depttmin_cd,tspan;
   ub4 utcofs12;
   ub4 lostop,histop,nethistop;
+  ub4 mintt,maxtt;
+  ub4 walklimit,sumwalklimit;
   ub4 stop;
   ub4 costlim;
   ub4 costperstop;
 
+  // workspace
   ub4 lodt,hidt;
-  ub4 lodist,hidist,geodist;
+  ub4 lodist;
+  ub4 hidist;
+  ub4 geodist;
   ub4 lot,lotid;
 
+  // stire current best trip
   ub4 curdts[Nxleg];
   ub4 curdurs[Nxleg];
   ub4 curts[Nxleg];
   ub4 curtids[Nxleg];
-  ub4 curdt,curt;
+  ub4 curdt,curt; // shorthand for overall props
 
   ub4 locvarcnt;
   ub4 locnocnt;
@@ -55,17 +64,20 @@ struct srcctx {
   ub4 stat_noprv;
   ub4 stat_nxtlim;
   ub4 stat_nxt0,stat_nxt3;
-  ub4 duraccs[Nxleg];
 
+  ub4 duraccs[Nxleg];
   ub4 hop1s[Nxleg];
   ub4 hop2s[Nxleg];
   ub4 parts[Nxleg];
 
-  ub4 dcnts[Nxleg];
+  ub4 dcnts[Nxleg];   // #events in dev[leg
+
+  ub4 dtcurs[Nxleg];  // low cost (=biased dt) for [0.. curleg]
+  ub4 devcurs[Nxleg]; // dev index for above
+
+  ub4 *depevs[Nxleg]; // candidate event+attr store: time,tid,dt,dur,cost
+
   ub4 dtlos[Nxleg];
-  ub4 dtcurs[Nxleg];
-  ub4 devcurs[Nxleg];
-  ub4 *depevs[Nxleg];
 
   ub4 topdts[Topdts];
 

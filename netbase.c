@@ -326,7 +326,7 @@ int prepbasenet(void)
     rid = cp->rid;
     rp = routes + rid;
     cnt = rp->hopcnt;
-    infocc(rid == 230,0,"rid %u cnt %u",rid,cnt);
+//    infocc(rid == 230,0,"rid %u cnt %u",rid,cnt);
     cp->rhopcnt = cnt;
     cp->rhopofs = ofs;
     ofs += cnt;
@@ -489,8 +489,8 @@ int prepbasenet(void)
           if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
           chp2 = chainhops + ofs;
           for (i = 0; i < chcnt; i++) {
-            if (chp2[i].hop == hop) {
-              warn(0,"rrid %u r.tid %u.%u equal hop %u td %u vs %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,tdep,chp2[i].tdep,i,pdep->name,parr->name,pp->name,hp->name);
+            if (chp2[i].hop == hop) { // todo investigate
+              vrb0(0,"rrid %u r.tid %u.%u equal hop %u td %u vs %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,tdep,chp2[i].tdep,i,pdep->name,parr->name,pp->name,hp->name);
               break;
             } else if ( (chip[i] >> 32) == tripseq) {
               warn(0,"rrid %x tid %u skip equal seq %u at %u %s to %s start %s",rrid,tid,tripseq,i,pdep->name,parr->name,pp->name);
@@ -620,8 +620,8 @@ int prepbasenet(void)
     cnt = cp->hopcnt;
     chstats[min(cnt,ivhi)]++;
     rid = cp->rid;
-    if (cnt == 0) { info(Iter,"chain %u rtid %u rrid %u has no hops",chain,cp->rtid,cp->rrid); continue; }
-    else if (cnt > 2 && rid != hi32) {
+    if (cnt == 0) { vrb0(0,"chain %u rtid %u rrid %u has no hops",chain,cp->rtid,cp->rrid); continue; }
+    else if (cnt && rid != hi32) {
       if (cnt > hichlen) { hichlen = cnt; hichain = chain; }
       if (cnt < lochlen) { lochlen = cnt; lochain = chain; }
       infovrb(cnt > 120,0,"chain %u has %u hops",chain,cnt);
@@ -633,7 +633,7 @@ int prepbasenet(void)
       cp->rhopcnt = rp->rhopcnt;
 
       hidur = cp->hitarr - cp->lotdep;
-      infocc(hidur > 120,0,"chain %u rrid %u hidur %u",chain,rrid,hidur);
+      infocc(hidur > 240,0,"chain %u rrid %u hidur %u",chain,rrid,hidur);
       ofs = cp->hopofs;
       chip = chainidxs + ofs;
       sort8(chip,cnt,FLN,"chainhops");

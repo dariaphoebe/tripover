@@ -87,8 +87,11 @@ struct port {
 
   ub4 ndep,narr,ngdep,ngarr;   // generic connectivity info
 
-  ub4 nudep,nuarr,nvdep,nvarr; // todo connectivity info
-  ub4 nwalkdep,nwalkarr; // todo
+//  ub4 nudep,nuarr,nvdep,nvarr; // todo connectivity info
+//  ub4 nwalkdep,nwalkarr; // todo
+
+  bool oneroute;
+  ub4 onerid;
 
   ub4 deps[Nlocal];     // store small net locally
   ub4 arrs[Nlocal];
@@ -244,6 +247,7 @@ struct network {
   ub4 *hopdur;     // [chopcnt] average duration
 //  ub4 *hopcdur;     // [chopcnt] compound constant duration
   ub4 *shopdur;     // [whopcnt] average duration for estdur
+  ub4* hoprids;     // [whopcnt]
 
   ub4 *choporg;    // [chopcnt * 2] <first,last>
 
@@ -257,7 +261,9 @@ struct network {
 
   ub4 histop;      // highest n-stop connections inited
   ub4 maxstop;     // highest n-stop connections to be inited
-  ub4 walklimit;
+  ub4 walklimit;   // in geo's
+  ub4 sumwalklimit;
+  ub4 walkspeed;   // geo's per hour
 
   ub4 hirrid;
 
@@ -348,6 +354,8 @@ struct gnetwork {
 
   ub4 histop;     // highest n-stop connections inited
   ub4 walklimit;
+  ub4 sumwalklimit;
+  ub4 walkspeed;  // geo's per hour
 
   ub4 hirrid;
   ub4 hichainlen;
@@ -366,6 +374,7 @@ struct trip {
   ub4 len;
   ub4 cnt;
   ub4 dist;
+  ub4 dt;
 };
 
 #define triptoports(net,trip,triplen,ports,gports) triptoports_fln(FLN,(net),(trip),(triplen),(ports),(gports))

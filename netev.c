@@ -24,13 +24,16 @@ static ub4 msgfile;
 #include "net.h"
 #include "netev.h"
 
-static const ub4 subsamples = 128;
+static const ub4 subsamples = 64;
+
+static int vrbena;
 
 void ininetev(void)
 {
 
   msgfile = setmsgfile(__FILE__);
   iniassert();
+  vrbena = (getmsglvl() >= Vrb);
 }
 
 // prepare a subset of events for all plain and compound hops
@@ -93,7 +96,7 @@ int mksubevs(lnet *net)
   ub4 *shopdur = alloc(whopcnt,ub4,0,"net shopdur",whopcnt);
   ub4 *sevcnts = alloc(chopcnt,ub4,0,"net sevcnts",chopcnt);
 
-  memcopy(shopdur + chopcnt,hopdur + chopcnt,(whopcnt - chopcnt) * sizeof(*shopdur));
+  if (whopcnt > chopcnt) memcopy(shopdur + chopcnt,hopdur + chopcnt,(whopcnt - chopcnt) * sizeof(*shopdur));
 
   hiscnt = 0;
 
@@ -316,10 +319,14 @@ int mksubevs(lnet *net)
     infocc(scnt,0,"dur %u cnt %u %lu%%",i,scnt,sumcnt * 100 / sumevcnt);
   }
 
+  ub4 noevcnt = 0;
+
   // verify
   for (hop = 0; hop < chopcnt; hop++) {
     scnt = sevcnts[hop];
     sev = sevents + hop * subsamples;
+
+    if (scnt == 0) noevcnt++;
 
     for (s = 0; s < scnt; s++) {
       rtdur = sev[s];
@@ -334,6 +341,8 @@ int mksubevs(lnet *net)
       }
     }
   }
+
+  infocc(noevcnt,0,"%u of %u hops without sample events",noevcnt,chopcnt);
 
   for (hop = 0; hop < whopcnt; hop++) {
     warncc(shopdur[hop] == hi32,0,"hop %u sdur %u",hop,shopdur[hop]);
@@ -360,6 +369,7 @@ static ub4 estdur2(lnet *net,ub4 hop1,ub4 hop2,ub4 ttmin,ub4 ttmax)
 static ub4 dtbins[60 * 12];
 static ub4 dthibin = Elemcnt(dtbins) - 1;
 static ub4 statcnt;
+static ub4 stat_nocnt;
 
   error_zp(sevents,0);
 
@@ -368,7 +378,11 @@ static ub4 statcnt;
   scnt1 = sevcnts[hop1];
   scnt2 = sevcnts[hop2];
 
-  if (scnt1 == 0 || scnt2 == 0) return hi32;
+  if (scnt1 == 0 || scnt2 == 0) {
+//    info(0,"hop %u-%u evs %u+%u",hop1,hop2,scnt1,scnt2);
+    stat_nocnt++;
+    return hi32;
+  }
 
   // forward
   e2 = 0;
@@ -427,9 +441,11 @@ static ub4 statcnt;
   else if (dtbcnt == 0) avgdt = (ub4)(dtsum / dtcnt);
   else avgdt = (ub4)min(dtsum / dtcnt,dtbsum / dtbcnt);
 
+  if (vrbena == 0) return avgdt;
+
   dtbins[min(avgdt,dthibin)]++;
 
-  if (++statcnt & hi20) return avgdt;
+  if (++statcnt & hi24) return avgdt;
 
   ub8 sumcnt = 0,sumscnt = 0;
   ub4 scnt;
@@ -542,9 +558,11 @@ static ub4 statcnt;
   else if (dtbcnt == 0) avgdt = (ub4)(dtsum / dtcnt);
   else avgdt = (ub4)min(dtsum / dtcnt,dtbsum / dtbcnt);
 
+  if (vrbena == 0) return avgdt;
+
   dtbins[min(avgdt,dthibin)]++;
 
-  if (++statcnt & hi20) return avgdt;
+  if (++statcnt & hi24) return avgdt;
 
   ub8 sumcnt = 0,sumscnt = 0;
   ub4 scnt;
@@ -621,4 +639,34 @@ ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
 
 // todo
   return 1000;
+}
+
+ub4 estdur_3(lnet *net,ub4 h1,ub4 h2,ub4 h3)
+{
+  ub4 chopcnt = net->chopcnt;
+  ub4 *shopdur = net->shopdur;
+
+  ub4 ttmax = globs.netvars[Net_tpatmaxtt];
+  ub4 ttmin = globs.netvars[Net_tpatmintt];
+
+  if (h1 < chopcnt && h2 < chopcnt && h3 < chopcnt) return estdur3(net,h1,h2,h3,ttmin,ttmax);
+  else if (h1 < chopcnt && h2 < chopcnt) {
+    return estdur2(net,h1,h2,ttmin,ttmax) + shopdur[h3];
+  } else if (h1 < chopcnt && h3 < chopcnt) {
+    return estdur2(net,h1,h3,ttmin + shopdur[h2],ttmax);
+  } else {
+    return estdur2(net,h2,h2,ttmin,ttmax) + shopdur[h1];
+  }
+}
+
+ub4 estdur_2(lnet *net,ub4 h1,ub4 h2)
+{
+  ub4 chopcnt = net->chopcnt;
+  ub4 *shopdur = net->shopdur;
+
+  ub4 ttmax = globs.netvars[Net_tpatmaxtt];
+  ub4 ttmin = globs.netvars[Net_tpatmintt];
+
+  if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,ttmin,ttmax);
+  else return shopdur[h1] + shopdur[h2];
 }

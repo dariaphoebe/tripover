@@ -37,6 +37,127 @@ void ininetprep(void)
   iniassert();
 }
 
+// check for a->b->c and c->b->a  given b
+static int sameroute2a(struct hop *hops,ub4 b,ub4 *rids,ub4 *deps,ub4 *arrs)
+{
+  ub4 hopa1,hopa2,hopc1,hopc2,porta1,porta2,portc1,portc2;
+  struct hop *hpa1,*hpa2,*hpc1,*hpc2;
+  ub4 rid1 = rids[0];
+  ub4 rid2 = rids[1];
+
+  hopc1 = deps[0];
+  hpc1 = hops + hopc1;
+  error_ne(hpc1->dep,b);
+  error_ne(hpc1->rid,rid1);
+  portc1 = hpc1->arr;
+
+  hopc2 = arrs[1];
+  hpc2 = hops + hopc2;
+  error_ne(hpc2->arr,b);
+  error_ne(hpc2->rid,rid2);
+  portc2 = hpc2->arr;
+
+  if (portc1 != portc2) return 0;
+
+  hopa1 = deps[1];
+  hpa1 = hops + hopa1;
+  error_ne(hpa1->dep,b);
+  error_ne(hpa1->rid,rid2);
+  porta1 = hpa1->arr;
+
+  hopa2 = arrs[0];
+  hpa2 = hops + hopa2;
+  error_ne(hpa2->arr,b);
+  error_ne(hpa2->rid,rid1);
+  porta2 = hpa2->arr;
+
+  if (porta1 != porta2) return 0;
+  else return 1;
+}
+
+static int sameroute2b(struct hop *hops,ub4 b,ub4 *rids,ub4 *deps,ub4 *arrs)
+{
+  ub4 hopa1,hopa2,hopc1,hopc2,porta1,porta2,portc1,portc2;
+  struct hop *hpa1,*hpa2,*hpc1,*hpc2;
+  ub4 rid1 = rids[0];
+  ub4 rid2 = rids[1];
+
+  hopc1 = deps[0];
+  hpc1 = hops + hopc1;
+  error_ne(hpc1->dep,b);
+  error_ne(hpc1->rid,rid1);
+  portc1 = hpc1->arr;
+
+  hopc2 = arrs[0];
+  hpc2 = hops + hopc2;
+  error_ne(hpc2->arr,b);
+  error_ne(hpc2->rid,rid2);
+  portc2 = hpc2->arr;
+
+  if (portc1 != portc2) return 0;
+
+  hopa1 = deps[1];
+  hpa1 = hops + hopa1;
+  error_ne(hpa1->dep,b);
+  error_ne(hpa1->rid,rid2);
+  porta1 = hpa1->arr;
+
+  hopa2 = arrs[1];
+  hpa2 = hops + hopa2;
+  error_ne(hpa2->arr,b);
+  error_ne(hpa2->rid,rid1);
+  porta2 = hpa2->arr;
+
+  if (porta1 != porta2) return 0;
+  else return 1;
+}
+
+static int sameroute12(struct hop *hops,ub4 b,ub4 *rids,ub4 *deps,ub4 *arrs)
+{
+  ub4 hopc1,hopc2,portc1,portc2;
+  struct hop *hpc1,*hpc2;
+  ub4 rid1 = rids[0];
+  ub4 rid2 = rids[1];
+
+  hopc1 = deps[0];
+  hpc1 = hops + hopc1;
+  error_ne(hpc1->dep,b);
+  error_ne(hpc1->rid,rid1);
+  portc1 = hpc1->arr;
+
+  hopc2 = arrs[1];
+  hpc2 = hops + hopc2;
+  error_ne(hpc2->arr,b);
+  error_ne(hpc2->rid,rid2);
+  portc2 = hpc2->arr;
+
+  if (portc1 != portc2) return 0;
+  else return 1;
+}
+
+static int sameroute21(struct hop *hops,ub4 b,ub4 *rids,ub4 *deps,ub4 *arrs)
+{
+  ub4 hopa1,hopa2,porta1,porta2;
+  struct hop *hpa1,*hpa2;
+  ub4 rid1 = rids[0];
+  ub4 rid2 = rids[1];
+
+  hopa1 = deps[1];
+  hpa1 = hops + hopa1;
+  error_ne(hpa1->dep,b);
+  error_ne(hpa1->rid,rid2);
+  porta1 = hpa1->arr;
+
+  hopa2 = arrs[0];
+  hpa2 = hops + hopa2;
+  error_ne(hpa2->arr,b);
+  error_ne(hpa2->rid,rid1);
+  porta2 = hpa2->arr;
+
+  if (porta1 != porta2) return 0;
+  else return 1;
+}
+
 int prepnet(netbase *basenet)
 {
   struct gnetwork *gnet = getgnet();
@@ -265,6 +386,66 @@ int prepnet(netbase *basenet)
   info(0,"%u from %u hops",hopcnt,bhopcnt);
   hopcnt = bhopcnt;
 
+  ub4 oneridcnt = 0;
+  ub4 onerid;
+  bool oneroute;
+  ub4 ndep,narr;
+
+  // mark single-route only ports  
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    ndep = pp->ndep;
+    narr = pp->narr;
+    drids = pp->drids;
+    arids = pp->arids;
+    arrs = pp->arrs;
+    deps = pp->deps;
+
+    oneroute = 0; onerid = 0;
+    if (ndep == 0 && narr == 0) continue;
+    else if (ndep > 2 || narr > 2) continue;
+    else if (ndep == 0 && narr == 1 && arids[0] != hi32) {
+      oneroute = 1;
+      pp->onerid = arids[0];
+    } else if (ndep == 1 && narr == 0 && drids[0] != hi32) {
+      oneroute = 1;
+      pp->onerid = drids[0];
+    } else if (ndep == 1 && narr == 1 && drids[0] == arids[0] && drids[0] != hi32) {
+      oneroute = 1;
+      pp->onerid = arids[0];
+    } else if (ndep == 1 && narr == 2 && drids[0] != hi32 && (drids[0] == arids[0] || drids[0] == arids[1]) ) {
+      if (arids[0] == arids[1] || sameroute12(hops,port,arids,deps,arrs)) {
+        oneroute = 1;
+        pp->onerid = drids[0];
+      }
+    } else if (ndep == 2 && narr == 1 && arids[0] != hi32 && (drids[0] == arids[0] || drids[1] == arids[0]) ) {
+      if (drids[0] == drids[1] || sameroute21(hops,port,drids,deps,arrs)) {
+        oneroute = 1;
+        pp->onerid = arids[0];
+      }
+    } else if (ndep == 2 && narr == 2 && drids[0] != hi32 && drids[1] != hi32) {
+      if (drids[0] == drids[1] && arids[0] == arids[1] && drids[0] == arids[0]) {
+        oneroute = 1;
+        pp->onerid = arids[0];
+      } else if (drids[0] == arids[0] && drids[1] == arids[1]) {
+        if (sameroute2a(hops,port,drids,deps,arrs)) {
+          oneroute = 1;
+          pp->onerid = arids[0];
+        }
+      } else if (drids[0] == arids[1] && drids[1] == arids[0]) {
+        if (sameroute2b(hops,port,drids,deps,arrs)) {
+          oneroute = 1;
+          pp->onerid = arids[0];
+        }
+      }
+    }
+    if (oneroute) {
+      pp->oneroute = 1;
+      pp->onerid = onerid;
+      oneridcnt++;
+    }
+  }
+
   info0(0,"global connectivity");
   showconn(ports,portcnt,0);
 
@@ -364,8 +545,11 @@ int prepnet(netbase *basenet)
   gnet->t0 = basenet->t0;
   gnet->t1 = basenet->t1;
 
-  gnet->walklimit = globs.engvars[Net_walklimit] / 10;
-  info(0,"global walk limit set to %u m",gnet->walklimit * 10);
+  gnet->walklimit = m2geo(globs.walklimit);
+  gnet->sumwalklimit = m2geo(globs.sumwalklimit);
+  gnet->walkspeed = m2geo(globs.walkspeed);
+
+  info(0,"precomputed walk limit set to %u m, summed %u",globs.walklimit,globs.sumwalklimit);
 
   // write reference for name lookup
   if (wrportrefs(basenet)) return 1;

@@ -239,6 +239,35 @@ int afree_fln(void *p,ub4 fln, const char *desc)
 // static block *lrutail = lrupool;
 static ub4 blockseq = 1;
 
+void * trimblock_fln(block *blk,size_t elems,ub4 elsize,const char *selems,const char *selsize,ub4 fln)
+{
+  void *p;
+  char *desc;
+
+  error_zp(blk,fln);
+
+  if (blkmagic != blk->magic) errorfln(fln,Exit,FLN,"uninitialised block for trim %s:\ah%lu elems",selems,elems);
+  desc = blk->desc;
+
+  // check for zero and overflow
+  if (elems == 0) errorfln(fln,Exit,FLN,"zero length block %s",desc);
+  if (elsize == 0) errorfln(fln,Exit,FLN,"zero element size %s",desc);
+
+  if (elsize != blk->elsize) errorfln(fln,Exit,FLN,"size mismatch: %s size %u on %s size %u block '%s'",selsize,elsize,blk->selsize,blk->elsize,desc);
+  if (elems >= blk->elems) errorfln(fln,Exit,FLN,"%s:\ah%lu above %s:\ah%lu block '%s'",selems,elems,blk->selems,blk->elems,desc);
+  p = blk->base;
+  p = realloc(blk->base,elems * elsize);
+  if (!p) { errorfln(fln,0,FLN,"cannot reallocate to \ah%lu for %s",elems * elsize,desc); exit(1); }
+
+  blk->base = p;
+  blk->elems = elems;
+  blk->elsize = elsize;
+  blk->selems = selems;
+  blk->selsize = selsize;
+  blk->fln = fln;
+  return p;
+}
+
 void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   block *blk,
   size_t elems,
@@ -263,6 +292,8 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   desc = blk->desc;
   desclen = sizeof(blk->desc);
   descpos = 0;
+
+  if (blkmagic == blk->magic) errorfln(fln,Exit,FLN,"reusing block %s",desc);
 
   if (fmt && *fmt) {
     va_start(ap,fmt);

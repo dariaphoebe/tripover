@@ -321,6 +321,7 @@ my %norouteids;
 my %routebyids;
 my %routeagency;
 my %rtypes;
+my %agency_ids;
 
 my $hirrid = 0;
 
@@ -1293,6 +1294,8 @@ sub readroutes($)
     $routeagency{$routeid} = $agency_id;
     $rtypes{$routeid} = $rtype;
 
+    $agency_ids{agency_id} = $routeid;
+
     if (exists($agencyutcofs{$agency_id})) {
       $utcofs12 = $agencyutcofs{$agency_id};
 #      info("route $route_id utcofs $utcofs12");
@@ -2180,7 +2183,11 @@ sub writext($$)
     next unless exists $routeids{$route_id};
     $rid = $routeids{$route_id};
 
-    $name = join(' ',$agency_id,$shortname,$longname);
+    if (keys %agency_ids == 1) {
+      $name = join(' ',$shortname,$longname);
+    } else {
+      $name = join(' ',$agency_id,$shortname,$longname);
+    }
     printf($routefile "%s\t%u\t%u\t%u\n",$name,$rid,$rtype,$utcofs12);
   }
   close($routefile);

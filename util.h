@@ -57,6 +57,9 @@ extern void do_clear(void *p,size_t len);
 
 #define limit(a,b,c) if ((a) > (b)) { (a) = (b); warningfln(FLN,0,"limit %s:%u to %s:%u for %s:%u",#a,(a),#b,(b),#c,(c)); }
 
+#define m2geo(m) ((m) / (1000 / Geoscale))
+#define geo2m(g) ((g) * (1000 / Geoscale))
+
 extern int dorun(ub4 fln,enum Runlvl stage);
 
 extern int getwatchitems(const char *name,ub8 *list,ub4 listlen);

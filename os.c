@@ -409,6 +409,8 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
     if (stamp > now) warning(0,"%s has time %u %u secs in the future",dname,stamp,stamp - now);
     else if (now - stamp > Queryage) {
       infocc(iter == 1,0,"skip %s on age %u secs",dname,now - stamp);
+      fmtstring(oldname,"%s/%s",qdir,dname);
+      osremove(oldname);
       continue;
     }
     if (stamp > histamp) {

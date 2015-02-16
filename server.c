@@ -58,10 +58,34 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   ub4 n,pos = 0,len = (ub4)req->len;
   ub4 ival;
   ub4 varstart,varend,varlen,valstart,valend,type;
+
   ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,ttdep = 0,tspan = 3,utcofs=2200;
+  ub4 costperstop = 10;
+  ub4 mintt = globs.mintt;
+  ub4 maxtt = globs.maxtt;
+  ub4 walklimit = globs.walklimit;
+  ub4 sumwalklimit = globs.sumwalklimit;
   ub4 nethistop = hi32;
+
   int rv;
-  enum Vars { Cnone,Cdep,Carr,Ctdep,Cttdep,Ctspan,Clostop,Chistop,Cnethistop,Cutcofs } var;
+  enum Vars {
+    Cnone,
+    Cdep,
+    Carr,
+    Ctdep,
+    Cttdep,
+    Ctspan,
+    Clostop,
+    Chistop,
+    Cmintt,
+    Cmaxtt,
+    Ccostperstop,
+    Cwalklimit,
+    Csumwalklimit,
+    Cnethistop,
+    Cutcofs
+  } var;
+
   ub4 *evpool;
 
   if (len == 0) return 1;
@@ -101,6 +125,11 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     else if (varlen == 5 && memeq(vp,"tspan",5)) var = Ctspan;
     else if (varlen == 6 && memeq(vp,"lostop",6)) var = Clostop;
     else if (varlen == 6 && memeq(vp,"histop",6)) var = Chistop;
+    else if (varlen == 5 && memeq(vp,"mintt",5)) var = Cmintt;
+    else if (varlen == 5 && memeq(vp,"maxtt",5)) var = Cmaxtt;
+    else if (varlen == 11 && memeq(vp,"costperstop",11)) var = Ccostperstop;
+    else if (varlen == 9 && memeq(vp,"walklimit",9)) var = Cwalklimit;
+    else if (varlen == 12 && memeq(vp,"sumwalklimit",12)) var = Csumwalklimit;
     else if (varlen == 9 && memeq(vp,"nethistop",9)) var = Cnethistop;
     else if (varlen == 6 && memeq(vp,"utcofs",6)) var = Cutcofs;
     else {
@@ -116,9 +145,23 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     case Ctspan: tspan = ival; break;
     case Clostop:  lostop = ival; break;
     case Chistop: histop = ival; break;
+    case Cmintt: mintt = ival; break;
+    case Cmaxtt: maxtt = ival; break;
+    case Ccostperstop: costperstop = ival; break;
+    case Cwalklimit: walklimit = ival; break;
+    case Csumwalklimit: sumwalklimit = ival; break;
     case Cnethistop: nethistop = ival; break;
     case Cutcofs: utcofs = ival; break;
     }
+  }
+
+  if (mintt > maxtt) {
+    warn(0,"min transfer time %u cannot be above max %u",mintt,maxtt);
+    maxtt = mintt + 2;
+  }
+  if (sumwalklimit < walklimit) {
+    warn(0,"max distance for single go walk %u above summed max %u",walklimit,sumwalklimit);
+    sumwalklimit = walklimit;
   }
 
   if (dep == arr) warning(0,"dep %u equal to arr",dep);
@@ -131,6 +174,12 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   src->utcofs12 = utcofs;
   src->tspan = tspan;
   src->nethistop = min(nethistop,histop);
+  src->mintt = mintt;
+  src->maxtt = maxtt;
+  src->costperstop = costperstop;
+
+  src->walklimit = m2geo(walklimit);
+  src->sumwalklimit = m2geo(sumwalklimit);
 
   // invoke actual plan here
   info(0,"plan %u to %u in %u to %u stop\as from %u for %u days",dep,arr,lostop,histop,tdep,tspan);
@@ -146,7 +195,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   } else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
   vrb0(0,"reply len %u",len);
   rep->len = len;
-  osmillisleep(10);
+//  osmillisleep(10);
   return 0;
 }
 
@@ -172,8 +221,8 @@ int serverloop(void)
 
     prvseq = seq;
 
-    if (req.direxist == 0) osmillisleep(5000);
-    else if (req.exist == 0) osmillisleep(500);
+    if (req.direxist == 0) osmillisleep(2000);
+    else if (req.exist == 0) osmillisleep(20);
     else {
       info(0,"new client entry %s",req.name);
       c = req.name[req.basename];

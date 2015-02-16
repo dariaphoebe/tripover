@@ -297,6 +297,8 @@ static ub4 fcnv(char *dst, double x)
    h + %u  makes the integer formatted 'human readable' like 123.8 M for 123800000
    d + %u  minute utc to date 20140912
    u + %u  utc offset +0930   -1100
+   t + %u  duration in minutes
+   g + %u  distance in m or Km, passed geo units
    x + %u  %x.%u
    ` + %s  replace , with `
    v + %u%p interprets the pointer arg '%p' as an array of '%u' integers. thus :  
@@ -308,11 +310,11 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
   const char *p = fmt;
   ub4 n = 0,x;
   ub4 wid,prec,plen;
-  ub4 hh,mm;
+  ub4 hh,mm,mdist,kmdist;
   unsigned int uval=0,vlen=0,cdval,*puval;
   unsigned long luval,lx;
   int ival,alt,padleft,do_U = 0,do_vec = 0,do_mindate = 0,do_utcofs = 0,do_xu = 0,do_dot = 0;
-  int do_comma = 0;
+  int do_comma = 0,do_dist = 0,do_mindur = 0;
   long lival;
   double dval;
   char *pval;
@@ -332,6 +334,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
         case 'v': do_vec = 1; break;
         case 'V': do_vec = 2; break;
         case '.': do_dot = 1; break;
+        case 'g': do_dist = 1; break;
+        case 't': do_mindur = 1; break;
         case 'u': do_utcofs = 1; break;
         case 'd': do_mindate = 1; break;
         case 'D': do_mindate = 2; break;
@@ -411,8 +415,28 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   if (len - n <= 10) break;
                   if (do_vec) { vlen = uval; break; }  // save len for vector fmt
 
+                  else if (do_dist) { // distance in geo units to Km or m
+                    do_dist = 0;
+                    mdist = geo2m(uval);
+                    kmdist = mdist / 1000;
+                    if (mdist >= 5000) {
+                      n += ucnv(dst + n,kmdist,wid,pad);
+                      dst[n++] = '.';
+                      n += ucnv(dst + n,(mdist % 1000) / 100,1,'0');
+                      dst[n++] = ' '; dst[n++] = 'K'; dst[n++] = 'm';
+                    } else if (mdist >= 1000) {
+                      n += ucnv(dst + n,kmdist,wid,pad);
+                      dst[n++] = '.';
+                      n += ucnv(dst + n,(mdist % 1000) / 10,2,'0');
+                      dst[n++] = ' '; dst[n++] = 'K'; dst[n++] = 'm';
+                    } else {
+                      n += ucnv(dst + n,mdist,wid,pad);
+                      dst[n++] = ' '; dst[n++] = 'm';
+                    }
+                    break;
+
                   // dotted 123.454
-                  else if (do_dot) {
+                  } else if (do_dot) {
                     do_dot = 0;
                     if (uval >= 1000 * 1000) {
                       n += ucnv(dst + n,uval / 1000000,wid,'0'); dst[n++] = '.';
@@ -452,6 +476,17 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                       x = hh * 100 + mm;
                       n += ucnv(dst + n,x,0,' ');
                     }
+                    break;
+
+                  } else if (do_mindur) {  // time duration in minutes
+                    do_mindur = 0;
+                    hh = uval / 60; mm = uval % 60;
+                    if (uval >= 60) {
+                      n += ucnv(dst + n,hh,wid,pad);
+                      memcpy(dst + n," hr ",4); n += 4;
+                    }
+                    n += ucnv(dst + n,mm,wid,pad);
+                    memcpy(dst + n," min ",5); n += 5;
                     break;
 
                   // utc (timezone) offset
@@ -1004,13 +1039,12 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
     return 1;
   }
 
-  vrbfln(fln,CC,"progress %u of %u",cur,end);
-
   if (cur == 0) {
     eta->cur = eta->end = 0;
     eta->limit = 0;
     eta->stamp = eta->start = now;
-  } else if (cur + 1 < end && now - eta->stamp < 2 * sec) return 0;
+  }
+  if (now - eta->stamp < 2 * sec) return 0;
   eta->stamp = now;
 
   va_start(ap,fmt);
@@ -1026,7 +1060,9 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
     dt = dt * 100 / perc;
     est = (dt * (100UL - perc)) / 100;
   }
-  if (cur) mysnprintf(buf,pos,len," %u%%  est %u sec",perc,(ub4)est);
+  if (est < 120) mysnprintf(buf,pos,len," %u%% ~%u sec",perc,(ub4)est);
+  else if (est < 7200) mysnprintf(buf,pos,len," %u%% ~%u min",perc,(ub4)est / 60);
+  else mysnprintf(buf,pos,len," %u%% ~%u hr",perc,(ub4)est / 3600);
   infofln(fln,0,"%s",buf);
   if (eta->limit && now > eta->limit) {
     infofln(fln,0,"timelimit of %lu sec exceeded",(eta->limit - eta->start) / (1000 * 1000));

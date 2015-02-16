@@ -21,8 +21,8 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 20
-#define Version_phase "developing"
+#define Version_min 21
+#define Version_phase "pre-alpha"
 #define Program_name "tripover"
 #define Program_desc "broad-search journey planner"
 
@@ -110,6 +110,9 @@ struct globs {
   ub4 netvars[64];   // checked for Net_cnt in cfg
   ub4 engvars[64];   // checked for Eng_cnt in cfg
 
+  ub4 mintt,maxtt;
+  ub4 walkspeed,walklimit,sumwalklimit;
+
   int nomsgsum;
 };
 extern struct globs globs;
@@ -124,6 +127,9 @@ struct myfile {
   char localbuf[4096];
   char *buf;
 };
+
+// Km * scale = res: 10m
+#define Geoscale 100
 
 #define NVALGRIND
 #ifdef NVALGRIND

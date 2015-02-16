@@ -283,7 +283,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
     warning(0,"hop %u hirep 0 for %u event\as",hop,evcnt);
     return evcnt;
   } else if (hirep < evlimit) { // not worth to compress. todo: criteria
-    genmsg(evcnt > 10000 ? Info : Vrb,Iter,"hirep %u for %u events",hirep,evcnt);
+    vrb0(Iter,"hirep %u for %u events",hirep,evcnt);
     tp->genevcnt = evcnt;
     return evcnt;
   }
@@ -462,7 +462,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
       days[genday + day]++;
       t++;
     }
-    infovrb(gndx > 4096,Iter,"hop %u fill %u nonrepeating events",hop,gndx / 2);
+    vrb0(0,"hop %u fill %u nonrepeating events",hop,gndx / 2);
     return gndx / 2;
   } else return warn(0,"repetition %u not yet supported",gen);
 

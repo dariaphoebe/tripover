@@ -112,18 +112,24 @@ Convert into tripover external format
 
 Check for any errors or warnings in the outpiut. The cosole output is duplicated in +gtfstool.log+
 
+Initialise configuration
+
+`./tripover init`
+
+You can review the settings in +tripover.cfg+
+
 Run tripover server with this network:
 
 `./tripover data`
 
-This will initialise and precompute the network. For 7000-stops Queensland with default settings it takes about an hour.
+This will initialise and precompute the network. For 7000-stops Queensland with 1-transfer limit it takes a handful of minutes.
 
 Invoke the commandline client :
 
 `./plantrip plan nambour bunya`
 
 Currently, tripover calculates a single possible trip, preferring shorter overall travel time.
-Minimum and maximum transfer times are taken into account, yet you cannot specify these yet.
+You can use a set of search criteria to further steer your search. See the wiki for details.
 
 No cost yet.
 
@@ -137,10 +143,13 @@ You can use the latter as a starting point for the former. It shows all defaults
 
 == Issues ==
 
-At the time of this writing, Tripover is in an early stage of development.
-Things start to work, some query results are good, some are not. You will likely hit issues when trying new data.
+At the time of this writing, Tripover is in a pre-alpha stage of development.
+Results are promising, search times are good and most search criteria are honoured.
+Yet not all results are as expected, and you will likely hit issues when trying new data.
 
-* The commandline tools can be very verbose and disabling does not work properly.
+* The commandline tools can be pretty verbose and disabling does not work properly.
+
+* Nearby stops are silently merged, yet the reported results do not take this into account.
 
 * Larger networks that require partitioning can give surprising results.
 

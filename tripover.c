@@ -36,6 +36,7 @@ static ub4 msgfile;
 #include "gtfs.h"
 #include "event.h"
 #include "net.h"
+#include "netn.h"
 #include "netev.h"
 #include "netprep.h"
 #include "condense.h"
@@ -79,6 +80,7 @@ static int init0(char *progname)
   ininetbase();
   inigtfs();
   ininet();
+  ininetn();
   ininetio();
   ininetev();
   ininetprep();
@@ -106,6 +108,32 @@ static int initnet(void)
   netbase *basenet = getnetbase();
   gnet *gnet;
   int rv = 0;
+  ub4 mintt,maxtt;
+  ub4 walklimit,sumwalklimit,walkspeed;
+
+  // check params
+  mintt = globs.netvars[Net_mintt];
+  maxtt = globs.netvars[Net_maxtt];
+  if (maxtt <= mintt) {
+    warn(0,"default for max transfer %u time cannot be below minimum %u",maxtt,mintt);
+    maxtt = mintt + 2;
+  }
+  globs.mintt = mintt; globs.maxtt = maxtt;
+
+  walklimit = globs.netvars[Net_walklimit];
+  sumwalklimit = globs.netvars[Net_sumwalklimit];
+  if (sumwalklimit < walklimit) {
+    warn(0,"max distance for single go walk %u above summed max %u",walklimit,sumwalklimit);
+    sumwalklimit = walklimit;
+  }
+
+  walkspeed = globs.netvars[Net_walkspeed];
+  if (walkspeed == 0) {
+    warn(0,"walk speed zero for max distance %u",walklimit);
+  }
+  globs.walkspeed = walkspeed;
+  globs.walklimit = walklimit;
+  globs.sumwalklimit = sumwalklimit;
 
   if (*globs.netdir == 0) return 1;
 
@@ -205,7 +233,13 @@ static int do_main(void)
 
   showmemsums();
 
+  gnet *net = getgnet();
   if (globs.netok && dorun(FLN,Runserver)) {
+
+    info(0,"overall schedule period \ad%u to \ad%u",net->t0,net->t1);
+    info(0,"connectivity precomputed for %u transfers",net->histop);
+    info(0,"default min transfer time %u min, max %u min",globs.mintt,globs.maxtt);
+    info(0,"max walking distance %u m, summed %u",geo2m(net->walklimit),geo2m(net->sumwalklimit));
     return serverloop();
   }
 

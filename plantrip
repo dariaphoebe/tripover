@@ -20,8 +20,8 @@ use strict;
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 19;
-my $lastchanged = "12 feb 2015";
+my $version_min = 21;
+my $lastchanged = "16 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -47,12 +47,19 @@ my $maxstop = 4;
 my $maxnetstop = 4;
 my $dayrange = 3;
 my $startdate = 0; # implies start of service
+my $mintt = 5;
+my $maxtt = 120;
+my $transfercost = 10;
+my $walklimit = 1000;
+my $sumwalklimit = 1500;
 my $tzdef = 'Australia/Brisbane';
 my $tz;
 my $utcofs = '+10:00';
 
 my $utcofs12 = 2200;  # biased coded decimal
 my $utcofs12_def = 2200;
+
+my $testiters = 1000;
 
 my $stats_trip = 0;
 my $stats_notrip = 0;
@@ -156,12 +163,14 @@ sub agedir($$)
 }
 
 my $pi = 3.141592655;
-my $geolow = $pi * 1.0e-4;
-my $geolimit = $pi * 1.0e-8;
+my $geolow = $pi * 2.0e-5; # ~500 m
+my $geolimit = $pi * 1.0e-7;
 my $mean_earth_radius = 6371.0;
+my $approx_surface = sqrt($mean_earth_radius * $mean_earth_radius + $mean_earth_radius * $mean_earth_radius);
 
 sub acos { atan2( sqrt(1 - $_[0] * $_[0]), $_[0] ) }
 
+# Adapted from Tripover:math.c which in turn is adapted from Wikipedia article
 sub geodist($$$$)
 {
   my ($slat,$slon,$lat,$lon) = @_;
@@ -180,8 +189,8 @@ sub geodist($$$$)
     if (abs($dlam) < $geolimit and abs($dphi) < $geolimit) { # flush to zero
       return 0;
     }
-    $dlat = ($dlam * $mean_earth_radius * 2) / $pi;
-    $dlon = ($dphi * $mean_earth_radius * 2) / $pi;
+    $dlat = $dlam * $approx_surface * 2 / $pi;
+    $dlon = ($dphi * $approx_surface * 2) / $pi;
     $dist = sqrt( ($dlat * $dlat) + ($dlon * $dlon));
     return $dist;
   }
@@ -331,6 +340,9 @@ sub doplan($$$$$$)
 
   $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\n";
   $qstr .= "deptmin i $startdate\ndepttmin i $starttime\n";
+  $qstr .= "mintt i $mintt\nmaxtt i $maxtt\n";
+  $qstr .= "costperstop i $transfercost\n";
+  $qstr .= "walklimit i $walklimit\nsumwalklimit i $sumwalklimit\n";
   $qstr .= "histop i $maxstop\nnethistop i $maxnetstop\n";
   $qstr .= "utcofs i $utcofs12\n";
 
@@ -395,14 +407,14 @@ sub iplan($$)
           else { $arrname = "unknown"; }
           info("from $depname to $arrname  v    $rdep-$rarr");
           doplan($rdep,$rarr,$dayrange,$startdate,$starttime,$utcofs12);
-          last unless $rndcnt++ < 10;
+          last unless $rndcnt++ < $testiters;
         }
       } else {
         next if $rdep == $arr;
         doplan($rdep,$arr,$dayrange,$startdate,$starttime,$utcofs12);
-        last unless $rndcnt++ < 10;
+        last unless $rndcnt++ < $testiters;
       }
-      last unless $rndcnt++ < 10;
+      last unless $rndcnt++ < $testiters;
     }
     info("$stats_trip found, $stats_notrip no route $stats_error no time");
     return;
@@ -506,6 +518,16 @@ sub setvar($$)
     $maxstop = $val;
   } elsif ($var eq 'maxnetstop') {
     $maxnetstop = $val;
+  } elsif ($var eq 'maxtxtime') {
+    $maxtt = $val;
+  } elsif ($var eq 'mintxtime') {
+    $mintt = $val;
+  } elsif ($var eq 'transfercost') {
+    $transfercost = $val;
+  } elsif ($var eq 'walklimit') {
+    $walklimit = $val;
+  } elsif ($var eq 'sumwalklimit') {
+    $sumwalklimit = $val;
   } elsif (index($var,'timezone') >= 0) {
     ($hh,$mm) = tz2ofs($val);
     return 0 unless defined $hh;
@@ -518,12 +540,12 @@ sub setvar($$)
     return 0 unless $col > 0;
     $hh = substr($val,0,$col);
     $mm = substr($val,$col+1);
-    $utcofs12 = ($hh + 12) * 100 + $mm;
+    $utcofs12 = int(($hh + 12) * 100 + $mm);
     info("new utcofs $hh:$mm");
     $tz = ofs2tz($val);
     info("new tz $tz");
   } else {
-    return error("unknown variable $var");
+    return error("unknown variable $var: check online help");
   }
   return 1;
 }
@@ -583,7 +605,11 @@ sub query($$$)
   $qname_new = $qname . '.new';
   $qname_sub = $qname . '.sub';
   vrb("create $qname_new");
-  return 1 if $dryrun;
+
+  if ($dryrun) {
+    info("$cmd $str");
+    return 1;
+  }
 
   open($qfile,'>',$qname_new) or error_exit("cannot create $qname_new: $!");
   print($qfile $str . "\n");
@@ -599,7 +625,7 @@ sub query($$$)
   my $pat = qr'^[a-z]_[a-z]+_([0-9a-f]+)_([0-9a-f]+)_([0-9a-f]+)\.rep';
 
   while (time() - $stamp < $timeout) {
-    select(undef,undef,undef,0.1);  # = sleep 100 millisec
+    select(undef,undef,undef,0.01);  # = sleep 10 millisec
     $serverid = filepatindir($pat,$stamp,$clientid,$querydir);
     last if length($serverid);
   }
@@ -629,14 +655,13 @@ sub query($$$)
 
   return error("$qname_rep is empty") unless (scalar @lines);
 
-#  @lines = splice @lines,1;
-
   if ($cmd eq 'p') {
     if (index($lines[0],'no trip') >= 0) { $stats_notrip++; }
     elsif (index($lines[0],'error code') >= 0) { $stats_error++; }
     else { $stats_trip++; }
   }
   print @lines;
+  print($logfd @lines) if defined $logfd;
   unlink $qname_rcv or return error("cannot remove $qname_rcv:$!");
 }
 
@@ -682,10 +707,24 @@ sub usage()
   info('-L -license        show license and quit\n');
   info("commands:");
   info("plan <from> <to>   plan a trip");
-  info("stop               stop server\n");
-  info("set <var> <value>  set variable\n");
+  info("stop               stop server");
+  info("set <var> <value>  set variable");
   info("get [var]          get variable (? for list)\n");
-  info("without command, interactive mode is entered");
+  info("without command, interactive mode is entered\n");
+
+  info("variables: specify as var=value on plan commands");
+  info("startdate          start date / time for depart : yyyymmdd[.hhmm]");
+  info("days               number of days to consider (search horizon) [3]");
+  info("maxstops           max number of transfers to consider [4]");
+  info("maxnetstop         max number of transfers to base on precomputed info [3]");
+  info("maxtxtime          max transfer (waiting time) in minutes [120]");
+  info("mintxtime          min tranfer time in minutes [5]");
+  info("transfercost       extra cost per tranfser in minutes [10]");
+  info("walklimit          max walk distance in meters for a single go [1000]");
+  info("sumwalklimit       max summed up walk distance in meters [3000]");
+  info("timezone           timezone to use : country/city");
+  info("utcoffset          UTC offset to use [+-]hh:mm\n");
+  info("example:  plan beerwah elimbah date=20150218.0800 transfercost=0 walklimit=300");
 }
 
 sub showvers($)

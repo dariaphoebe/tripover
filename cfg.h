@@ -32,11 +32,15 @@
 enum Engvars { Eng_periodlim,Eng_partsize,Eng_cnt };
 enum Netvars {
   Net_partsize,
+  Net_sumwalklimit,
   Net_walklimit,
+  Net_walkspeed,
   Net_tpat0,
   Net_tpat1,
   Net_tpatmintt,
   Net_tpatmaxtt,
+  Net_mintt,
+  Net_maxtt,
   Net_cnt
 };
 

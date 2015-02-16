@@ -403,7 +403,7 @@ int compound(gnet *net)
 
           error_lt(tarr2,tdep1);
 
-          infocc(hop1 == 16399,0,"chop %u-%u td %lu ta %lu",hop1,hop2,crp[rhop1] >> 32,crp[rhop2] & hi32);
+//          infocc(hop1 == 16399,0,"chop %u-%u td %lu ta %lu",hop1,hop2,crp[rhop1] >> 32,crp[rhop2] & hi32);
           error_ne(crp[rhop1] >> 32,tdep1);
           error_ne(crp[rhop2] & hi32,tarr2);
 

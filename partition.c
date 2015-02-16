@@ -108,6 +108,8 @@ static void cpfromgnet(gnet *gnet,lnet *net)
   net->t1 = gnet->t1;
   net->hichainlen = gnet->hichainlen;
   net->walklimit = gnet->walklimit;
+  net->sumwalklimit = gnet->sumwalklimit;
+  net->walkspeed = gnet->walkspeed;
 
   net->ghopcnt = gnet->hopcnt;
 }
