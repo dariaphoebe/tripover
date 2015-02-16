@@ -596,6 +596,7 @@ int prepbasenet(void)
     cumevcnt += evcnt;
 
     cumzevcnt += zevcnt;
+    msgprefix(0,NULL);
   }
   msgprefix(0,NULL);
 

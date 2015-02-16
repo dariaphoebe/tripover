@@ -359,6 +359,7 @@ int mksubevs(lnet *net)
 // based on a prepared handful of random samples
 static ub4 estdur2(lnet *net,ub4 hop1,ub4 hop2,ub4 ttmin,ub4 ttmax)
 {
+  ub4 chopcnt = net->chopcnt;
   ub8 tdur1,tdur2,*sev1,*sev2,*sevents = net->sevents;
   ub4 scnt1,scnt2,*sevcnts = net->sevcnts;
   ub4 e1,e2,i;
@@ -373,10 +374,16 @@ static ub4 stat_nocnt;
 
   error_zp(sevents,0);
 
+  error_ge(hop1,chopcnt);
+  error_ge(hop2,chopcnt);
+
   sev1 = sevents + hop1 * subsamples;
   sev2 = sevents + hop2 * subsamples;
   scnt1 = sevcnts[hop1];
   scnt2 = sevcnts[hop2];
+
+  error_gt(scnt1,subsamples,hop1);
+  error_gt(scnt2,subsamples,hop2);
 
   if (scnt1 == 0 || scnt2 == 0) {
 //    info(0,"hop %u-%u evs %u+%u",hop1,hop2,scnt1,scnt2);
@@ -632,9 +639,9 @@ ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
       return estdur2(net,h1,h2,ttmin,ttmax) + shopdur[h3];
     } else if (h1 < chopcnt && h3 < chopcnt) {
       return estdur2(net,h1,h3,ttmin + shopdur[h2],ttmax);
-    } else {
-      return estdur2(net,h2,h2,ttmin,ttmax) + shopdur[h1];
-    }
+    } else if (h2 < chopcnt && h3 < chopcnt) {
+      return estdur2(net,h2,h3,ttmin,ttmax) + shopdur[h1];
+    } else return shopdur[h1] + shopdur[h2] + shopdur[h3];
   }  
 
 // todo
@@ -654,9 +661,9 @@ ub4 estdur_3(lnet *net,ub4 h1,ub4 h2,ub4 h3)
     return estdur2(net,h1,h2,ttmin,ttmax) + shopdur[h3];
   } else if (h1 < chopcnt && h3 < chopcnt) {
     return estdur2(net,h1,h3,ttmin + shopdur[h2],ttmax);
-  } else {
-    return estdur2(net,h2,h2,ttmin,ttmax) + shopdur[h1];
-  }
+  } else if (h2 < chopcnt && h3 < chopcnt) {
+    return estdur2(net,h2,h3,ttmin,ttmax) + shopdur[h1];
+  } else return shopdur[h1] + shopdur[h2] + shopdur[h3];
 }
 
 ub4 estdur_2(lnet *net,ub4 h1,ub4 h2)

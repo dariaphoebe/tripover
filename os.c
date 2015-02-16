@@ -162,12 +162,14 @@ int osmunmap(void *p,size_t len)
 #include <stdlib.h>
 void *osmmap(size_t len)
 {
-  void *p = malloc(len);
+  void *p = calloc(len,1);
   return p;
 }
 int osmunmap(void *p,size_t len)
 {
+  vrb0(0,"munmap %lu",len);
   free(p);
+  return 0;
 }
 #endif
 
@@ -220,6 +222,7 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
     wrstderrlog(buf,pos);
     wrstderrlog(pidstr,pidstrlen);
     pause();
+    break;
 
   case SIGBUS:
     adr = (size_t)si->si_addr;
@@ -229,6 +232,7 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
     wrstderrlog(buf,pos);
     wrstderrlog(pidstr,pidstrlen);
     pause();
+    break;
 
   case SIGFPE:
     code = si->si_code;
@@ -241,6 +245,7 @@ static void __attribute__ ((noreturn)) mysigact(int sig,siginfo_t *si,void * __a
     wrstderrlog(codestr,8);
     wrstderrlog(pidstr,pidstrlen);
     pause();
+    break;
 
   default:
     pos = fmtstring(buf,"\nsignal %u\n", sig);
@@ -363,7 +368,10 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
 
   if (!dir) {
     switch(errno) {
-    case ENOENT: return oswarning(0,"directory %s does not exist",qdir);
+    case ENOENT:
+      info(0,"query directory '%s' does not exist: creating",qdir);
+      if (mkdir(qdir,0755)) return oserror(0,"cannot create directory %s",qdir);
+      return 0;
     case EACCES: return oswarning(0,"cannot access directory %s",qdir);
     default: return oserror(0,"cannot access directory %s",qdir);
     }

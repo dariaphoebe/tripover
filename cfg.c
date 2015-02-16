@@ -91,7 +91,7 @@ static struct cfgvar {
 
   {"maxhops",Uint,Maxhops,0,0,1024 * 1024,1024 * 1024,"maximum number of hops"},
   {"maxports",Uint,Maxports,0,0,1024 * 1024,1024 * 1024,"maximum number of ports"},
-  {"maxstops",Uint,Maxstops,0,0,Nstop-1,7,"max transfers to precompute"},
+  {"maxstops",Uint,Maxstops,0,0,Nstop-1,1,"max transfers to precompute"},
 
   {"maxvm",Uint,Maxvm,0,1,hi24,hi24,"virtual memory limit in GB"},
 
@@ -165,12 +165,12 @@ int inicfg(void)
       break;
 
     case Net_partsize:
-      if (gb < 4) x = 1000;
-      else if (gb < 8) x = 2000;
-      else if (gb < 16) x = 3000;
-      else if (gb < 64) x = 6000;
-      else if (gb < 256) x = 12000;
-      else x = 20000;
+      if (gb < 4) x = 3000;
+      else if (gb < 8) x = 6000;
+      else if (gb < 16) x = 12000;
+      else if (gb < 64) x = 20000;
+      else if (gb < 256) x = 40000;
+      else x = 50000;
       vp->def = x;
       break;
     default: break;
