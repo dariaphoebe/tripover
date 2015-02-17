@@ -276,13 +276,15 @@ int mksubevs(lnet *net)
         warncc(tarr2 < tdep1,0,"chop %u-%u dep %u arr %u",h1,h2,tdep1,tarr2);
       }
       dur = tarr2 - tdep1;
+
       if (dur > 600) {
         dep = portsbyhop[hop * 2];
         arr = portsbyhop[hop * 2 + 1];
         pdep = ports + dep;
         parr = ports + arr;
-        info(0,"chop %u-%u %s to %s td %u ta %u",h1,h2,pdep->name,parr->name,tdep1,tarr2);
+        vrb0(0,"chop %u-%u %s to %s td %u ta %u",h1,h2,pdep->name,parr->name,tdep1,tarr2);
       }
+
       cev[scnt] = ((ub8)t << 32) | dur;
       sumdur += dur;
       dtbins[min(dur,dthibin)]++;
@@ -328,6 +330,7 @@ int mksubevs(lnet *net)
 
     if (scnt == 0) noevcnt++;
 
+#if 0
     for (s = 0; s < scnt; s++) {
       rtdur = sev[s];
       dur = rtdur & hi32;
@@ -340,6 +343,7 @@ int mksubevs(lnet *net)
         info(0,"hop %u %s to %s dur %u t %u",hop,pdep->name,parr->name,dur,t);
       }
     }
+#endif
   }
 
   infocc(noevcnt,0,"%u of %u hops without sample events",noevcnt,chopcnt);

@@ -1128,6 +1128,19 @@ static int rdtrips(gtfsnet *net,const char *dir)
   return 0;
 }
 
+// to be refined: porpoer time parsing and cleanup
+static ub4 dotime(char *p,ub4 len,char *dst)
+{
+  if (len == 8) {
+    memcpy(dst,p,8);
+    return 8;
+  } else if (len == 5) {
+    memcpy(dst,p,5);
+    memcpy(dst + 5,":00",3);
+    return 8;
+  } else return 0;
+}
+
 static int rdstoptimes(gtfsnet *net,const char *dir)
 {
   enum extresult res;
@@ -1138,11 +1151,12 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
   int rv;
   char *buf;
   ub4 len,linno,colno;
-  char *val,*vals;
-  ub4 vlen,*vallens;
+  char *val,*taval,*tdval,*vals;
+  ub4 vlen,clen,tavlen,tdvlen,*vallens;
   ub4 valcnt,valno;
   ub4 linepos = 0,linelen;
   block *mem = &net->stoptimesmem;
+  char cval[64];
 
   struct eta eta;
 
@@ -1162,8 +1176,8 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
 
 //  struct gtstop *sp,*stops = alloc(rawstopcnt,struct gtstop,0,"ext ports");
 
-  linelen = len;
-  char *lines = net->stoptimeslines = mkblock(mem,linelen,char,Noinit,"gtfs %u stoptimess, len %u",rawcnt-1,linelen);
+  linelen = len + rawcnt * 12;
+  char *lines = net->stoptimeslines = mkblock(mem,linelen,char,Noinit,"gtfs %u stoptimes, len %u",rawcnt-1,linelen);
 
   const char tab = '\t';
   ub4 trip_idpos,stop_idpos,stop_seqpos,tarr_pos,tdep_pos;
@@ -1228,19 +1242,22 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab);
 
-// tarr
-      val = vals + tarr_pos * Collen;
-      vlen = vallens[tarr_pos];
+// tarr,tdep
+      taval = vals + tarr_pos * Collen;
+      tavlen = vallens[tarr_pos];
+      tdval = vals + tdep_pos * Collen;
+      tdvlen = vallens[tdep_pos];
 
-      bound(mem,linepos + vlen + 1,char);
-      linepos = addcol(lines,linepos,val,vlen,tab);
+      if (tdvlen && tavlen == 0) { tavlen = tdvlen; taval = tdval; }
+      else if (tavlen && tdvlen == 0) { tdvlen = tavlen; tdval = taval; }
 
-// tdep
-      val = vals + tdep_pos * Collen;
-      vlen = vallens[tdep_pos];
+      clen = dotime(taval,tavlen,cval);
+      bound(mem,linepos + clen + 1,char);
+      linepos = addcol(lines,linepos,cval,clen,tab);
 
-      bound(mem,linepos + vlen + 1,char);
-      linepos = addcol(lines,linepos,val,vlen,'\n');
+      clen = dotime(tdval,tdvlen,cval);
+      bound(mem,linepos + clen + 1,char);
+      linepos = addcol(lines,linepos,cval,clen,'\n');
 
       cnt++;
       break;  // newitem

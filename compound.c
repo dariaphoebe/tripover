@@ -442,11 +442,11 @@ int compound(gnet *net)
       sumdur = rhopcdur[da];
       if (durdif == 0) {
         dur = sumdur / cnt;
-        warncc(dur > 240,Iter,"chop %u dur %u",hop,dur);
+        warncc(dur > 1440 * 2,Iter,"chop %u dur %u",hop,dur);
         eqdurs++;
       } else if (durdif < 10) {
         dur = sumdur / cnt;
-        warncc(dur > 240,Iter,"chop %u dur %u",hop,dur);
+        warncc(dur > 1440 * 2,Iter,"chop %u dur %u",hop,dur);
         aeqdurs++;
       } else {
         infovrb(durdif > 60,Iter,"chop %u dur %u-%u",chop ,hoplodur[da],hophidur[da]);

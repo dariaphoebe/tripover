@@ -18,8 +18,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 26;
-my $lastchanged = "4 feb 2015";
+my $version_min = 27;
+my $lastchanged = "17 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -223,7 +223,8 @@ sub usage()
   $m .= "-L -license        show license and quit\n\n";
   $m .= "commands:\n\n";
 
-  $m .= "import <indir> [outdir] import gtfs into tripover";
+  $m .= "import <outdir> [indir]  import gtfs into tripover\n";
+  $m .= "merge  <outdir> [indirs] merge canonical gtfs feeds";
   basemsg($m);
 }
 
@@ -534,16 +535,16 @@ sub init()
           $tzstr = '';
         } else {
           $tz = substr($tzstr,0,$alt);
-          vrb("tz '$tz' ofs '$ofs'");
+#          vrb("tz '$tz' ofs '$ofs'");
           push @tzs,$tz;
           $tzstr = substr($tzstr,$alt + 1);
-          vrb("tzstr '$tzstr'");
+#          vrb("tzstr '$tzstr'");
         }
       }
       foreach $tz (@tzs) {
         $tzofs{$tz} = $ofs;
         $tzdstofs{$tz} = $dstofs;
-        vrb("tz '$tz' ofs '$ofs'");
+#        vrb("tz '$tz' ofs '$ofs'");
       }
       $col = 0;
     }
@@ -1400,8 +1401,12 @@ sub readtrips($)
     $sid = $serviceids{$service_id};
     warning("no agency for route $routeid $route_id") unless exists $routeagency{$routeid};
     $agency_id = $routeagency{$routeid};
-    warning("no timezone for agency $agency_id") unless exists $agencyutcofs{$agency_id};
-    $utcofs = $agencyutcofs{$agency_id};
+    if (exists $agencyutcofs{$agency_id}) {;
+      $utcofs = $agencyutcofs{$agency_id};
+    } else {
+      warning("no timezone for agency $agency_id");
+      $utcofs = $defutcofs12;
+    }
     $sidutcofs{$sid} = $utcofs;
     push(@trips,join("\t",$route_id,$service_id,$trip_id,$headsign));
     $tripservice{$trip_id} = $service_id;
@@ -1874,6 +1879,9 @@ sub readstoptimes($)
     } elsif ($prvtrip == $tripid and not $lastline) {
       push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
     } else {
+      if ($prvtrip == $tripid) {
+        push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
+      }
       warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1; # todo
       @newstrip = sort { substr($a,0,3) <=> substr($b,0,3) } @newtrip;
       @newstrip1 = ();
@@ -1946,7 +1954,7 @@ sub readstoptimes($)
         $tarrsec += $tbias;
         next if $id == $prvid;
 
-        return error("trip ID '$xtripid' duplicate sequence $seq") if $seq == $prvseq;
+        return error("trip ID '$xtripid' duplicate sequence $seq line $xlinno") if $seq == $prvseq;
 
         if ( ($tdepsec / 3600) > 72 or ($tarrsec / 3600) > 72) {
           printf("dep %u h arr %u h %u\n",($tdepsec / 3600),($tarrsec / 3600),$tripid);
@@ -1969,9 +1977,9 @@ sub readstoptimes($)
 #        info("uniqid $uniqid");
         $sumtimes++;
         if (exists($tripseq{$uniqid})) {
-          push @{ $tripseq{$uniqid} },($sid,$xtripid,$htdep,$htarr,$seq);
+          push @{ $tripseq{$uniqid} },($xtripid,$htdep,$htarr,$seq);
         } else {
-          $tripseq{$uniqid} = [ ($sid,$xtripid,$htdep,$htarr,$seq) ];
+          $tripseq{$uniqid} = [ ($xtripid,$htdep,$htarr,$seq) ];
           push @uniqids,$uniqid;
           $stopdeps[$prvid]++;
           $stoparrs[$id]++;
@@ -2205,7 +2213,8 @@ sub writext($$)
   printf($hopfile ".trips\t.%u\t# total number of trips\n",$tripcnt);
   printf($hopfile ".hitrip\t.%u\t# highest trip ID\n\n",$hitripid);
 
-  print($hopfile "# route\tID\tfrom\tto\ttype\ttid\trid\t# from-name to-name\n\n");
+  print($hopfile "# route\tID\tfrom\tto\ttype\trid\ttimes\t# from-name to-name\n");
+  print($hopfile "#   times: fmt sid tid tdep tarr\n\n");
 
   my ($uniqid,$hoptime,$mark,$fmt,$timestr);
   my $xinfo = '';
@@ -2227,8 +2236,8 @@ sub writext($$)
     $hopid = $hopno;
 
     $timecnt = scalar @times;
-    return error("$timecnt not a multiple of 5") if $timecnt % 5;
-    $timecnt /= 5;
+    return error("$timecnt not a multiple of 4") if $timecnt % 4;
+    $timecnt /= 4;
 
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
@@ -2246,16 +2255,18 @@ sub writext($$)
     $route = '.' . $route if (substr($route,0,1) eq '.');
     $xinfo = "\t# '$depname' to '$arrname'" if ($verbose_hops > 0);
 
-    ($sid,$tid,$tdep,$tarr,$seq) = @times[0 .. 4];
+    ($tid,$tdep,$tarr,$seq) = @times[0 .. 3];
+    $sid = $tripsids{$tid};
     $fmt = 0;
     $timestr = sprintf("%x\t%x\t%x\t%x\t%x\t%x",$fmt,$sid,$tid,$tdep,$tarr,$seq);
 
     warning("tdep $tdep after tarr $tarr for tid $tid") if $tdep > $tarr;
     warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
 
-    for ($timendx = 5; $timendx < $timecnt * 5; $timendx += 5) {
+    for ($timendx = 4; $timendx < $timecnt * 4; $timendx += 4) {
       $prvsid = $sid; $prvtid = $tid; $prvtdep = $tdep; $prvtarr = $tarr;
-      ($sid,$tid,$tdep,$tarr,$seq) = @times[$timendx .. $timendx + 4];
+      ($tid,$tdep,$tarr,$seq) = @times[$timendx .. $timendx + 3];
+      $sid = $tripsids{$tid};
 
       warning("tdep $tdep after tarr $tarr") if $tdep > $tarr;
       warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
@@ -2507,8 +2518,8 @@ if (@args > 0) {
   $cmd = $args[0];
   if ($cmd eq 'import') {
     error_exit("missing arg 'dir' for import") unless (@args > 1);
-    $indir = $args[1];
-    $outdir = (@args > 2) ? $args[2] : '.';
+    $outdir = (@args > 1) ? $args[1] : '.';
+    $indir = (@args > 2) ? $args[2] : $outdir;
     $anadir = $outdir;
     $canondir = $outdir;
     info("import from $indir to $outdir");

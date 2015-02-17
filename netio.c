@@ -492,7 +492,7 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     ndep = pp->ndep; narr = pp->narr;
-    if (ndep > hidep / 2 || narr > hiarr / 2) info(0,"port %u deps %u arrs %u %s", port,ndep,narr,pp->name);
+    if (ndep > hidep / 2 || narr > hiarr / 2) info(Iter,"port %u deps %u arrs %u %s", port,ndep,narr,pp->name);
   }
 
   return 0;
@@ -1123,6 +1123,7 @@ static int rdexttimes(netbase *net,const char *dir)
   sp->t0 = t0lo;
   sp->t1 = t1hi;
   sp->utcofs = 12 * 60;
+  sp->refcnt = 1;
 
   if (maxsid > 100 * 1000 * 1000) warning(0,"max service id %u",maxsid);
   rsid2sids = alloc(maxsid+1,ub4,0xff,"sid2tids",maxsid);
@@ -1682,13 +1683,13 @@ static int rdexthops(netbase *net,const char *dir)
 
   for (sid = 0; sid < sidcnt; sid++) {
     sp = sids + sid;
+//    info(0,"sid %u '%s' refs %u",sid,sp->name,sp->refcnt);
     if (sp->refcnt) sidrefs++;
     else warninfo(net->timespanlimit > 365,0,"sid %x not referenced %s",sp->sid,sp->name);
   }
   if (sidrefs < sidcnt) info(0,"%u sid\as not referenced",sidcnt - sidrefs); // todo filter ?
 
   ub4 *id2hops;
-
 
   if (maxid > 100 * 1000 * 1000) warning(0,"max hop id %u",maxid);
   id2hops = alloc(maxid+1,ub4,0xff,"id2hops",maxid);

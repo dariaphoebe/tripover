@@ -1354,7 +1354,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     if (tdep) pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s\n",leg+1,min2lmin(tdep,utcofs),pdep->name);
     else pos += mysnprintf(buf,pos,buflen,"leg %2u dep %s\n",leg+1,pdep->name);
     if (tarr) pos += mysnprintf(buf,pos,buflen,"       arr \ad%u %s\n",min2lmin(tarr,utcofs),parr->name);
-    else pos += mysnprintf(buf,pos,buflen,"   arr %s\n",parr->name);
+    else pos += mysnprintf(buf,pos,buflen,"       arr %s\n",parr->name);
 
     if (rid == hi32) pos += mysnprintf(buf,pos,buflen,"       %s",name);
     else pos += mysnprintf(buf,pos,buflen,"       %s route %s",mode,rname);

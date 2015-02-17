@@ -96,21 +96,21 @@ Currently, the local commandline client does not need a build step.
 
 Prepare a GTFS feed by unpacking into any directory. Below southeast Queensland is used as example:
 
-`mkdir data/seq && cd data/seq`
+`mkdir -p au/qld/seq/in && cd au/qld/seq/in`
 
 `wget http://translink.com.au/sites/default/files/assets/resources/about-translink/reporting-and-publications/open-data/gtfs/SEQ.zip`
 
 `unzip SEQ`
 
-`cd ../..`
+`cd ../../../..`
 
 Convert into tripover external format
 
-`gtfsprep data/seq`
+`gtfsprep au/qld/seq/in`
 
-`gtfstool import data/seq data`
+`gtfstool import au/qld/seq au/qld/seq/in`
 
-Check for any errors or warnings in the outpiut. The cosole output is duplicated in +gtfstool.log+
+Check for any errors or warnings in the output. The console output is duplicated in +gtfstool.log+
 
 Initialise configuration
 
@@ -120,7 +120,7 @@ You can review the settings in +tripover.cfg+
 
 Run tripover server with this network:
 
-`./tripover data`
+`./tripover au/qld/seq`
 
 This will initialise and precompute the network. For 7000-stops Queensland with 1-transfer limit it takes a handful of minutes.
 
