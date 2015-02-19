@@ -1177,7 +1177,7 @@ static int rdextroutes(netbase *net,const char *dir)
   int rv;
   char *buf;
   ub4 len,linno = 0,colno = 0,namelen,valndx,valcnt;
-  ub4 rtype;
+  ub4 rtype,reserve;
   ub4 utcofs;
   char *name;
   ub4 *vals;
@@ -1234,10 +1234,11 @@ static int rdextroutes(netbase *net,const char *dir)
       linno = eft.linno;
       colno = eft.colno;
       error_gt(ridcnt+1,rawridcnt,linno);
-      if (valcnt < 3) return parserr(FLN,fname,linno,colno,"expect rrid,rtype,utcofs args, found only %u args",valcnt);
+      if (valcnt < 4) return parserr(FLN,fname,linno,colno,"expect rrid,rtype,res,utcofs args, found only %u args",valcnt);
       rrid = vals[0];
       rtype = vals[1];
-      utcofs = vals[2];
+      reserve = vals[2];
+      utcofs = vals[3];
 
       if (namelen > namemax) {
         parsewarn(FLN,fname,linno,colno,"name length %u exceeds max %u",namelen,namemax);
@@ -1256,6 +1257,7 @@ static int rdextroutes(netbase *net,const char *dir)
       rp->rtype = rtype;
       rp->utcofs = utcofs;
       rp->kind = tx;
+      rp->reserve = reserve;
       rp++;
       ridcnt++;
       break;

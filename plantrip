@@ -17,11 +17,13 @@
 use 5.012;
 use strict;
 
+use POSIX ();
+use POSIX qw(strftime);
 use Fcntl ':mode';
 
 my $version_maj = 0;
-my $version_min = 21;
-my $lastchanged = "16 feb 2015";
+my $version_min = 22;
+my $lastchanged = "19 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -58,6 +60,8 @@ my $utcofs = '+10:00';
 
 my $utcofs12 = 2200;  # biased coded decimal
 my $utcofs12_def = 2200;
+my $utcofsmin = 10 * 60;
+my $sysutcofs;  # utc offset for current system
 
 my $testiters = 1000;
 
@@ -107,6 +111,14 @@ sub warning($) { return msg("warning: $_[0]"); }
 sub error($)   { msg("error: $_[0]"); return 0; }
 
 sub error_exit($) { print ("error: $_[0]\n"); exit 1; }
+
+sub trimws($) {
+  my ($s) = @_;
+  $s =~ s/[ \t\n]+/ /g;
+  $s =~ s/^ //;
+  $s =~ s/ $//;
+  return $s;
+}
 
 sub filepatindir($$$$)
 {
@@ -289,6 +301,11 @@ sub portbyname($)
   foreach $subid (@plist) {
     printf("%2u %s\n",$seq++,$portids{$subid});
   }
+  unless (-t STDIN) {
+    print("noninteractive mode: first match chosen\n");
+    return $plist[0];
+  }
+
   do {
     print("\nChoose port by number or q to quit: ");
     $line = <STDIN>;
@@ -373,6 +390,7 @@ sub iplan($$)
     $utcofs12 = $utcofs12_def;
     $hh = ($utcofs12 / 100) - 12;
     $mm = $utcofs12 % 100;
+    $utcofsmin = $hh * 60 + $mm;
     $utcofs = sprintf("%+02d:%02d",$hh,$mm);
     $tz = ofs2tz($utcofs);
     vrb("using default display tz $tz utc$utcofs from portrefs");
@@ -533,6 +551,7 @@ sub setvar($$)
     return 0 unless defined $hh;
     $tz = $val;
     $utcofs12 = ($hh + 12) * 100 + $mm;
+    $utcofsmin = $hh * 60 + $mm;
     $utcofs = sprintf("%+02d:%02d",$hh,$mm);
     info("new utcofs $hh:$mm");
   } elsif (index($var,'utcoffset') >= 0) {
@@ -540,6 +559,7 @@ sub setvar($$)
     return 0 unless $col > 0;
     $hh = substr($val,0,$col);
     $mm = substr($val,$col+1);
+    $utcofsmin = $hh * 60 + $mm;
     $utcofs12 = int(($hh + 12) * 100 + $mm);
     info("new utcofs $hh:$mm");
     $tz = ofs2tz($val);
@@ -561,7 +581,8 @@ sub set_var($)
     $var = substr($arg,0,$eq);
     $val = substr($arg,$eq + 1);
     setvar($var,$val);
-  }
+    return '';
+  } else { return $arg . ' '; }
 }
 
 sub stop($)
@@ -582,6 +603,7 @@ sub ret_close_err($$)
   return 0;
 }
 
+# submit the query and wait for corresponding reply
 sub query($$$)
 {
   my ($cmd,$region,$str) = @_;
@@ -665,6 +687,117 @@ sub query($$$)
   unlink $qname_rcv or return error("cannot remove $qname_rcv:$!");
 }
 
+# issue an update ( = realtime) command : similar to query, yet no response
+sub updcmd($)
+{
+  my ($str) = @_;
+  my ($stamp,$qfile,$qname,$qname_new,$qname_sub,$qname_rep,$qname_rcv,$serverid);
+  my $cmd = 'u';
+
+# prepare the query. use atomic file renames, server does the same
+# query filename: 
+#  [a-z]_     command
+#  [a-z]_     (format todo) region
+#  [0-9a-f]_  hex timestamp in sec
+#  [0-9a-f]   hex client id
+#  .sub
+
+# file content is lines with list of hex integers only:
+# first number is command : 0=fares 1=trips 2=routes 3=stops
+# fares : rrid,t0,(dt mask fare[n])+
+
+  $stamp = time();
+  $qname = sprintf("%s/%s_glob_%010x_%04x",$querydir,$cmd,$stamp,$clientid);
+  $qname_new = $qname . '.new';
+  $qname_sub = $qname . '.sub';
+  vrb("create $qname_new");
+
+  if ($dryrun) {
+    info("$qname");
+    info("  $str");
+    return 1;
+  }
+
+  open($qfile,'>',$qname_new) or error_exit("cannot create $qname_new: $!");
+  print($qfile $str);
+  close($qfile);
+
+  vrb("submit '$cmd' '$str'");
+
+# rename to submit: server will pick up from here.
+  vrb("rename to $qname_sub");
+  rename($qname_new,$qname_sub);
+}
+
+sub cntbits($)
+{
+  my $x = shift;
+  my $n = 0;
+
+  while ($x) { $n++ if ($x & 1); $x >>= 1; }
+  return $n
+}
+
+my $nix2to = 946684800; # seconds Epoch 2000 since 1970
+
+# from yyyymmdd to minutes since Epoch
+sub cd2day($)
+{
+  my $cd = shift;
+
+  my $dd = int($cd % 100); $cd /= 100;
+  my $mm = int($cd % 100);
+  my $yy = int($cd / 100);
+  my $nixsec = int POSIX::mktime(0,0,0,$dd,$mm-1,$yy-1900,0,0,0);
+  my $tomin = ($nixsec - $nix2to) / 60;
+  return int($tomin + $sysutcofs);
+}
+
+# hhmm to minutes
+sub cd2time($)
+{
+  my $cd = shift;
+
+  my $hh = int($cd / 100);
+  my $mm = int($cd % 100);
+  return int($hh * 60 + $mm);
+}
+
+sub update($$$$$$)
+{
+  my ($rid,$dep,$arr,$cd_day0,$cd_time0,$xargs) = @_;
+  my ($cd_day,$cd_time,$t,$dt,$mask,$farecnt);
+
+  $xargs = trimws($xargs);
+
+  info("rid $rid t0 $cd_day0 xargs '$xargs'");
+  my $d = cd2day($cd_day0);
+  my $tt = cd2time($cd_time0);
+  my $t0 = int($d + $tt - $utcofsmin);
+
+  my @args = split(' ',$xargs);
+  my $argcnt = scalar(@args);
+  my $argno = 0;
+  my $str = sprintf("0 %x %x %x %x ",$rid,$dep,$arr,$t0);
+  while ($argno + 3 < $argcnt) {
+    $cd_day = $args[$argno];
+    $cd_time = $args[$argno+1];
+    $d = cd2day($cd_day);
+    $tt = cd2time($cd_time);
+    $t = int($d + $tt - $utcofsmin);
+    return info("t $t t0 $t0") if ($t < $t0);
+    $dt = $t - $t0;
+    $mask = $args[$argno+2];
+    $argno += 3;
+    $farecnt = cntbits($mask);
+    return info("farecnt $farecnt argno $argno") if ($argno + $farecnt >= $argcnt);
+    $str .= sprintf("%x %x ",$dt,$mask);
+    while ($farecnt--) { $str .= sprintf("%x ",$args[$argno++]); }
+  }
+  $str .= "\n";
+  updcmd($str);
+}
+
 # obtain query dir from current config
 sub readcfg()
 {
@@ -686,14 +819,6 @@ sub readcfg()
   }
   error_exit("empty query config") unless length($querydir);
   vrb("query dir $querydir/");
-}
-
-sub trimws($) {
-  my ($s) = @_;
-  $s =~ s/[ \t\n]+/ /g;
-  $s =~ s/^ //;
-  $s =~ s/ $//;
-  return $s;
 }
 
 sub usage()
@@ -838,15 +963,22 @@ sub init()
     mkdir($querydir) || error_exit("cannot create query dir:$!");
   }
   readtzinfo();
+  my $sec70 = time;
+  my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime $sec70;
+  my $ltsec = strftime('%s',$sec,$min,$hour,$mday,$mon,$year,$wday,$yday,0);
+  ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime $sec70;
+  my $utcsec = strftime('%s',$sec,$min,$hour,$mday,$mon,$year,$wday,$yday,0);
+  $sysutcofs = int(($ltsec - $utcsec) / 60);
+  info("localtime $ltsec utc $utcsec ofs $sysutcofs");
 }
 
-my ($arg,$opt,$inopt,$cmd,$line,$prvline);
-my ($dep,$arr);
+my ($arg,$xargs,$opt,$inopt,$cmd,$line,$prvline);
+my ($dep,$arr,$rid,$d0,$t0);
 my @args;
 
 my ($sec,$min,$hour,$mday,$mon,$year) = localtime(time);
 $startdate = sprintf("%04u%02u%02u.%02u%02u",$year+1900,$mon+1,$mday,$hour,$min);
-info("$startdate");
+vrb("$startdate");
 
 if (@ARGV > 0) {
   foreach $arg (@ARGV) {
@@ -874,9 +1006,11 @@ if (@ARGV > 0) {
       push(@args,$arg);
     }
   }
+
   if (@args > 0) {
     init();
     $cmd = $args[0];
+    $xargs = '';
     if ($cmd eq 'stop') {
       stop($cmd);
     } elsif ($cmd eq 'plan') {
@@ -893,23 +1027,33 @@ if (@ARGV > 0) {
       foreach $arg (@args) { set_var($arg); }
       iplan($dep,$arr);
       agedir($querydir,time() - $agelimit);
+    } elsif ($cmd eq 'update') {  # dev provision
+      exit info("update needs: 'rid,dep,arr,date,time'") unless (@args > 5);
+      $rid = $args[1]; $dep = $args[2]; $arr = $args[3]; $d0 = $args[4]; $t0 = $args[5];
+      splice(@args,0,6);
+      foreach $arg (@args) { $xargs .= set_var($arg); }
+      update($rid,$dep,$arr,$d0,$t0,$xargs);
     } else { info("unknown command"); }
+    exit 0;
   }
-  exit 0;
 }
 
 init();
 
-info("entering command loop. commands:\n");
-info("  plan <from> <to> name or coords");
-info("  quit, exit");
+if (-t STDIN) {
+  info("entering command loop. commands:\n");
+  info("  plan <from> <to> name or coords");
+  info("  quit, exit");
+}
 
 # loop 
 $cmd = ''; $prvline = '';
 while ($cmd ne 'quit') {
-  print("plantrip % ");
+  print("plantrip % ") if -t STDIN;
   $line = <STDIN>;
   next unless defined $line and length($line);
+  next if index($line,'#') == 0;
+
   $line = trimws($line);
   $line = $prvline if $line eq '!!';
   @args = split(' ',$line);
@@ -918,17 +1062,35 @@ while ($cmd ne 'quit') {
   $cmd = 'quit' if index($line,'exit') == 0;
   $cmd = 'plan' if index($line,'plan') == 0;
   $cmd = 'iplan' if index($line,'iplan') == 0;
+  $cmd = 'update' if index($line,'update') == 0;
   $cmd = 'stop' if index($line,'stop') == 0;
   $cmd = 'set' if index($line,'set') == 0;
   $cmd = 'get' if index($line,'get') == 0;
   info("unrecognised command '$line'") if length($line) and not length($cmd);
   $prvline = $line;
   if ($cmd eq 'plan') {
-    plan($args[1],$args[2]);
+    exit info("plan needs 'from' and 'to' arg") unless (@args > 2);
+    $dep = $args[1]; $arr = $args[2];
+    splice(@args,0,3);
+    foreach $arg (@args) { set_var($arg); }
+    plan($dep,$arr);
     agedir($querydir,time() - $agelimit);
   } elsif ($cmd eq 'iplan') {
-    iplan($args[1],$args[2]);
+    exit info("iplan needs 'from' and 'to' arg") unless (@args > 2);
+    $dep = $args[1]; $arr = $args[2];
+    splice(@args,0,3);
+    foreach $arg (@args) { set_var($arg); }
+    iplan($dep,$arr);
     agedir($querydir,time() - $agelimit);
+  } elsif ($cmd eq 'update') {  # dev provision
+    unless (@args > 5) {
+      info("update needs: 'rid,dep,arr,date,time'");
+      exit;
+    }
+    $rid = $args[1]; $dep = $args[2]; $arr = $args[3]; $d0 = $args[4]; $t0 = $args[5];
+    splice(@args,0,6);
+    foreach $arg (@args) { $xargs .= set_var($arg); }
+    update($rid,$dep,$arr,$d0,$t0,$xargs);
   } elsif ($cmd eq 'stop') {
     stop($line);
   } elsif ($cmd eq 'set') {

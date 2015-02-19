@@ -156,6 +156,7 @@ struct routebase {
   ub4 rrid;
 
   ub4 rtype;
+  ub4 reserve;
   enum txkind kind;
 
   char name[128];

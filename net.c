@@ -1052,7 +1052,10 @@ int mknet(ub4 maxstop)
       info(0,"partition %u static network init done",part);
       allhistop = min(allhistop,net->histop);
 
-    } else info(0,"partition %u skipped static network init",part);
+    } else {
+      info(0,"partition %u no n-stop static network init",part);
+      allhistop = 0;
+    }
     msgprefix(0,NULL);
 
   } // each part

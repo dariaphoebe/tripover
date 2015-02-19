@@ -42,6 +42,8 @@
 
 #define Chainlen 256
 
+#define Faregrp 4
+
 #if (Nstop < 1)
  #error "Nstop must be > 0"
 #endif
@@ -140,6 +142,7 @@ struct hop {
   char name[64];
   ub4 namelen;
 
+  ub4 reserve;
   enum txkind kind;
 
   ub4 dep,arr;    // within part
@@ -161,12 +164,15 @@ struct route {
   char name[128];
   ub4 namelen;
 
+  ub4 reserve;
   enum txkind kind;
 
   ub4 rrid;
-  ub4 portcnt;
+//  ub4 portcnt;
   ub4 hopcnt;
   ub4 hichainlen;
+  ub4 hops[Chainlen];  // global
+  ub4 hop2chop[Chainlen * Chainlen];  // global. todo: allocate actual hopcnt^2
 
   ub4 chainofs;
   ub4 chaincnt;
@@ -346,11 +352,18 @@ struct gnetwork {
   ub2 *evmaps;
   ub4 t0,t1;  // overalll period
 
+// fares and availability
+  block faremem;
+  ub2 *fareposbase;
+  ub8 fareposcnt;
+  ub4 *fhopofs;     // [chopcnt] offsets into faremem
+
   struct chainhop *chainhops;
   ub4 *ridhops;
   ub8 *chainrhops;
 
   ub4 *tid2rtid;   // [chaincnt]
+  ub4 *rrid2rid;   // [hirrid+1]
 
   ub4 histop;     // highest n-stop connections inited
   ub4 walklimit;

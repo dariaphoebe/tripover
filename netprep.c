@@ -189,6 +189,7 @@ int prepnet(netbase *basenet)
   ub4 hop,port,chain;
 
   ub4 *rrid2rid = basenet->rrid2rid;
+  ub4 hirrid = basenet->hirrid;
 
   bhopcnt = basenet->hopcnt;
   bportcnt = basenet->portcnt;
@@ -257,6 +258,7 @@ int prepnet(netbase *basenet)
     rp = routes + rid;
     rp->rrid = brp->rrid;
     rp->kind = brp->kind;
+    rp->reserve = brp->reserve;
     rp->chainofs = brp->chainofs;
     rp->chaincnt = brp->chaincnt;
     rp->hopcnt = brp->hopcnt;
@@ -311,9 +313,12 @@ int prepnet(netbase *basenet)
       hp->namelen = nlen;
     }
     rrid = bhp->rrid;
+    error_gt(rrid,hirrid,hop);
     hp->rrid = rrid;
     rid = rrid2rid[rrid];
     hp->rid = rid;
+    rp = routes + rid;
+    hp->reserve = rp->reserve;
 
     tp = &hp->tp;
     btp = &bhp->tp;
@@ -325,8 +330,11 @@ int prepnet(netbase *basenet)
     tp->gt0 = btp->gt0;
     tp->t0 = t0;
     tp->t1 = t1;
+
     tp->evcnt = evcnt;
     tp->genevcnt = btp->genevcnt;
+    error_ne(tp->genevcnt,evcnt);
+
     tp->evofs = btp->evofs;
     tp->dayofs = btp->dayofs;
 
@@ -385,6 +393,21 @@ int prepnet(netbase *basenet)
   if (hopcnt == 0) return error(0,"nil hops out of %u",bhopcnt);
   info(0,"%u from %u hops",hopcnt,bhopcnt);
   hopcnt = bhopcnt;
+
+  // prepare <rid,dep,arr> to hop lookup
+  ub4 hopndx;
+
+  for (rid = 0; rid < ridcnt; rid++) {
+    rp = routes + rid;
+    hopndx = 0;
+    for (hop = 0; hop < hopcnt; hop++) {
+      hp = hops + hop;
+      if (hp->rid != rid) continue;
+      rp->hops[hopndx++] = hop;
+      if (hopndx >= Chainlen) break;
+    }
+    warncc(hopndx != rp->hopcnt,0,"rid %u hopcnt %u vs %u",rid,hopndx,hopcnt);
+  }
 
   ub4 oneridcnt = 0;
   ub4 onerid;
@@ -534,6 +557,9 @@ int prepnet(netbase *basenet)
   gnet->chainrhops = basenet->chainrhops;
   gnet->chainhopcnt = chainhopcnt;
   gnet->ridhops = basenet->ridhops;
+
+  gnet->hirrid = hirrid;
+  gnet->rrid2rid = rrid2rid;
 
   gnet->tid2rtid = tid2rtid;
   gnet->hichainlen = basenet->hichainlen;

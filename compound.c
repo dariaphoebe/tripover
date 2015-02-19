@@ -129,6 +129,9 @@ int compound(gnet *net)
   struct eta eta;
   int warnlim;
 
+  ub8 cumfevcnt = 0,cumcfevcnt = 0;
+  ub4 cumfhops = 0;
+
   ub4 hicnt = 0,hirid = 0;
 
   for (rid = 0; rid < ridcnt; rid++) {
@@ -166,6 +169,10 @@ int compound(gnet *net)
       if (hp->rid != rid) continue;
       dep = hp->dep; arr = hp->arr;
       if (dep == arr) continue;
+      if (hp->reserve) {
+        cumfevcnt += hp->tp.evcnt;
+        cumfhops++;
+      }
       if (port2rport[dep] == hi32) {
         error_ge(rportcnt,hiportlen);
         port2rport[dep] = rportcnt;
@@ -389,7 +396,11 @@ int compound(gnet *net)
           portsbyhop[chop * 2 + 1] = arr;
           choporg[chop * 2] = hop1;
           choporg[chop * 2 + 1] = hop2;
-
+          hp = hops + hop1;
+          if (hp->reserve) {
+            cumcfevcnt += hp->tp.evcnt;
+            cumfhops++;
+          }
           rhop1 = ridhops[rid * hopcnt + hop1];
           rhop2 = ridhops[rid * hopcnt + hop2];
           crp = chainrhops + cp->rhopofs;
@@ -465,6 +476,42 @@ int compound(gnet *net)
   net->chopcnt = chopcnt;
   net->choporg = choporg;
   net->hopcdur = hopcdur;
+
+  // allocate fare entries here, as they are for both plain and compound hops on reserved routes
+  info(0,"\ah%lu + \ah%lu fare entries for %u hops",cumfevcnt,cumcfevcnt,cumfhops);
+
+  if (cumfhops == 0) return 0;
+
+  cumfevcnt += cumcfevcnt;
+  net->fareposbase = mkblock(&net->faremem,cumfevcnt * Faregrp,ub2,Init0,"fare entries for %u reserved hops",cumfhops);
+  net->fareposcnt = cumfevcnt;
+
+  ub4 *fhopofs = alloc(chopcnt,ub4,0xff,"fare fposofs",cumfhops);
+
+  ub4 ofs = 0;
+  ub4 h1ndx,h2ndx,hopndx,h;
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    if (hp->reserve) { fhopofs[hop] = ofs; ofs += hp->tp.evcnt; }
+  }
+  for (chop = hopcnt; chop < chopcnt; chop++) {
+    hop1 = choporg[chop * 2];
+    hop2 = choporg[chop * 2 + 1];
+    hp = hops + hop1;
+    if (hp->reserve) { fhopofs[chop] = ofs; ofs += hp->tp.evcnt; }
+    rid = hp->rid;
+    rp = routes + rid;
+    hopndx = 0; h1ndx = h2ndx = hi32; 
+    while (hopndx < rp->hopcnt && h1ndx == hi32 && h2ndx == hi32) {
+      h = rp->hops[hopndx];
+      if (h == hop1) h1ndx = hopndx;
+      else if (h == hop2) h2ndx = hopndx;
+      hopndx++;
+    }
+    if (h1ndx == hi32 || h2ndx == hi32) continue;
+    rp->hop2chop[h1ndx * Chainlen + h2ndx] = chop;
+  }
+  net->fhopofs = fhopofs;
 
   return 0;
 }

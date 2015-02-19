@@ -18,8 +18,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 27;
-my $lastchanged = "17 feb 2015";
+my $version_min = 28;
+my $lastchanged = "19 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -53,6 +53,8 @@ my $infer_parent = 1;   # infer parent when seemingly missing : seq
 my $infer_limit = 0.1;
 my $showinfer = 0;
 
+my $allreserved = 0;
+
 my $geoacc = 6; # decimals for lat/lon in canon output
 
 my $omit_unconnect = 1;
@@ -66,6 +68,9 @@ my %rsids2watch;
 
 my $logname = 'gtfstool.log';
 my $logfd;
+
+my $canonmagic = 'x4BAb35S';
+my $iscanonin = 0;
 
 my ($indir,$outdir);
 
@@ -218,6 +223,7 @@ sub usage()
   $m .= "-h -help           show help and quit\n";
   $m .= "-a -analysis       enable analysis output\n";
   $m .= "-c -canonical      enable canonical output\n";
+  $m .= "-r -reserve        mark all routes as requiring reservation\n";
   $m .= "-t -test           test only, no output\n";
   $m .= "-V -version        show version and quit\n";
   $m .= "-L -license        show license and quit\n\n";
@@ -323,6 +329,7 @@ my %routebyids;
 my %routeagency;
 my %rtypes;
 my %agency_ids;
+my %routeres;
 
 my $hirrid = 0;
 
@@ -1242,6 +1249,7 @@ sub readroutes($)
   my ($routefile,$routefname,$rv,$headline);
   my ($val,$col,$colid,$colname,$line,$comma,$endq,$c,$req);
   my ($route_id,$agency_id,$routeid,$utcofs12,$name,$sname,$lname,$slname,$desc,$rtype,$modename);
+  my ($reserveprefix,$reserve,$magic);
 
   $routefname = $dir . '/' . 'routes.tab';
 
@@ -1295,6 +1303,14 @@ sub readroutes($)
     $routeagency{$routeid} = $agency_id;
     $rtypes{$routeid} = $rtype;
 
+    $reserve = 0;
+    if (index($route_id,$canonmagic) == 0) {
+      $iscanonin = 1;
+      ($magic,$reserveprefix) = split '_',$route_id;
+      $reserve = 1 if defined $reserveprefix and $reserveprefix eq 'r';
+    } else { $reserve = $allreserved; }
+    $routeres{$routeid} = $reserve;
+
     $agency_ids{agency_id} = $routeid;
 
     if (exists($agencyutcofs{$agency_id})) {
@@ -1306,7 +1322,7 @@ sub readroutes($)
     }
 
     if (filtermode($rtype)) {
-      push(@routes,join("\t",$route_id,$agency_id,$utcofs12,'',$slname,$rtype));
+      push(@routes,join("\t",$route_id,$agency_id,$reserve,$utcofs12,'',$slname,$rtype));
       $hirrid = max($hirrid,$routeid);
     } else {
       $noroutecnt++;
@@ -2080,7 +2096,7 @@ sub writext($$)
   my ($name,$portfile,$hopfile,$routefile);
   my ($stop,$stopid,$hop,$route,$hopid);
   my ($dep_id,$arr_id,$dep,$arr,$depname,$arrname);
-  my ($routeid,$route_id,$agency_id,$rid,$rtype,$shortname,$longname);
+  my ($routeid,$route_id,$agency_id,$reserve,$rid,$rtype,$shortname,$longname);
   my ($cnt,$line);
 
   return 1 if $testonly;
@@ -2185,9 +2201,10 @@ sub writext($$)
   print($routefile "# to_routes.txt - tripover external route file\n\n");
   infoext($routefile);
   printf($routefile ".ridrange\t..%u\t%u\n\n",$routecnt,$hirrid);
+  print($routefile "# name\trid\ttype\treserve\tutcofs\n\n");
 
   foreach $line (@routes) {
-    ($route_id,$agency_id,$utcofs12,$shortname,$longname,$rtype) = split("\t",$line);
+    ($route_id,$agency_id,$reserve,$utcofs12,$shortname,$longname,$rtype) = split("\t",$line);
     next unless exists $routeids{$route_id};
     $rid = $routeids{$route_id};
 
@@ -2196,7 +2213,7 @@ sub writext($$)
     } else {
       $name = join(' ',$agency_id,$shortname,$longname);
     }
-    printf($routefile "%s\t%u\t%u\t%u\n",$name,$rid,$rtype,$utcofs12);
+    printf($routefile "%s\t%u\t%u\t%u\t%u\n",$name,$rid,$rtype,$reserve,$utcofs12);
   }
   close($routefile);
   info("wrote to_routes.txt");
@@ -2323,6 +2340,8 @@ sub writegtfs()
 
   my ($agency_id,$agency_name,$agency_url,$agency_timezone);
 
+  return warning("input is canonical, no canonical output") if ($iscanonin);
+
 # agency
   $fname = 'agency.tab';
   inican($canondir . "/$fname");
@@ -2399,6 +2418,8 @@ sub writegtfs()
   }
 
 # routes
+  my $reserveprefix = $allreserved ? 'r' : 'u';
+
   $fname = 'routes.tab';
   inican($canondir . "/$fname");
   open($routesfile,'>:encoding(UTF-8)',$canondir . "/$fname") or return 0;
@@ -2406,7 +2427,7 @@ sub writegtfs()
 
   foreach $line (@routes) {
     ($route_id,$agency_id,$utcofs,$shortname,$longname,$rtype) = split("\t",$line);
-    $route_id = $idprefix . $route_id;
+    $route_id = join '_',$canonmagic,$reserveprefix,$idprefix,$route_id;
     print($routesfile "$route_id\t$agency_id\t$rtype\t$shortname\t$longname\t$desc\n");
   }
   close($routesfile);
@@ -2503,6 +2524,7 @@ foreach $arg (@ARGV) {
     elsif ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
     elsif ($opt eq 'a' or $opt eq 'analysis') { info('analysis output enabled'); $anaout = 1; }
     elsif ($opt eq 'c' or $opt eq 'canonical') { info('canonical output enabled'); $canonout = 1; }
+    elsif ($opt eq 'r' or $opt eq 'reserve') { info('mark all routes as requiring reservation'); $allreserved = 1; }
     elsif ($opt eq 't' or $opt eq 'test') { info('test only, no output'); $testonly = 1; }
     elsif ($opt eq 'nobus') { $include_bus = 0; }
     elsif ($opt eq 'nometro') { $include_metro = 0; }

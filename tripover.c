@@ -43,6 +43,7 @@ static ub4 msgfile;
 #include "compound.h"
 #include "partition.h"
 #include "search.h"
+#include "fare.h"
 
 static const char copyright[] = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -89,7 +90,7 @@ static int init0(char *progname)
   inipartition();
   inicompound();
   inisearch();
-
+  inifare();
   return 0;
 }
 

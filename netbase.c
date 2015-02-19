@@ -267,7 +267,7 @@ int prepbasenet(void)
   ub4 tdep,tarr,tripseq,tdepsec,tarrsec;
   ub4 chcnt,i;
   ub4 t0,t1,ht0,ht1,hdt,tdays,mapofs;
-  ub8 cumevcnt = 0,cumzevcnt = 0,cumtdays = 0;
+  ub8 cumevcnt = 0,cumzevcnt = 0,cumfevcnt = 0,cumtdays = 0;
   ub4 evhops = 0;
   ub4 dur,lodur,hidur,midur,prvdur,duracc,sumdur,eqdur = 0,accdur = 0;
   ub4 sumtimes = 0;
@@ -594,13 +594,15 @@ int prepbasenet(void)
     hp->zevcnt = zevcnt;
     infovrb(dbg,0,"hop %u \ah%u to %u time events %s",hop,evcnt,zevcnt,hp->name);
     cumevcnt += evcnt;
-
     cumzevcnt += zevcnt;
+
+    if (rp->reserve) cumfevcnt += evcnt;
+
     msgprefix(0,NULL);
   }
   msgprefix(0,NULL);
 
-  info(0,"\ah%lu org time events to \ah%lu",cumevcnt,cumzevcnt);
+  info(0,"\ah%lu org time events to \ah%lu, \ah%lu fare points",cumevcnt,cumzevcnt,cumfevcnt);
   info(0,"\ah%u org chainhops to \ah%u",cumhoprefs,cumhoprefs2);
   info(0,"%u routes",ridcnt);
   infocc(evhops < hopcnt,0,"%u of %u hops without time events",hopcnt - evhops,hopcnt);
