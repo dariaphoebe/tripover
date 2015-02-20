@@ -112,52 +112,6 @@ static int sameroute2b(struct hop *hops,ub4 b,ub4 *rids,ub4 *deps,ub4 *arrs)
   else return 1;
 }
 
-static int sameroute12(struct hop *hops,ub4 b,ub4 *rids,ub4 *deps,ub4 *arrs)
-{
-  ub4 hopc1,hopc2,portc1,portc2;
-  struct hop *hpc1,*hpc2;
-  ub4 rid1 = rids[0];
-  ub4 rid2 = rids[1];
-
-  hopc1 = deps[0];
-  hpc1 = hops + hopc1;
-  error_ne(hpc1->dep,b);
-  error_ne(hpc1->rid,rid1);
-  portc1 = hpc1->arr;
-
-  hopc2 = arrs[1];
-  hpc2 = hops + hopc2;
-  error_ne(hpc2->arr,b);
-  error_ne(hpc2->rid,rid2);
-  portc2 = hpc2->arr;
-
-  if (portc1 != portc2) return 0;
-  else return 1;
-}
-
-static int sameroute21(struct hop *hops,ub4 b,ub4 *rids,ub4 *deps,ub4 *arrs)
-{
-  ub4 hopa1,hopa2,porta1,porta2;
-  struct hop *hpa1,*hpa2;
-  ub4 rid1 = rids[0];
-  ub4 rid2 = rids[1];
-
-  hopa1 = deps[1];
-  hpa1 = hops + hopa1;
-  error_ne(hpa1->dep,b);
-  error_ne(hpa1->rid,rid2);
-  porta1 = hpa1->arr;
-
-  hopa2 = arrs[0];
-  hpa2 = hops + hopa2;
-  error_ne(hpa2->arr,b);
-  error_ne(hpa2->rid,rid1);
-  porta2 = hpa2->arr;
-
-  if (porta1 != porta2) return 0;
-  else return 1;
-}
-
 int prepnet(netbase *basenet)
 {
   struct gnetwork *gnet = getgnet();
@@ -319,6 +273,7 @@ int prepnet(netbase *basenet)
     hp->rid = rid;
     rp = routes + rid;
     hp->reserve = rp->reserve;
+    hp->rhop = bhp->rhop;
 
     tp = &hp->tp;
     btp = &bhp->tp;
@@ -395,18 +350,16 @@ int prepnet(netbase *basenet)
   hopcnt = bhopcnt;
 
   // prepare <rid,dep,arr> to hop lookup
-  ub4 hopndx;
+  ub4 rhop;
 
-  for (rid = 0; rid < ridcnt; rid++) {
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    rid = hp->rid;
+    if (rid == hi32) continue;
+    error_ge(rid,ridcnt);
     rp = routes + rid;
-    hopndx = 0;
-    for (hop = 0; hop < hopcnt; hop++) {
-      hp = hops + hop;
-      if (hp->rid != rid) continue;
-      rp->hops[hopndx++] = hop;
-      if (hopndx >= Chainlen) break;
-    }
-    warncc(hopndx != rp->hopcnt,0,"rid %u hopcnt %u vs %u",rid,hopndx,hopcnt);
+    rhop = hp->rhop;
+    if (rhop < Chainlen) rp->hops[rhop] = hop;
   }
 
   ub4 oneridcnt = 0;
@@ -436,16 +389,6 @@ int prepnet(netbase *basenet)
     } else if (ndep == 1 && narr == 1 && drids[0] == arids[0] && drids[0] != hi32) {
       oneroute = 1;
       pp->onerid = arids[0];
-    } else if (ndep == 1 && narr == 2 && drids[0] != hi32 && (drids[0] == arids[0] || drids[0] == arids[1]) ) {
-      if (arids[0] == arids[1] || sameroute12(hops,port,arids,deps,arrs)) {
-        oneroute = 1;
-        pp->onerid = drids[0];
-      }
-    } else if (ndep == 2 && narr == 1 && arids[0] != hi32 && (drids[0] == arids[0] || drids[1] == arids[0]) ) {
-      if (drids[0] == drids[1] || sameroute21(hops,port,drids,deps,arrs)) {
-        oneroute = 1;
-        pp->onerid = arids[0];
-      }
     } else if (ndep == 2 && narr == 2 && drids[0] != hi32 && drids[1] != hi32) {
       if (drids[0] == drids[1] && arids[0] == arids[1] && drids[0] == arids[0]) {
         oneroute = 1;
@@ -485,6 +428,7 @@ int prepnet(netbase *basenet)
     cnt = bcp->hopcnt;
     if (cnt < 3) { vrb(0,"skip dummy chain %u with %u hop\as",chain,cnt); continue; }
     cp->hopcnt = cnt;
+    cp->rhopcnt = bcp->rhopcnt;
     cp->rrid = bcp->rrid;
     cp->rid = bcp->rid;
     cp->tid = chain;
@@ -556,7 +500,6 @@ int prepnet(netbase *basenet)
   gnet->chainhops = chainhops;
   gnet->chainrhops = basenet->chainrhops;
   gnet->chainhopcnt = chainhopcnt;
-  gnet->ridhops = basenet->ridhops;
 
   gnet->hirrid = hirrid;
   gnet->rrid2rid = rrid2rid;

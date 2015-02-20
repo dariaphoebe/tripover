@@ -104,6 +104,8 @@ static void cpfromgnet(gnet *gnet,lnet *net)
   net->evmapmem = gnet->evmapmem;
   net->events = gnet->events;
   net->evmaps = gnet->evmaps;
+  net->fareposbase = gnet->fareposbase;
+  net->faremem = &gnet->faremem;
   net->t0 = gnet->t0;
   net->t1 = gnet->t1;
   net->hichainlen = gnet->hichainlen;
@@ -145,7 +147,7 @@ int partition(gnet *gnet)
   ub4 cnt,acnt,dcnt,tcnt,rid,part,tpart;
   ub4 pportcnt,phopcnt,pchopcnt,pxhopcnt,partcnt,part2,newpartcnt;
 
-  ub4 hop,rhop,port,phop,pport;
+  ub4 hop,port,phop,pport;
 
   ub4 *hopcnts,*xhopcnts,*portcnts;
   ub4 *g2p,*p2g,*g2phop,*p2ghop;
@@ -168,7 +170,6 @@ int partition(gnet *gnet)
   ub4 *phopdist,*hopdist = gnet->hopdist;
   ub4 *phopdur,*hopdur = gnet->hopdur;
   ub4 *phopcdur,*hopcdur = gnet->hopcdur;
-  ub4 *pridhops,*ridhops = gnet->ridhops;
 
   ub4 hpcnt2,hxcnt2;
   ub4 dist;
@@ -245,7 +246,7 @@ int partition(gnet *gnet)
     net->hopdur = gnet->hopdur;
 //    net->hopcdur = gnet->hopcdur;
 
-    net->ridhops = gnet->ridhops;
+    net->fhopofs = gnet->fhopofs;
 
     // global
     cpfromgnet(gnet,net);
@@ -1139,6 +1140,8 @@ int partition(gnet *gnet)
   afree(partportcnts,"part partportcnts");
   afree(lpartportcnts,"part partportcnts");
 
+  ub4 ofs,*pfhopofs,*fhopofs = gnet->fhopofs;
+
   // separate into partitions
   for (part = 0; part < partcnt; part++) {
     net = getnet(part);
@@ -1179,7 +1182,9 @@ int partition(gnet *gnet)
     phopdist = alloc(pchopcnt, ub4,0xff,"net hopdist",pchopcnt);
     phopdur = alloc(pchopcnt, ub4,0xff,"net hopdur",pchopcnt);
     phopcdur = alloc(pchopcnt, ub4,0xff,"net hopcdur",pchopcnt);
-    pridhops = alloc(ridcnt * phopcnt,ub4,0xff,"net ridhop",ridcnt);
+
+    if (fhopofs) pfhopofs = alloc(pchopcnt, ub4,0xff,"net fhopofs",pchopcnt);
+    else pfhopofs = NULL;
 
     // assign ports : members of this part
     pp = pports;
@@ -1300,6 +1305,11 @@ int partition(gnet *gnet)
       error_ne(p2ghop[phop],hi32);
       p2ghop[phop] = hop;
 
+      if (fhopofs && hop < chopcnt) {
+        ofs = fhopofs[hop];
+        pfhopofs[phop] = ofs;
+      }
+
       if (hop < hopcnt) {
         memcpy(hp,ghp,sizeof(*hp));
         hp->dep = depp;
@@ -1340,14 +1350,6 @@ int partition(gnet *gnet)
     }
 #endif
 
-    for (phop = 0; phop < phopcnt; phop++) {
-      hop = p2ghop[phop];
-      hp = hops + hop;
-      rid = hp->rid;
-      rhop = ridhops[rid * hopcnt + hop];
-      pridhops[rid * phopcnt + phop] = rhop;
-    }
-
     net->part = part;
     net->istpart = (part == tpart && partcnt > 1);
 
@@ -1366,13 +1368,12 @@ int partition(gnet *gnet)
 
     net->hopdist = phopdist;
     net->hopdur = phopdur;
-//    net->hopcdur = phopcdur;
-
-    net->ridhops = pridhops;
 
     net->routes = routes;  // not partitioned
     net->ridcnt = ridcnt;
     net->pridcnt = ridcnts[part];
+
+    net->fhopofs = pfhopofs;
 
     // global
     cpfromgnet(gnet,net);

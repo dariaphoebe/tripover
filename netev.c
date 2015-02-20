@@ -36,6 +36,15 @@ void ininetev(void)
   vrbena = (getmsglvl() >= Vrb);
 }
 
+// cleanup workspace after use
+int rmsubevs(lnet *net)
+{
+  afree(net->sevents,"time subevs");
+  afree(net->shopdur,"net shopdur");
+  afree(net->sevcnts,"net sevcnts");
+  return 0;
+}
+
 // prepare a subset of events for all plain and compound hops
 // use random sampling in a given timebox
 // estdur() only uses these
@@ -51,7 +60,6 @@ int mksubevs(lnet *net)
   ub4 whopcnt = net->whopcnt;
   ub4 *hopdur = net->hopdur;
   ub4 *choporg = net->choporg;
-  ub4 *ridhops = net->ridhops;
   ub8 *crp,*chainrhops = net->chainrhops;
   ub4 e,i,r,rr,s,evcnt,sevcnt,scnt,hiscnt;
   ub4 cnt1,cnt2;
@@ -123,8 +131,8 @@ int mksubevs(lnet *net)
       dur = (ub4)(rtdur >> 32);
       warncc(t == hi32,0,"hop %u ev %u t hi",hop,e);
       warncc(dur == hi32,0,"hop %u ev %u dur hi",hop,e);
-//      vrb0(0,"t \ad%u",t);
-//    vrb0(0,"s0 \ad%u s1 \ad%u",st0,st1);
+//    info(0,"t \ad%u",t);
+//    info(0,"s0 \ad%u s1 \ad%u",st0,st1);
       if (t < st0) continue;
       else if (t >= st1) break;
       scnt++;
@@ -209,9 +217,9 @@ int mksubevs(lnet *net)
         dtbins[min(dur,dthibin)]++;
       }
       warncc(s != scnt,0,"hop %u s %u scnt %u",hop,s,scnt);
-      shopdur[hop] = sumdur / scnt;
-      sevcnts[hop] = scnt;
     }
+    shopdur[hop] = sumdur / scnt;
+    sevcnts[hop] = scnt;
   }
 
   // compound hops
@@ -236,9 +244,11 @@ int mksubevs(lnet *net)
 
     rid = hp1->rid;
 
-    rh1 = ridhops[rid * hopcnt + h1];
-    rh2 = ridhops[rid * hopcnt + h2];
+    rh1 = hp1->rhop;
+    rh2 = hp2->rhop;
+    if (rh1 >= Chainlen || rh2 >= Chainlen) continue;
 
+    rid = hp1->rid;
     ev = events + tp1->evofs;
 
     gt01 = tp1->gt0;
@@ -260,11 +270,7 @@ int mksubevs(lnet *net)
       tid = ev[e * 2 + 1] & hi24;
       cp = chains + tid;
       if (cp->hopcnt < 3) { e++; continue; }
-      rid = cp->rid;
-      rh1 = ridhops[rid * hopcnt + h1];
-      rh2 = ridhops[rid * hopcnt + h2];
-      error_ge(rh1,cp->rhopcnt);
-      error_ge(rh2,cp->rhopcnt);
+      error_ne(cp->rid,rid);
       crp = chainrhops + cp->rhopofs;
       tdep1 = (ub4)(crp[rh1] >> 32);
       tarr2 = crp[rh2] & hi32;

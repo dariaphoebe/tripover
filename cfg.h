@@ -25,7 +25,7 @@
 #define Maxquerysize (1024 * 64)
 
 // time in seconds to accept a query
-#define Queryage 60
+#define Queryage 3
 
 // end of limits
 
@@ -35,6 +35,8 @@ enum Netvars {
   Net_sumwalklimit,
   Net_walklimit,
   Net_walkspeed,
+  Net_period0,
+  Net_period1,
   Net_tpat0,
   Net_tpat1,
   Net_tpatmintt,

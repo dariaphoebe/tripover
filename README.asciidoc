@@ -50,7 +50,8 @@ Developing
 * Combine multiple datasets
 * Static connectivity matrix aka graph builing
 * simple local commandline client / server interface
-* basic time and route search - some results are reasonable, some need improvement
+* time and route search - promising results and query times. Some results need work
+* handling of reserved transport and real-time fare updates
 
 == Installation
 

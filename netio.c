@@ -45,8 +45,6 @@ static const ub4 hop2watch = 0;
 
 static ub4 sid2add = hi32;
 
-static const ub4 rtype_walk = 1699; // todo
-
 #include "watch.h"
 
 /* tripover external format: easy manual editing, typical from single gtfs
@@ -861,9 +859,8 @@ static void expandsid(ub4 rsid,ub1 *map,ub4 maplen,ub4 t00,ub4 t0,ub4 t1,ub4 dow
   ub4 t = t0 - t00;
   ub4 daymask = (1 << t0day);
 
-  infocc(rsid == 2,0,"map %p base %u \ad%u start %u len %u",map + t0,t00,t00,t0,t1 - t0);
-  while (t < t1 - t00) {
-    error_ge(t,maplen);
+  vrb0(0,"rsid %u map %p base %u \ad%u start %u len %u",rsid,map + t0,t00,t00,t0,t1 - t0);
+  while (t < t1 - t00 && t < maplen) {
     if (daymask & dow) map[t] = 2;
     if (daymask == (1 << 6)) daymask = 1;
     else daymask <<= 1;
@@ -895,6 +892,8 @@ static int rdexttimes(netbase *net,const char *dir)
   ub4 mapofs,addcnt,subcnt,addndx,subndx;
   ub4 namemax = sizeof(sids->name) - 1;
   ub4 timespanlimit = globs.engvars[Eng_periodlim];
+  ub4 periodt0 = globs.periodt0;
+  ub4 periodt1 = globs.periodt1;
   int initvars = 0;
 
   oclear(eft);
@@ -941,6 +940,7 @@ static int rdexttimes(netbase *net,const char *dir)
 
     case Newitem:
       if (initvars == 0) {
+
         if (timebox[1] < timebox[0]) {
           warning(0,"negative timebox from %u to %u",timebox[0],timebox[1]);
           timebox[1] = timebox[0] + 1;
@@ -949,6 +949,22 @@ static int rdexttimes(netbase *net,const char *dir)
         daybox0 = cd2day(tbox0) - 2;
         daybox1 = cd2day(tbox1) + 2;
         dtbox = daybox1 - daybox0;
+        if (periodt0 > Epochyear) {
+          daybox0 = max(daybox0,periodt0);
+        } else daybox0 += periodt0;
+        if (periodt1 > Epochyear) {
+          daybox1 = min(daybox1,periodt1);
+        } else if (periodt1) daybox1 = daybox0 + periodt1;
+
+        if (daybox0 > daybox1) {
+          warn(0,"period start \ad%u after end \ad%u",daybox0,daybox1);
+          daybox1 = daybox0 + 1;
+        }
+        if (daybox1 - daybox0 < dtbox) timespanlimit = daybox1 - daybox0 + 2;
+        dtbox = daybox1 - daybox0 + 2;
+        tbox0 = timebox[0] = day2cd(daybox0);
+        tbox1 = timebox[1] = day2cd(daybox1);
+        info(0,"period start \ad%u end \ad%u %u days",daybox0,daybox1,dtbox);
         if (dtbox > timespanlimit) {
           warning(0,"timebox %u-%u limited to %u days",tbox0,tbox1,timespanlimit);
           daybox1 = daybox0 + timespanlimit;
@@ -987,11 +1003,11 @@ static int rdexttimes(netbase *net,const char *dir)
       net->utcofs12_def = utcofs12;
 
       if (addcnt > dtbox) {
-        warninfo(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,addcnt,dtbox);
+        infovrb(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,addcnt,dtbox);
         addcnt = dtbox;
       }
       if (subcnt > dtbox) {
-        warninfo(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,subcnt,dtbox);
+        infovrb(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,subcnt,dtbox);
         subcnt = dtbox;
       }
       if (timespanlimit == hi32 && valndx + addcnt + subcnt != valcnt) {
@@ -1001,7 +1017,7 @@ static int rdexttimes(netbase *net,const char *dir)
       if (dow > 0x7f) return inerr(FLN,fname,linno,colno,"invalid dayofweek mask %x",dow);
 
       if (t0_cd < tbox0) {
-        warning(0,"line %u: sid %u has start date %u before %u",linno,rsid,t0_cd,tbox0);
+        infovrb(timespanlimit == hi32,0,"line %u: sid %u has start date %u before %u",linno,rsid,t0_cd,tbox0);
         t0_cd = tbox0;
       }
       if (t1_cd > tbox1) {
@@ -1016,7 +1032,7 @@ static int rdexttimes(netbase *net,const char *dir)
 
       // expand the regular calendar
       if (dow) {
-        t0days = cd2day(t0_cd);
+        t0days = max(cd2day(t0_cd),daybox0);
         t1days = cd2day(t1_cd) + 1; // make exclusive
         expandsid(rsid,map,dtbox,daybox0,t0days,t1days,dow,t0wday);
       }
@@ -1026,7 +1042,7 @@ static int rdexttimes(netbase *net,const char *dir)
       while (addndx++ < addcnt && valndx < valcnt) {
         t_cd = vals[valndx++];
         if (t_cd < tbox0) {
-          warning(0,"line %u: sid %u has date %u before %u",linno,rsid,t0_cd,tbox0);
+          infovrb(timespanlimit == hi32,0,"line %u: sid %u has date %u before %u",linno,rsid,t0_cd,tbox0);
           continue;
         }
         else if (t_cd > tbox1) {
@@ -1034,7 +1050,7 @@ static int rdexttimes(netbase *net,const char *dir)
           continue;
         }
         tday = cd2day(t_cd);
-        if (rsid == 0x1dc87) info(0,"rsid %x add %u - %u = %u at %u %p",rsid,t_cd,tbox0,tday - daybox0,mapofs + tday - daybox0,map + tday - daybox0);
+        vrb0(0,"rsid %x add %u - %u = %u at %u %p",rsid,t_cd,tbox0,tday - daybox0,mapofs + tday - daybox0,map + tday - daybox0);
         map[tday - daybox0] = 1;
       }
 
@@ -1042,7 +1058,7 @@ static int rdexttimes(netbase *net,const char *dir)
       while (subndx++ < subcnt && valndx < valcnt) {
         t_cd = vals[valndx++];
         if (t_cd < tbox0) {
-          warning(0,"line %u: sid %u has date %u before %u",linno,rsid,t_cd,tbox0);
+          infovrb(timespanlimit == hi32,0,"line %u: sid %u has date %u before %u",linno,rsid,t_cd,tbox0);
           continue;
         }
         if (t_cd > tbox1) {
@@ -1066,13 +1082,15 @@ static int rdexttimes(netbase *net,const char *dir)
       while (tday < dtbox && map[tday] == 0) tday++;
       if (tday == dtbox) {
         warninfo(timespanlimit > 365,0,"line %u: rsid \ax%u has no service days",linno,rsid);
-        t0_cd = t1_cd;
+        t0_cd = day2cd(daybox0);
+        t1_cd = day2cd(daybox1 + 1);
       } else {
         t0_cd = day2cd(tday + daybox0);
         tday = dtbox - 1;
         while (tday && map[tday] == 0) tday--;
         t1_cd = day2cd(tday + daybox0 + 1);
         vsidcnt++;
+        sp->valid = 1;
       }
 
       t0 = yymmdd2min(t0_cd,1200);
@@ -1082,8 +1100,11 @@ static int rdexttimes(netbase *net,const char *dir)
       t1hi = max(t1hi,t1);
 
       rsidlog(rsid,"rsid \ax%u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daycnt,dow,t0_cd,t1_cd,t0,t1);
+      info(0,"rsid \ax%u start %u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daybox0,daycnt,dow,t0_cd,t1_cd,t0,t1);
 
       error_le(t1,t0);
+
+      error_lt(t0,daybox0);
 
       sp->sid = sidcnt;
       sp->rsid = rsid;
@@ -1158,11 +1179,14 @@ static int rdexttimes(netbase *net,const char *dir)
 // todo generalise
 static enum txkind rt2tx(ub4 rtype)
 {
-  if (rtype_walk && rtype == rtype_walk) return Walk;
-  else if (rtype == 0 || rtype == 1 || rtype == 2) return Rail;
-  else if (rtype == 3) return Bus;
-  else if (rtype == 4) return Ferry;
-  else return Unknown;
+  switch(rtype) {
+  case 0: case 1: case 2: return Rail;
+  case 3: return Bus;
+  case 4: return Ferry;
+  case 1101: return Airint;
+  case 1102: return Airdom;
+  default: return Unknown;
+  }
 }
 
 static int rdextroutes(netbase *net,const char *dir)
@@ -1235,6 +1259,7 @@ static int rdextroutes(netbase *net,const char *dir)
       colno = eft.colno;
       error_gt(ridcnt+1,rawridcnt,linno);
       if (valcnt < 4) return parserr(FLN,fname,linno,colno,"expect rrid,rtype,res,utcofs args, found only %u args",valcnt);
+
       rrid = vals[0];
       rtype = vals[1];
       reserve = vals[2];
@@ -1495,7 +1520,6 @@ static int rdexthops(netbase *net,const char *dir)
         tbp += 5;
         tndx++;
       }
-
       hoplog(hop,1,"at %u %u-%u %s to %s",linno,dep,arr,dname,aname);
 
       while (vndx + 4 <= valndx && tndx < timecnt) {
@@ -1539,6 +1563,8 @@ static int rdexthops(netbase *net,const char *dir)
 
         error_ge(sid,sidcnt);
         sp = sids + sid;
+        if (sp->valid == 0) continue;
+
         sp->refcnt++;
 
         tdep = tdepsec / 60;
@@ -1552,17 +1578,20 @@ static int rdexthops(netbase *net,const char *dir)
         ht1 = max(ht1,t1);
 
         tbp2 = timesbase + timespos * 5;
+        duptndx = 0;
         for (tndx2 = 0; tndx2 < tndx; tndx2++) { // check for duplicates
           if (tbp[0] == sid
             && tbp[1] == tid
             && tbp[2] == tdepsec
             && tbp[3] == tarrsec) {
             tndx++;
-            duptndx++;
-            continue;
+            duptndx = 1;
+            break;
           }
           tbp2 += 5;
         }
+        if (duptndx) continue;
+
         tbp[0] = sid;
         tbp[1] = tid;
         tbp[2] = tdepsec;
@@ -1571,7 +1600,7 @@ static int rdexthops(netbase *net,const char *dir)
         tbp += 5;
         tndx++;
       }
-      if (tndx != timecnt) parsewarn(FLN,fname,linno,colno,"%u time entries, but only %u args",timecnt,valndx);
+      if (tndx != timecnt) vrb0(0,"%u from %u time entries",tndx,timecnt);
       timecnt = tndx;
       if (tndx) {
         hp->t0 = ht0;
@@ -1621,7 +1650,7 @@ static int rdexthops(netbase *net,const char *dir)
   if (hopcnt == 0) return error(0,"0 hops from %u",rawhopcnt);
 
   if (hirrid != net->hirrid) {
-    warn(0,"hi rrid %u vs %u",hirrid,net->hirrid);
+    warninfo(hirrid > net->hirrid,0,"hi rrid %u vs %u",hirrid,net->hirrid);
     hirrid = net->hirrid;
   }
 
@@ -1654,7 +1683,7 @@ static int rdexthops(netbase *net,const char *dir)
     else if (cnt == 1) info(0,"r.rid %u.%u has 1 hop %s",rrid,rid,rp->name);
   }
 
-#if 1
+#if 0
   ub4 hop2,dupcnt = 0;
   struct hopbase *hp2;
 

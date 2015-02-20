@@ -481,7 +481,7 @@ static int mk_netn(struct network *net,ub4 nstop)
   error_ge(nstop,Nstop);
   error_zz(portcnt,hopcnt);
 
-  info(0,"init %u-stop connections for %u port %u hop network",nstop,portcnt,whopcnt);
+  vrb0(0,"init %u-stop connections for %u port %u hop network",nstop,portcnt,whopcnt);
 
   // todo configurable
   switch (nstop) {
@@ -502,6 +502,8 @@ static int mk_netn(struct network *net,ub4 nstop)
   }
 
   if (rv) return rv;
+
+  if (net->lstlen[nstop] == 0) return 0;
 
   ports = net->ports;
 
@@ -527,7 +529,6 @@ static int mk_netn(struct network *net,ub4 nstop)
   ub4 lonstops[16];
   ub4 ndacnt = Elemcnt(deparrs);
   struct port *pp;
-
 
   for (nda = 0; nda < ndacnt; nda++) {
     deparrs[nda] = lodeparrs[nda] = hi32;
@@ -1046,11 +1047,13 @@ int mknet(ub4 maxstop)
 
       for (nstop = 1; nstop <= histop; nstop++) {
         if (mk_netn(net,nstop)) return msgprefix(1,NULL);
+        info(0,"nstop %u lstlen %lu",nstop,net->lstlen[nstop]);
         if (net->lstlen[nstop] == 0) break;
         net->histop = nstop;
       }
       info(0,"partition %u static network init done",part);
       allhistop = min(allhistop,net->histop);
+      rmsubevs(net);
 
     } else {
       info(0,"partition %u no n-stop static network init",part);
@@ -1338,9 +1341,11 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
       rp = routes + rid;
       rname = rp->name;
       switch(rp->kind) {
-      case Air: mode = "air"; break;
+      case Airdom: mode = "plane-dom"; break;
+      case Airint: mode = "plane-int"; break;
       case Rail: mode = "train"; break;
       case Bus: mode = "bus"; break;
+      case Ferry: mode = "ferry"; break;
       case Walk: mode = "walk";
       case Unknown: case Kindcnt:  mode = "unknown";
       }
@@ -1360,7 +1365,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     else pos += mysnprintf(buf,pos,buflen,"       arr %s\n",parr->name);
 
     if (rid == hi32) pos += mysnprintf(buf,pos,buflen,"       %s",name);
-    else pos += mysnprintf(buf,pos,buflen,"       %s route %s",mode,rname);
+    else pos += mysnprintf(buf,pos,buflen,"       %s %s",mode,rname);
     if (dist != dist0) pos += mysnprintf(buf,pos,buflen,"  \ag%u direct \ag%u\n\n",dist,dist0);
     else pos += mysnprintf(buf,pos,buflen," \ag%u\n\n",dist);
   }

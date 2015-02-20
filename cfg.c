@@ -108,6 +108,8 @@ static struct cfgvar {
   {"net.sumwalklimit",Uint,Net_gen,Net_sumwalklimit,0,10000,3000,"maximum summed up walk distance in meters"},
   {"net.mintxtime",Uint,Net_gen,Net_mintt,0,180,5,"minimum transfer time in minutes"},
   {"net.maxtxtime",Uint,Net_gen,Net_maxtt,2,60 * 48,120,"maximum transfer time in minutes"},
+  {"net.periodstart",Uint,Net_gen,Net_period0,0,20201231,0,"start day of schedule period"},
+  {"net.periodend",Uint,Net_gen,Net_period1,0,20201231,0,"end day of schedule period"},
   {"net.patternstart",Uint,Net_gen,Net_tpat0,0,20201231,20150215,"start day of transfer pattern base"},
   {"net.patternend",Uint,Net_gen,Net_tpat1,0,20201231,20150315,"end day of transfer pattern base"},
   {"net.patternmintt",Uint,Net_gen,Net_tpatmintt,0,120,3,"minimum tranfser time for transfer pattern"},

@@ -40,7 +40,7 @@
 
 #define Netbase_inc
 
-enum txkind { Unknown,Air,Rail,Bus,Ferry,Walk,Kindcnt };
+enum txkind { Unknown,Airint,Airdom,Rail,Bus,Ferry,Walk,Kindcnt };
 
 struct portbase {
   ub4 magic;
@@ -133,10 +133,11 @@ struct hopbase {
   enum txkind kind;
 
   ub4 dep,arr;
+
   ub4 rrid,rid;
+  ub4 rhop;  // relative within rid
 
   struct timepatbase tp;
-
   ub4 timespos;
   ub4 timecnt;
   ub4 evcnt;
@@ -168,7 +169,8 @@ struct routebase {
   ub4 dist;
 
   ub4 hopcnt; // initial by reference
-  ub4 rhopcnt; // by chain assignment
+  ub4 hopndx; // working rid-relative hop
+//  ub4 rhopcnt; // by chain assignment
   ub4 carriercnt;
   ub4 servicecnt;
   ub4 chaincnt;
@@ -200,6 +202,8 @@ struct sidbase {
   char name[64];
   ub4 namelen;
 
+  bool valid;
+
   ub4 carrier;
   ub4 route;
   ub4 service;
@@ -214,19 +218,6 @@ struct sidbase {
   ub4 maplen;     // in days
 
   ub4 refcnt;
-};
-
-// optional: ~ unrolled timetable
-struct fare {
-  ub4 carrier;
-  ub4 route;
-  ub4 service;
-  ub4 t0,t1;      // tt validity in minutes utc since epoch
-
-  ub4 depcnt;
-  ub4 farecnt;
-
-  ub4 depbase;    // fareinc deps[depcnt * farecnt] at net.faremaps+base
 };
 
 // main structure holding everything
@@ -255,7 +246,6 @@ struct networkbase {
   ub8 *chainidxs;    // seq,ndx
   struct chainhopbase *chainhops;
   ub8 *chainrhops;
-  ub4 *ridhops;
 
   ub4 *routechains;
   ub4 *timesbase;

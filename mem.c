@@ -139,8 +139,10 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   vrbfln(fln,V0|CC,"alloc %s:\ah%u * %s:\ah%u for %s-%u",slen,elems,sel,elsize,desc,arg);
 
   // check for zero and overflow
-  if (elems == 0) errorfln(fln,Exit,FLN,"zero length block '%s - %u'",desc,arg);
-
+  if (elems == 0) {
+    infofln(fln,0,"zero length block '%s - %u'",desc,arg);
+    return NULL;
+  }
   error_z_fln(elsize,arg,"elsize","",fln);
 
   error_zp(desc,0);
@@ -205,7 +207,7 @@ int afree_fln(void *p,ub4 fln, const char *desc)
   ub4 nm;
 
   vrbfln(fln,0,"free %p",p);
-  if (!p) return errorfln(fln,0,FLN,"free nil pointer for %s",desc);
+  if (!p) return warnfln(fln,0,"free nil pointer for %s",desc);
 
   // check if allocated with mkblock
   for (b = lrupool; b < lrupool + Elemcnt(lrupool); b++) {

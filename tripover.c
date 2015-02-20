@@ -136,6 +136,24 @@ static int initnet(void)
   globs.walklimit = walklimit;
   globs.sumwalklimit = sumwalklimit;
 
+  ub4 t0_cd = globs.netvars[Net_period0];
+  ub4 t1_cd = globs.netvars[Net_period1];
+
+  ub4 t0,t1;
+  if (t0_cd < Epochyear) t0 = t0_cd;
+  else t0 = cd2day(t0_cd);
+  if (t1_cd < Epochyear) t1 = t1_cd;
+  else t1 = cd2day(t1_cd);
+  if (t0 < Epochyear && t1 < Epochyear && t0 > t1) {
+    warn(0,"relative period start %u after end %u",t0_cd,t1_cd);
+    t1 = t0 + 1440;
+  } else if (t0 >= Epochyear && t1 >= Epochyear && t0 > t1) {
+    warn(0,"period start \ad%u after end \ad%u",t0,t1);
+    t1 = t0 + 1440;
+  }
+  globs.periodt0 = t0;
+  globs.periodt1 = t1;
+
   if (*globs.netdir == 0) return 1;
 
   if (dorun(FLN,Runread)) rv = readextnet(basenet,globs.netdir);
@@ -238,7 +256,7 @@ static int do_main(void)
   if (globs.netok && dorun(FLN,Runserver)) {
 
     info(0,"overall schedule period \ad%u to \ad%u",net->t0,net->t1);
-    info(0,"connectivity precomputed for %u transfers",net->histop);
+    info(0,"connectivity precomputed for %u transfer\as",net->histop);
     info(0,"default min transfer time %u min, max %u min",globs.mintt,globs.maxtt);
     info(0,"max walking distance %u m, summed %u",geo2m(net->walklimit),geo2m(net->sumwalklimit));
     return serverloop();

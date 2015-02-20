@@ -1225,21 +1225,27 @@ my $include_bus = 1;
 my $include_ferry = 1;
 my $include_cabcar = 1;
 my $include_gondola = 1;
+my $include_dom_air = 1;
+my $include_int_air = 1;
 
 my @modenames = ( "tram","metro","rail","bus","ferry","cable car","gondola" );
 
+# extended types from support.google.com/transitpartners/answer/3520902
 sub filtermode($)
 {
   my ($type) = @_;
 
-  return 1 if ($type == 0 and $include_tram == 1);
-  return 1 if ($type == 1 and $include_metro == 1);
-  return 1 if ($type == 2 and $include_rail == 1);
-  return 1 if ($type == 3 and $include_bus == 1);
-  return 1 if ($type == 4 and $include_ferry == 1);
-  return 1 if ($type == 5 and $include_cabcar == 1);
-  return 1 if ($type == 6 and $include_gondola == 1);
-  return 0;
+  return 0 if $type == 0 and $include_tram == 0;
+  return 0 if $type == 1 and $include_metro == 0;
+  return 0 if $type == 2 and $include_rail == 0;
+  return 0 if $type == 3 and $include_bus == 0;
+  return 0 if $type == 4 and $include_ferry == 0;
+  return 0 if $type == 5 and $include_cabcar == 0;
+  return 0 if $type == 6 and $include_gondola == 0;
+  return 0 if $type == 6 and $include_gondola == 0;
+  return 0 if $type == 1101 and $include_int_air == 0;
+  return 0 if $type == 1102 and $include_dom_air == 0;
+  return 1;
 }
 
 sub readroutes($)
@@ -2042,10 +2048,10 @@ sub import($)
 
   rdgtfscfg($agencyname,$feedpublisher);
 
-  readstops($dir) or return 0;
+  readroutes($dir) or return 0;
   readcalendar($dir) or return 0;
   readcaldates($dir) or return 0;
-  readroutes($dir) or return 0;
+  readstops($dir) or return 0;
   readtrips($dir) or return 0;
   readstoptimes($dir) or return 0;
   return 1;
@@ -2332,7 +2338,7 @@ sub writegtfs()
 
   my ($mon,$tue,$wed,$thu,$fri,$sat,$sun,$startdate,$enddate,$date,$extype);
 
-  my ($route_id,$shortname,$longname,$rtype,$utcofs);
+  my ($route_id,$shortname,$longname,$rtype,$utcofs,$reserve);
 
   my ($service_id,$headsign,$dir);
 
@@ -2426,7 +2432,7 @@ sub writegtfs()
   print($routesfile "route_id\tagency_id\troute_type\troute_short_name\troute_long_name\troute_desc\n");
 
   foreach $line (@routes) {
-    ($route_id,$agency_id,$utcofs,$shortname,$longname,$rtype) = split("\t",$line);
+    ($route_id,$agency_id,$reserve,$utcofs,$shortname,$longname,$rtype) = split("\t",$line);
     $route_id = join '_',$canonmagic,$reserveprefix,$idprefix,$route_id;
     print($routesfile "$route_id\t$agency_id\t$rtype\t$shortname\t$longname\t$desc\n");
   }
@@ -2441,7 +2447,7 @@ sub writegtfs()
 
   foreach $line (@trips) {
     ($route_id,$service_id,$trip_id,$headsign) = split("\t",$line);
-    $route_id = $idprefix . $route_id;
+    $route_id = join '_',$canonmagic,$reserveprefix,$idprefix,$route_id;
     $service_id = $idprefix . $service_id;
     $trip_id = $idprefix . $trip_id;
     $headsign =~ tr','`';

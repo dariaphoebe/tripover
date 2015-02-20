@@ -75,8 +75,9 @@ static char ccbuf[MSGLEN];
 static char ccbuf2[MSGLEN];
 
 static char lastwarn[MSGLEN];
+static char lastwarn2[MSGLEN];
 static char lasterr[MSGLEN];
-static ub4 cclen,ccfln,lastwarniter;
+static ub4 cclen,ccfln,lastwarniter,lastwarn2iter;
 
 static char prefix[128];
 static ub4 prefixlen;
@@ -782,8 +783,11 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
 
   if (lvl == Warn) {
     memcpy(lastwarn,msgbuf,pos);
+    memcpy(lastwarn2,msgbuf,pos);
     lastwarn[pos] = 0;
+    lastwarn2[pos] = 0;
     lastwarniter = cnt;
+    lastwarn2iter = cnt;
   }
   else if (lvl < Warn && !(code & Exit)) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
   msgbuf[pos++] = '\n';
@@ -1183,7 +1187,7 @@ void eximsg(void)
     showrep(i1);
     showrep(i2);
 
-    if (warncnt) info(0,"%u warning\as\n%s",warncnt,lastwarn);
+    if (warncnt) info(0,"%u warning\as\n%s%s",warncnt,lastwarn,warncnt > 1 ? lastwarn2 : "");
   }
 
   if (assertcnt && !(assertcnt == 1 && assertlimit <= 1) ) info(0,"%u assertion\as",assertcnt);

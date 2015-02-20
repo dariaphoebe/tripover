@@ -111,7 +111,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 
   error_nz(tid >> 24,tid);
 
-  infocc(dbg,0,"r.sid %u.%u deptime %u t0 %u t1 %u daymap %p",rsid,sid,tdep,t0,t1,daymap);
+  infocc(dbg,0,"r.sid %u.%u deptime %u t0 %u t1 %u t00 %u t01 %u",rsid,sid,tdep,t0,t1,t00 * daymin,t01);
 
   if (tdep > daymin * 2) warning(0,"deptime > %u days",tdep / daymin);
   else if (tdep >= daymin) {
@@ -122,8 +122,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 
   if (tp->evcnt == evlimit) return warning(0,"hop %u exceeding event limit %u",hop,evlimit);
 
-  tday = t0 / daymin;
-  error_lt(tday,t00);
+  tday = max(t0 / daymin,t00);
   t1day = min(t1 / daymin,t01);
 
   while (tday < t1day && n + tp->evcnt < evlimit) {
@@ -220,7 +219,7 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
 ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evcnt)
 {
   ub4 hop = tp->hop;
-  ub4 t0,t1;
+  ub4 t0,t1,gt0;
   ub8 x;
   ub4 t,tid,prvt,rep,hirep = 0,evcnt2 = 0,zevcnt = 0;
   ub4 rt,dayid,tlo = hi32,thi = 0,hit = 0;
@@ -230,6 +229,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
   if (evcnt == 0) return 0;
 
   t0 = tp->t0; t1 = tp->t1;
+  gt0 = tp->gt0;
 
   t = t0;
   prvt = t;
@@ -283,7 +283,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
     warning(0,"hop %u hirep 0 for %u event\as",hop,evcnt);
     return evcnt;
   } else if (hirep < evlimit) { // not worth to compress. todo: criteria
-    vrb0(Iter,"hirep %u for %u events",hirep,evcnt);
+    vrb0(0,"hirep %u for %u events at \ad%u-\ad%u",hirep,evcnt,t0+gt0,t1+gt0);
     tp->genevcnt = evcnt;
     return evcnt;
   }
@@ -404,7 +404,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
 ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlim)
 {
   ub4 hop = tp->hop;
-  ub4 t0,t1,t,tdays,tdays5,day;
+  ub4 t0,t1,t,gt0,tdays,tdays5,day;
   ub4 tid,rep,zevcnt = 0;
   ub8 x,dur;
   ub4 rt,dayid;
@@ -423,6 +423,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
   days = blkdata(evmapmem,tp->dayofs,ub2);
 
   t0 = tp->t0; t1 = tp->t1;
+  gt0 = tp->gt0;
   tdays = tp->tdays;
   tdays5 = tdays * 5;
 
@@ -446,6 +447,8 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
   gen = (hi0span + hi1span + hi2span + hi3span) * 2;
   bound(evmem,gen,ub8);
 
+  vrb0(0,"evcnt %u t \ad%u - \ad%u",tp->genevcnt,t0+gt0,t1+gt0);
+
   if (gen == 0) { // no repetition
     while (t < t1) {
       if (xpacc[t >> 4] == 0) { t += 16; continue; }
@@ -453,10 +456,10 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
       if ( (x & hi32) == hi32) { t++; continue; }
 
       error_ge(gndx,tp->genevcnt * 2);
-      bound(evmem,gen + gndx * 2 + 2,ub8);
+      bound(evmem,gndx + 1,ub8);
       dur = x >> 32;
-      evs[gen + gndx++] = (ub8)t | (dur << 32);
-      evs[gen + gndx++] = x;  // dur + tid + dayid
+      evs[gndx++] = (ub8)t | (dur << 32);
+      evs[gndx++] = x;  // dur + tid + dayid
       day = (t - t0) / daymin;
       error_ge(genday + day,tdays5);
       days[genday + day]++;

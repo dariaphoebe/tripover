@@ -110,6 +110,8 @@ struct globs {
   ub4 netvars[64];   // checked for Net_cnt in cfg
   ub4 engvars[64];   // checked for Eng_cnt in cfg
 
+   ub4 periodt0,periodt1;
+
   ub4 mintt,maxtt;
   ub4 walkspeed,walklimit,sumwalklimit;
 

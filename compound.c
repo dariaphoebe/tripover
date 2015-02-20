@@ -52,12 +52,11 @@ int compound(gnet *net)
 
   ub4 hichainlen = net->hichainlen;
   ub4 hiportlen;
-  struct hop *hp,*hops = net->hops;
+  struct hop *hp,*hp1,*hp2,*hops = net->hops;
   struct port *pdep,*parr,*ports = net->ports;
   struct route *rp,*routes = net->routes;
   struct chain *cp,*chains = net->chains;
   struct chainhop *chp,*chainhops = net->chainhops;
-  ub4 *ridhops = net->ridhops;
   ub8 *crp,*chainrhops = net->chainrhops;
   ub4 maxperm = min(160,Chainlen);
   ub4 maxperm2 = maxperm * maxperm;
@@ -396,13 +395,14 @@ int compound(gnet *net)
           portsbyhop[chop * 2 + 1] = arr;
           choporg[chop * 2] = hop1;
           choporg[chop * 2 + 1] = hop2;
-          hp = hops + hop1;
-          if (hp->reserve) {
-            cumcfevcnt += hp->tp.evcnt;
+          hp1 = hops + hop1;
+          hp2 = hops + hop2;
+          if (hp1->reserve) {
+            cumcfevcnt += hp1->tp.evcnt;
             cumfhops++;
           }
-          rhop1 = ridhops[rid * hopcnt + hop1];
-          rhop2 = ridhops[rid * hopcnt + hop2];
+          rhop1 = hp1->rhop;
+          rhop2 = hp2->rhop;
           crp = chainrhops + cp->rhopofs;
 
           error_lt(dist2,dist1); // todo ?
@@ -486,7 +486,7 @@ int compound(gnet *net)
   net->fareposbase = mkblock(&net->faremem,cumfevcnt * Faregrp,ub2,Init0,"fare entries for %u reserved hops",cumfhops);
   net->fareposcnt = cumfevcnt;
 
-  ub4 *fhopofs = alloc(chopcnt,ub4,0xff,"fare fposofs",cumfhops);
+  ub4 *fhopofs = alloc(chopcnt,ub4,0xff,"fare fhopofs",cumfhops);
 
   ub4 ofs = 0;
   ub4 h1ndx,h2ndx,hopndx,h;
@@ -502,14 +502,18 @@ int compound(gnet *net)
     rid = hp->rid;
     rp = routes + rid;
     hopndx = 0; h1ndx = h2ndx = hi32; 
-    while (hopndx < rp->hopcnt && h1ndx == hi32 && h2ndx == hi32) {
+    while (hopndx < rp->hopcnt && (h1ndx == hi32 || h2ndx == hi32)) {
       h = rp->hops[hopndx];
       if (h == hop1) h1ndx = hopndx;
       else if (h == hop2) h2ndx = hopndx;
       hopndx++;
     }
-    if (h1ndx == hi32 || h2ndx == hi32) continue;
+    if (h1ndx == hi32 || h2ndx == hi32) {
+      info(Iter,"rid %u hop %u-%u not found at %u-%u chop %u",rid,hop1,hop2,h1ndx,h2ndx,chop);
+      continue;
+    }
     rp->hop2chop[h1ndx * Chainlen + h2ndx] = chop;
+//    info(0,"rid %u hop %u-%u at %u-%u chop %u",rid,hop1,hop2,h1ndx,h2ndx,chop);
   }
   net->fhopofs = fhopofs;
 

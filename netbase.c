@@ -60,7 +60,7 @@ static int addport(struct portbase *ports,ub4 newport,ub4 lat,ub4 lon,double rla
   pp->lon = lon;
   pp->rlat = rlat;
   pp->rlon = rlon;
-  if (kind == Air) pp->air = 1;
+  if (kind == Airdom || kind == Airint) pp->air = 1;
   else if (kind == Rail) pp->rail = 1;
   pp->id = port;
   pp->size = size;
@@ -162,7 +162,7 @@ int mkrandnet(ub4 portcnt,ub4 hopcnt)
     if (z < waterlvl) continue;
     if (z - waterlvl < rnd(landrange)) {
       vrb(0,"port %u: lat %u lon %u rlat %e rlon %e",railcnt+aircnt,lat,lon,rlat,rlon);
-      if (addport(ports,railcnt + aircnt,lat,lon,rlat,rlon,rnd(100),Air)) continue;
+      if (addport(ports,railcnt + aircnt,lat,lon,rlat,rlon,rnd(100),Airdom)) continue;
       aircnt++;
     }
   }
@@ -300,8 +300,6 @@ int prepbasenet(void)
   ub8 *chip,*chainidxs = alloc(cumhoprefs,ub8,0,"chain idx",cumhoprefs);
   struct chainhopbase *chp,*chp2,*chainhops = alloc(cumhoprefs,struct chainhopbase,0,"chain hops",cumhoprefs);
 
-  ub4 *rhp,*ridhops = alloc(ridcnt * hopcnt,ub4,0xff,"chain ridhops",ridcnt);
-
   ub4 chain;
   ub4 rawchaincnt = basenet.rawchaincnt;
   ub4 hirrid = basenet.hirrid;
@@ -326,7 +324,7 @@ int prepbasenet(void)
     rid = cp->rid;
     rp = routes + rid;
     cnt = rp->hopcnt;
-//    infocc(rid == 230,0,"rid %u cnt %u",rid,cnt);
+    infocc(cnt == 0,0,"rid %u cnt %u",rid,cnt);
     cp->rhopcnt = cnt;
     cp->rhopofs = ofs;
     ofs += cnt;
@@ -336,6 +334,23 @@ int prepbasenet(void)
 
   ub8 *chrp,*chainrhops = alloc(cumrhops,ub8,0xff,"chain rhops",cnt);
 
+  // assign rid-relative hops
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    hp->rhop = hi32;
+    rid = hp->rid;
+    if (rid  == hi32) continue;
+    error_ge(rid,ridcnt);
+    rp = routes + rid;
+    rhop = rp->hopndx;
+    hp->rhop = rhop;
+    rp->hopndx = rhop + 1;
+  }
+  for (rid = 0; rid < ridcnt; rid++) {
+    rp = routes + rid;
+    infocc(rp->hopndx != rp->hopcnt,0,"index %u cnt %u",rp->hopndx,rp->hopcnt);
+  }
+
   // pass 1: expand time entries, determine memuse and assign chains
   for (hop = 0; hop < hopcnt; hop++) {
 
@@ -343,6 +358,7 @@ int prepbasenet(void)
 
     hp = hops + hop;
     if (hp->valid == 0) continue;
+    if (hp->t1 <= hp->t0) continue;
 
     msgprefix(0,"hop %u",hop);
 
@@ -421,6 +437,12 @@ int prepbasenet(void)
       sumdur += dur;
       error_ge(sid,sidcnt);
       sp = sids + sid;
+      if (sp->valid == 0) {
+        tbp[0] = sidcnt; // disable for next pass
+        tbp += 5;
+        continue;
+      }
+
       rsid = sp->rsid;
 
       t0 = sp->t0;
@@ -449,15 +471,11 @@ int prepbasenet(void)
       // create chains: list of hops per trip, sort on tripseq later
       if (tid != hi32) {
         error_ge(tid,rawchaincnt);
-        rhp = ridhops + rid * hopcnt;
-        rhop = rhp[hop];
-        if (rhop == hi32) {
-          rhop = rp->rhopcnt++;
-          rhp[hop] = rhop;
-        }
+
+        rhop = hp->rhop;
         error_ge(rhop,rp->hopcnt);
         cp = chains + tid;
-        error_ge_cc(rhop,cp->rhopcnt,"rid %u/%u cnt %u of %u",rid,cp->rid,rp->rhopcnt,rp->hopcnt);
+        error_ge_cc(rhop,cp->rhopcnt,"rid %u/%u cnt %u of %u",rid,cp->rid,cp->rhopcnt,rp->hopcnt);
         rtid = cp->rtid;
         chip = chainidxs + cp->hopofs;
         chrp = chainrhops + cp->rhopofs;
@@ -467,7 +485,7 @@ int prepbasenet(void)
         error_ge(ofs + chcnt,cumhoprefs);
         chp = chainhops + ofs + chcnt;
         pp = ports + cp->dep;
-        error_z(tripseq,tid);
+        error_z_cc(tripseq,"time index %u of %u",tndx,timecnt);
         error_ge(chcnt,cp->hoprefs);
 
         vrbcc(dbg,0,"pos %u tdep %u",chcnt,tdep);
@@ -543,7 +561,8 @@ int prepbasenet(void)
 
     duracc = 15;
     switch (hp->kind) {
-      case Air:  duracc = 15; break;
+      case Airdom:  duracc = 15; break;
+      case Airint:  duracc = 30; break;
       case Rail: if (lodur > 12 * 60) duracc = 10; else duracc = 2; break;
       case Bus:  if (lodur > 60) duracc = 10; else duracc = 5; break;
       case Ferry: duracc = 15; break;
@@ -566,6 +585,8 @@ int prepbasenet(void)
       tp->midur = hi32;
     }
     tp->duracc = duracc;
+
+    if (hp->t0 != ht0) error(Exit,"t0 \ad%u vs \ad%u",hp->t0,ht0);
 
     error_ne(hp->t0,ht0);
     ht1 += daymin;  // make end date exclusive
@@ -633,7 +654,8 @@ int prepbasenet(void)
       rp = routes + rid;
       rp->chaincnt++;
       cumchaincnt++;
-      cp->rhopcnt = rp->rhopcnt;
+      cp->rhopcnt = rp->hopcnt;
+      error_z_cc(cp->rhopcnt,"cnt %u rid %u",cnt,rid);
 
       hidur = cp->hitarr - cp->lotdep;
       infocc(hidur > 240,0,"chain %u rrid %u hidur %u",chain,rrid,hidur);
@@ -762,7 +784,6 @@ int prepbasenet(void)
   basenet.chainhops = chainhops;
   basenet.chainidxs = chainidxs;
   basenet.chainrhops = chainrhops;
-  basenet.ridhops = ridhops;
 
   eventmem = &basenet.eventmem;
   evmapmem = &basenet.evmapmem;
@@ -793,6 +814,7 @@ int prepbasenet(void)
 
     hp = hops + hop;
     if (hp->valid == 0) continue;
+    if (hp->t1 <= hp->t0) continue;
 
     msgprefix(0,"hop %u",hop);
 
@@ -801,6 +823,7 @@ int prepbasenet(void)
     tbp = timesbase + timespos * 5;
     evcnt = 0;
     hdt = hp->t1 - gt0 + daymin;
+    error_ge(hdt,xtimelen);
     tp = &hp->tp;
     tp->evcnt = 0;
     memset(xp,0xff,hdt * sizeof(*xp));

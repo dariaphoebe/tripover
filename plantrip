@@ -40,7 +40,7 @@ my $querydir;
 
 my $portrefname = 'portrefs.txt';
 
-my $timeout = 6; # seconds
+my $timeout = 60; # seconds
 
 my $agelimit = 60; # seconds
 
@@ -734,6 +734,7 @@ sub cntbits($)
   my $x = shift;
   my $n = 0;
 
+  $x = hex($x) & 0xf;
   while ($x) { $n++ if ($x & 1); $x >>= 1; }
   return $n
 }
@@ -791,7 +792,7 @@ sub update($$$$$$)
     $argno += 3;
     $farecnt = cntbits($mask);
     return info("farecnt $farecnt argno $argno") if ($argno + $farecnt >= $argcnt);
-    $str .= sprintf("%x %x ",$dt,$mask);
+    $str .= sprintf("%x %x ",$dt,hex $mask);
     while ($farecnt--) { $str .= sprintf("%x ",$args[$argno++]); }
   }
   $str .= "\n";

@@ -116,7 +116,7 @@ ub4 lmin2cd(ub4 min)
 
   day = min / 1440;
   if (day >= day2cdmax) {
-    pos = fmtstring(buf,"day %u after Epoch %u : %u\n",day,Erayear,day2cdmax);
+    pos = fmtstring(buf,"W day %u after Epoch %u : %u\n",day,Erayear,day2cdmax);
     msg_write(buf,pos);
   }
   return day2cdtab[min(day,day2cdmax)];
@@ -125,7 +125,13 @@ ub4 lmin2cd(ub4 min)
 // day to coded decimal yyyymmdd
 ub4 day2cd(ub4 day)
 {
-  if (day >= day2cdmax) warn(0,"day %u after Epoch %u",day,Erayear);
+  ub4 pos;
+  char buf[1024];
+
+  if (day >= day2cdmax) {
+    pos = fmtstring(buf,"W day %u after Epoch %u\n",day,Erayear);
+    msg_write(buf,pos);
+  }
   return day2cdtab[min(day,day2cdmax)];
 }
 

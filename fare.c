@@ -37,16 +37,19 @@ int fareupd(gnet *net,ub4 rid,ub4 hop1,ub4 hop2,ub4 chop,ub4 t,ub4 mask,ub4 nfar
   ub4 *fhopofs = net->fhopofs;
   struct timepat *tp;
   struct hop *hp,*hops = net->hops;
-  ub4 f,gndx,ofs;
+  ub4 f,fi,gndx,ofs;
+  ub4 nilmask;
   ub2 *farepos,*fareposbase = net->fareposbase;
   block *faremem = &net->faremem;
   ub8 *ev,*events = net->events;
   ub4 rt,tt,prvt;
 
+  if (fhopofs == NULL) return info(0,"no reserved routes for %u",hop1);
+
   hp = hops + hop1;
   tp = &hp->tp;
 
-  info(0,"rid %u hop2 %u",rid,hop2);
+  info(0,"rid %u chop %u hop2 %u mask %x",rid,chop,hop2,mask);
   if (nfare > Faregrp) return error(0,"farecnt %u above %u",nfare,Faregrp);
 
   ub4 evcnt = tp->evcnt;
@@ -81,17 +84,24 @@ int fareupd(gnet *net,ub4 rid,ub4 hop1,ub4 hop2,ub4 chop,ub4 t,ub4 mask,ub4 nfar
 
   farepos += gndx * Faregrp;
 
+  // upper bits indicate entries to clear 
   if (mask & 0xf0) {
-    mask >>= 4; f = 0;
-    while (mask) {
+    nilmask = mask >> 4; f = 0;
+    while (nilmask && f < Faregrp) {
       farepos[f] = hi16;
-      info(0,"fare %u set to n/a",f);
+      info(0,"fare %u set to n/a at %p",f,farepos);
+      nilmask >>= 1; f++;
     }
-    mask >>= 1;
   }
-  for (f = 0; f < nfare; f++) {
-    farepos[f] = (ub2)fares[f];
-    info(0,"fare %u set to %u",f,fares[f]);
+  f = fi = 0; mask &= 0xf;
+  info(0,"mask %x nfare %u",mask,nfare);
+  while (mask && fi < nfare && f < Faregrp) {
+    if (mask & 1) {
+      farepos[f] = (ub2)fares[fi];
+      info(0,"fare %u set to %u",f,fares[fi]);
+      fi++;
+    }
+    mask >>= 1; f++;
   }
 
   return 0;

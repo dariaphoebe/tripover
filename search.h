@@ -46,11 +46,12 @@ struct srcctx {
   ub4 geodist;
   ub4 lot,lotid;
 
-  // stire current best trip
+  // store current best trip
   ub4 curdts[Nxleg];
   ub4 curdurs[Nxleg];
   ub4 curts[Nxleg];
   ub4 curtids[Nxleg];
+  ub4 curfares[Nxleg];
   ub4 curdt,curt; // shorthand for overall props
 
   ub4 locvarcnt;

@@ -29,7 +29,7 @@
  */
 
 #ifndef Netbase_inc
-  enum txkind { Unknown,Air,Rail,Bus,Walk,Kindcnt };
+  enum txkind { Unknown,Airint,Airdom,Rail,Bus,Ferry,Walk,Kindcnt };
 #endif
 
 // max number of partitions
@@ -149,6 +149,7 @@ struct hop {
   ub4 gdep,garr;  // global
 
   ub4 rrid,rid;
+  ub4 rhop;  // relative within rid
 
   struct timepat tp;
 
@@ -226,7 +227,6 @@ struct network {
   struct sidtable *sids;
 
   struct chainhop *chainhops;  // points to gnet
-  ub4 *ridhops;
   ub8 *chainrhops;
 
   bool istpart;
@@ -239,6 +239,12 @@ struct network {
   ub8 *sevents;      // [samplecnt * chopcnt] dur+time
   ub4 *sevcnts;      // [chopcnt]
   ub4 t0,t1;         // overalll period
+
+// fares: idem
+  ub2 *fareposbase;
+  block *faremem;
+
+  ub4 *fhopofs;     // [chopcnt] offsets into faremem
 
 // access
   ub4 *g2pport;      // [gportcnt] global to partition port id
@@ -359,7 +365,6 @@ struct gnetwork {
   ub4 *fhopofs;     // [chopcnt] offsets into faremem
 
   struct chainhop *chainhops;
-  ub4 *ridhops;
   ub8 *chainrhops;
 
   ub4 *tid2rtid;   // [chaincnt]
