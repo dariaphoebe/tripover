@@ -199,8 +199,9 @@ static int mkwalks(struct network *net)
     info(0,"longest walk link dist %u hop %u %u-%u %s to %s",hiwdist,hiwhop,dep,arr,pdep->name,parr->name);
   }
 
+  afree(dist0 ,"net0 geodist");
+
   net->whopcnt = whop;
-  net->dist0 = dist0;
   net->portsbyhop = portsbyhop;
   net->hopdist = hopdist;
   net->hopdur = hopdur;
@@ -215,6 +216,7 @@ static int mknet0(struct network *net)
   ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
   ub4 whopcnt = net->whopcnt;
+  ub4 partcnt = net->partcnt;
 
   struct port *ports,*pdep,*parr;
   struct hop *hops,*hp;
@@ -253,7 +255,8 @@ static int mknet0(struct network *net)
 
   ub1 *allcnt = alloc(port2, ub1,0,"net allcnt",portcnt);
 
-  lodists = alloc(port2, ub4,0xff,"net0 lodist",portcnt);
+  if (partcnt > 1) lodists = alloc(port2, ub4,0xff,"net0 lodist",portcnt);
+  else lodists = NULL;
 
   ub4 *hoprids = alloc(whopcnt,ub4,0xff,"net hoprids",chopcnt);
 
@@ -295,7 +298,7 @@ static int mknet0(struct network *net)
     da = dep * portcnt + arr;
 
     dist = hopdist[hop];
-    lodists[da] = min(lodists[da],dist);
+    if (lodists) lodists[da] = min(lodists[da],dist);
 
     concnt = con0cnt[da];
 
@@ -445,7 +448,7 @@ static int mknet0(struct network *net)
   net->concnt[0] = con0cnt;
   net->conofs[0] = con0ofs;
 
-  net->lodist[0] = lodists;
+  net->lodist[0] = lodists; // only for partitioned
 
   net->hoprids = hoprids;
 
@@ -485,7 +488,7 @@ static int mk_netn(struct network *net,ub4 nstop)
 
   // todo configurable
   switch (nstop) {
-  case 1: nilonly = 0; varlimit = 32; var12limit = 128; break;
+  case 1: nilonly = 0; varlimit = 64; var12limit = 256; break;
   case 2: nilonly = 0; varlimit = 8; var12limit = 64; break;
   case 3: nilonly = 1; varlimit = 8; var12limit = 64; break;
   default: nilonly = 1; varlimit = 2; var12limit = 32; break;
@@ -1012,7 +1015,7 @@ int mknet(ub4 maxstop)
   struct gnetwork *gnet = getgnet();
   struct network *net;
 
-  if (dorun(FLN,Runmknet) == 0) return 0;
+  if (dorun(FLN,Runmknet,0) == 0) return 0;
 
   partcnt = gnet->partcnt;
   if (partcnt == 0) return warn(0,"no partitions for %u ports net",gnet->portcnt);
@@ -1033,7 +1036,7 @@ int mknet(ub4 maxstop)
     rv = mkwalks(net);
     if (rv) return msgprefix(1,NULL);
 
-    if (dorun(FLN,Runnet0)) {
+    if (dorun(FLN,Runnet0,0)) {
       if (mknet0(net)) return msgprefix(1,NULL);
       netok = 1;
     } else continue;
@@ -1042,7 +1045,7 @@ int mknet(ub4 maxstop)
 //    if (net->istpart) histop++;
     limit_gt(histop,Nstop,0);
 
-    if (histop && dorun(FLN,Runnetn)) {
+    if (histop && dorun(FLN,Runnetn,0)) {
       if (mksubevs(net)) return msgprefix(1,NULL);
 
       for (nstop = 1; nstop <= histop; nstop++) {
@@ -1259,6 +1262,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
   struct route *rp,*routes = gnet->routes;
   ub4 *trip = ptrip->trip;
   const char *name,*rname,*mode = "";
+  const char *suffix;
   ub4 rid = hi32,rrid,tid;
   ub4 part,leg,prvleg,ghop,l,l1 = 0,l2 = 0,dep,arr = hi32,deparr,gdep,garr = hi32;
   ub4 tdep,tarr;
@@ -1270,7 +1274,6 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
   ub4 portcnt,chaincnt;
   ub4 *portsbyhop;
   ub4 *hopdist;
-  ub4 *dist0s;
   ub4 *choporg;
   ub4 *p2g;
   ub4 pos = *ppos;
@@ -1295,7 +1298,6 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     chaincnt = net->chaincnt;
     portsbyhop = net->portsbyhop;
     choporg = net->choporg;
-    dist0s = net->dist0;
     p2g = net->p2gport;
 
     l = trip[leg * 2 + 1];
@@ -1335,7 +1337,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     deparr = dep * portcnt + arr;
     dist0 = fgeodist(pdep,parr);
     tdep = ptrip->t[leg];
-    tarr = tdep + ptrip->dur[leg];
+    tarr = tdep ? tdep + ptrip->dur[leg] : 0;
     tid = ptrip->tid[leg];
     if (rid != hi32) {
       rp = routes + rid;
@@ -1350,17 +1352,19 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
       case Unknown: case Kindcnt:  mode = "unknown";
       }
     } else { rname = "(unnamed)"; mode = ""; }
-    if (l < hopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode);
+    if (ptrip->info[leg] & 1) suffix = " *";
+    else suffix = "";
+    if (l < hopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s%s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode,suffix);
     else if (l < chopcnt) {
       hp2 = hops + l2;
       error_ne(rid,hp2->rid);
-      noexit error_ge(tid,chaincnt);
+      if (tdep && tid >= chaincnt) error(0,"tid %u above %u",tid,chaincnt);
       error_zp(hp,l);
-      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode);
+      info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s%s",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode,suffix);
     } else info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s %s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,mode);
 
-    if (tdep) pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s\n",leg+1,min2lmin(tdep,utcofs),pdep->name);
-    else pos += mysnprintf(buf,pos,buflen,"leg %2u dep %s\n",leg+1,pdep->name);
+    if (tdep) pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s%s\n",leg+1,min2lmin(tdep,utcofs),pdep->name,suffix);
+    else pos += mysnprintf(buf,pos,buflen,"leg %2u dep %s%s\n",leg+1,pdep->name,suffix);
     if (tarr) pos += mysnprintf(buf,pos,buflen,"       arr \ad%u %s\n",min2lmin(tarr,utcofs),parr->name);
     else pos += mysnprintf(buf,pos,buflen,"       arr %s\n",parr->name);
 
@@ -1384,9 +1388,9 @@ ub4 fgeodist(struct port *pdep,struct port *parr)
   char *aname = parr->name;
   double fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
 
-  if (fdist < 1e-10) warning(Iter,"port %u-%u distance ~0 for latlon %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+  if (fdist < 1e-9) warning(Iter,"port %u-%u distance ~0 for latlon %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
   else if (fdist < 0.001) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
   else if (fdist > 45000) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-  dist = (ub4)(fdist * Geoscale);
+  dist = (ub4)fdist;
   return dist;
 }

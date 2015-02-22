@@ -107,7 +107,6 @@ struct chainhop {
   ub4 hop;
   ub4 tdep,tarr;
   ub4 midur;
-  ub4 dist;
 };
 
 struct chain {
@@ -169,7 +168,6 @@ struct route {
   enum txkind kind;
 
   ub4 rrid;
-//  ub4 portcnt;
   ub4 hopcnt;
   ub4 hichainlen;
   ub4 hops[Chainlen];  // global
@@ -204,7 +202,7 @@ struct sidtable {
 
 // holds all for a partition
 struct network {
-  ub4 part;
+  ub4 part,partcnt;
   ub4 portcnt,vportcnt;
   ub4 hopcnt,whopcnt,chopcnt;
 
@@ -254,10 +252,8 @@ struct network {
 
   ub4 *portsbyhop; // [chopcnt * 2] <dep,arr>
 
-  ub4 *dist0;      // [portcnt2] distance
   ub4 *hopdist;    // [chopcnt] idem
   ub4 *hopdur;     // [chopcnt] average duration
-//  ub4 *hopcdur;     // [chopcnt] compound constant duration
   ub4 *shopdur;     // [whopcnt] average duration for estdur
   ub4* hoprids;     // [whopcnt]
 
@@ -382,10 +378,11 @@ typedef struct gnetwork gnet;
 
 struct trip {
   ub4 trip[Nxleg * 2]; // part,leg
-  ub4 port[Nxleg];
-  ub4 t[Nxleg];
+  ub4 port[Nxleg];     // destination port list
+  ub4 t[Nxleg];        // dep time
   ub4 tid[Nxleg];
   ub4 dur[Nxleg];
+  ub4 info[Nxleg];
 
   char desc[256];
 

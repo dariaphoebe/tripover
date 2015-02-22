@@ -868,6 +868,7 @@ int mknetn(struct network *net,ub4 nstop,ub4 varlimit,ub4 var12limit,bool nilonl
 int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 {
   ub4 part = net->part;
+  ub4 partcnt = net->partcnt;
   ub4 nstop = 1;
   ub4 portcnt = net->portcnt;
   ub4 hopcnt = net->hopcnt;
@@ -881,7 +882,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   ub4 *portdst;
   ub4 ofs,ofs1,ofs2,endofs,*conofs,*conofs1;
   ub4 *lst,*newlst,*conlst1,*lst1,*lst11,*lst2,*lst22,*lstv1;
-  ub4 *hopdist,*distlims;
+  ub4 *hopdist;
   ub4 dep,mid,arr,firstmid,port2,depmid,midarr,deparr;
   ub4 iv;
   ub4 cnt,n1,n2,n12,altcnt,v1,v2,leg,leg1,leg2,nleg;
@@ -890,7 +891,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   ub4 dist1,dist2,distlim,sumwalkdist1,sumwalkdist2,walkdist1,walkdist2;
   ub4 cntlim,cntlimdist,cntlimdur,gen,outcnt;
   ub4 dur,midur,durndx,durcnt,durlim,distcnt,distndx;
-  ub4 *hopdur,*durlims;
+  ub4 *hopdur;
   ub4 midurs[Durcnt];
   ub4 dists[Distcnt];
   ub4 walklimit = net->walklimit;
@@ -899,7 +900,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   ub4 stat_altlim = 0,stat_oneroute = 0;
 
   // todo
-  ub4 portlimit = 9000;
+  ub4 portlimit = 19000;
   ub4 lstlimit = 1024 * 1024 * 512;
   ub4 altlimit = min(var12limit * 4,128);
 
@@ -910,7 +911,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 
   error_zz(portcnt,hopcnt);
 
-  info(0,"init 1-stop connections for %u port %u hop network",portcnt,whopcnt);
+  info(0,"init 1-stop connections for %u port \ah%u hop network",portcnt,whopcnt);
 
   info(0,"limits: var %u var12 %u alt %u port %u lst \ah%u",varlimit,var12limit,altlimit,portlimit,lstlimit);
 
@@ -923,10 +924,11 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   ub1 *allcnt = net->allcnt;
 
   cnts = alloc(port2, ub2,0,"net concnt",portcnt);
-  lodists = alloc(port2, ub4,0xff,"net lodist",portcnt);
+  if (partcnt > 1) lodists = alloc(port2, ub4,0xff,"net lodist",portcnt);
+  else lodists = NULL;
 
-  distlims = alloc(port2, ub4,0,"net distlims",portcnt);
-  durlims = alloc(port2, ub4,0,"net durlims",portcnt);
+  ub4 *distlims = alloc(port2, ub4,0,"net distlims",portcnt);
+  ub2 *durlims = alloc(port2, ub2,0,"net durlims",portcnt);
 
   portdst = alloc(portcnt, ub4,0,"net portdst",portcnt);
 
@@ -1002,7 +1004,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
     pdep = ports + dep;
     if (pdep->valid == 0) continue;
 
-    if (lstlen + 2 * port2 > lstlimit / nleg) {
+    if (lstlen + 2 * portcnt > lstlimit / nleg) {
       warncc(limited == 0,0,"limiting net by \ah%u triplets",lstlimit / nleg);
       limited = 1;
       var12limit = varlimit = 2;
@@ -1095,8 +1097,9 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 
       // if too many options, sort on distance.
       if (cnt > varlimit) {
-        cntlimdist = cntlim / 4;
-        cntlimdur = cntlim * 3 / 4;
+//        info(0,"cnt %u varlimit %u cntlim %u",cnt,varlimit,cntlim);
+        cntlimdist = max(cntlim / 4,1);
+        cntlimdur = max(cntlim * 3 / 4,1);
         cntlimdist = min(cntlimdist,Distcnt-1);
         cntlimdur = min(cntlimdur,Durcnt-1);
 
@@ -1216,12 +1219,13 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
         if (distcnt < cntlimdist) stat_partlimdist++;
         if (durcnt < cntlimdur) stat_partlimdur++;
         stat_cntlim++;
+        warncc(durlim != hi32 && durlim > 65534,0,"durlim %u exceeds 64k",durlim);
       } else {   // not cnt limited
         distlim = hi32;
         durlim = hi32;
       }
       distlims[deparr] = distlim;
-      durlims[deparr] = durlim;
+      durlims[deparr] = (ub2)durlim;
 
     } // each arrival port
     portdst[dep] = outcnt;
@@ -1324,6 +1328,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 
       distlim = distlims[deparr];
       durlim = durlims[deparr];
+      if (durlim == hi16) durlim = hi32;
 
 //      if (distlim != hi32 || durlim != hi32) info(0,"distlim %u durlim %u",distlim,durlim);
 
@@ -1409,7 +1414,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
             } else if (distlim != hi32 && dist2 > distlim) continue;
             if (distlim != hi32 && dist2 > distlim * 15) continue;
 
-            lodists[deparr] = min(lodists[deparr],dist2);
+            if (lodists) lodists[deparr] = min(lodists[deparr],dist2);
             allcnt[deparr] = 1;
             gen++;
 
@@ -1460,7 +1465,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
         dist2 += hopdist[leg2];
         lstv1[1] = leg2;
         lstv1 += 2;
-        lodists[deparr] = min(lodists[deparr],dist2);
+        if (lodists) lodists[deparr] = min(lodists[deparr],dist2);
         gen = 1;
         allcnt[deparr] = 1;
       }
@@ -1478,6 +1483,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   info(0,"pass 2 done, \ah%lu from \ah%lu triplets",newlstlen,lstlen);
 
   afree(distlims,"net distlims");
+  afree(durlims,"net durlims");
 
   if (lstlen - newlstlen > 1024 * 1024 * 64) {
     newlst = trimblock(lstblk,newlstlen * nleg,ub4);
@@ -1522,7 +1528,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   net->concnt[1] = cnts;
   net->conofs[1] = conofs;
 
-  net->lodist[1] = lodists;
+  net->lodist[1] = lodists; // only for partitioned
 
   net->lstlen[1] = lstlen;
 
@@ -2221,6 +2227,7 @@ int mknet2(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   info(0,"pass 2 done, \ah%lu from \ah%lu triplets",newlstlen,lstlen);
 
   afree(distlims,"net distlims");
+  afree(durlims,"net durlims");
 
   if (lstlen - newlstlen > 1024 * 1024 * 64) {
     newlst = trimblock(lstblk,newlstlen * nleg,ub4);

@@ -35,6 +35,8 @@ static ub4 msgfile;
 
 #undef hdrstop
 
+static const ub4 cmp_maxperm = 256;
+
 void inicompound(void)
 {
   msgfile = setmsgfile(__FILE__);
@@ -58,7 +60,7 @@ int compound(gnet *net)
   struct chain *cp,*chains = net->chains;
   struct chainhop *chp,*chainhops = net->chainhops;
   ub8 *crp,*chainrhops = net->chainrhops;
-  ub4 maxperm = min(160,Chainlen);
+  ub4 maxperm = min(cmp_maxperm,Chainlen);
   ub4 maxperm2 = maxperm * maxperm;
 
   ub4 dep,arr,deparr,da,prvda,rdep,rarr;
@@ -74,7 +76,7 @@ int compound(gnet *net)
   if (hopcnt < 2) return info(0,"skip compound on %u hop\as",hopcnt);
   if (ridcnt == 0) return info(0,"skip compound on no rids for %u hop\as",hopcnt);
 
-  docompound = dorun(FLN,Runcompound);
+  docompound = dorun(FLN,Runcompound,1);
 
   if (docompound == 0) return info0(0,"compound not enabled");
 
@@ -99,24 +101,6 @@ int compound(gnet *net)
   ub4 pdist[Chainlen];
 
   error_zp(orghopdist,hopcnt);
-
-#if 0
-  // sanity check
-  ub4 *duprids = alloc(port2,ub4,0xff,"cmp duprids",portcnt);
-  for (hop = 0; hop < hopcnt; hop++) {
-    hp = hops + hop;
-    rid = hp->rid;
-    dep = orgportsbyhop[hop * 2];
-    arr = orgportsbyhop[hop * 2 + 1];
-    error_ge(dep,portcnt);
-    error_ge(arr,portcnt);
-    deparr = dep * portcnt + arr;
-//    if (orghopdist[hop] == 0) warning(Iter,"hop %u has distance 0",hop);
-    if (duprids[deparr] == rid) warning(Iter,"duplicate hop %u %u-%u for rid %u",hop,dep,arr,rid);
-    duprids[deparr] = rid;
-  }
-  afree(duprids,"cmp duprids");
-#endif
 
   ub4 cnt,cmphopcnt = 0;
 
@@ -155,6 +139,9 @@ int compound(gnet *net)
   ub4 *hoplodur = alloc(hiport2,ub4,0,"cmp hoplodur",newhopcnt);
   ub4 *hophidur = alloc(hiport2,ub4,0,"cmp hophidur",newhopcnt);
 
+  ub4 port2 = portcnt * portcnt;
+  ub4 *duprids = alloc(port2,ub4,0xff,"cmp duprids",portcnt);
+
   // pass 1: count
   for (rid = 0; rid < ridcnt; rid++) {
     if (progress(&eta,"compound rid %u of %u for %u chains pass 1",rid,ridcnt,chaincnt)) return 1;
@@ -168,6 +155,14 @@ int compound(gnet *net)
       if (hp->rid != rid) continue;
       dep = hp->dep; arr = hp->arr;
       if (dep == arr) continue;
+
+      deparr = dep * portcnt + arr;
+      if (duprids[deparr] == rid) {
+        warn(Iter,"duplicate hop %u %u-%u for rid %u",hop,dep,arr,rid);
+        continue;
+      }
+      duprids[deparr] = rid;
+
       if (hp->reserve) {
         cumfevcnt += hp->tp.evcnt;
         cumfhops++;
@@ -283,6 +278,9 @@ int compound(gnet *net)
 
   ub8 cumchainlen = 0,pchaincnt = 0;
   ub4 eqdurs = 0,aeqdurs = 0;
+  ub4 cdist;
+
+  nsethi(duprids,port2);
 
   // pass 2
   for (rid = 0; rid < ridcnt; rid++) {
@@ -296,6 +294,10 @@ int compound(gnet *net)
 
       dep = hp->dep; arr = hp->arr;
       if (dep == arr) continue;
+
+      deparr = dep * portcnt + arr;
+      if (duprids[deparr] == rid) continue;
+      duprids[deparr] = rid;
 
       if (port2rport[dep] == hi32) { port2rport[dep] = rportcnt; rport2port[rportcnt++] = dep; }
       if (port2rport[arr] == hi32) { port2rport[arr] = rportcnt; rport2port[rportcnt++] = arr; }
@@ -311,7 +313,7 @@ int compound(gnet *net)
       cnt = cp->hopcnt;
       if (cp->rid != rid || cnt < 3) continue;
 
-      pchlen = 0;
+      pchlen = 0; cdist = 0;
       for (ci = 0; ci < cnt; ci++) {
         chp = chainhops + cp->hopofs + ci;
         hop = chp->hop;
@@ -333,12 +335,15 @@ int compound(gnet *net)
           if (hop != hop2) continue;
           error(Exit,"rid %u chain %u hop %u pos %u equals pos %u %s to %s",rid,chain,hop,pchlen,ci2,pdep->name,parr->name);
         }
+        dist = hopdist[hop];
+        hp = hops + hop;
         pchain[pchlen] = hop;
         pdeps[pchlen] = rdep;
         parrs[pchlen] = rarr;
-        pdist[pchlen] = chp->dist;
+        pdist[pchlen] = cdist;
         ptdep[pchlen] = chp->tdep;
         ptarr[pchlen] = chp->tarr;
+        cdist += max(dist,1);
         pchlen++;
         if (pchlen == maxperm) { warning(0,"limiting rid %u chain to %u",rid,maxperm); break; }
       }
@@ -386,11 +391,12 @@ int compound(gnet *net)
           tdep1 = ptdep[ci1];
           tarr2 = ptarr[ci2];
 
+          infocc(dist2 == 0,0,"xxx chop %u dist %u+%u",chop,dist1,dist2);
+
           error_eq(hop1,hop2);
 
           dep = rport2port[dep1];
           arr = rport2port[arr2];
-
           portsbyhop[chop * 2] = dep;
           portsbyhop[chop * 2 + 1] = arr;
           choporg[chop * 2] = hop1;
@@ -406,7 +412,9 @@ int compound(gnet *net)
           crp = chainrhops + cp->rhopofs;
 
           error_lt(dist2,dist1); // todo ?
-          dist = dist2 - dist1;
+
+          dist = dist2 - dist1 + hopdist[hop2];
+
           pdep = ports + dep;
           parr = ports + arr;
           dirdist = fgeodist(pdep,parr);
@@ -414,7 +422,6 @@ int compound(gnet *net)
 
           error_lt(tarr2,tdep1);
 
-//          infocc(hop1 == 16399,0,"chop %u-%u td %lu ta %lu",hop1,hop2,crp[rhop1] >> 32,crp[rhop2] & hi32);
           error_ne(crp[rhop1] >> 32,tdep1);
           error_ne(crp[rhop2] & hi32,tarr2);
 
@@ -470,6 +477,8 @@ int compound(gnet *net)
   } // each rid
   chopcnt = chop;
 
+  afree(duprids,"cmp duprids");
+
   info(0,"\ah%u compound hops, \ah%u with constant duration, \ah%u within 10 min",chop - hopcnt,eqdurs,aeqdurs);
   info(0,"avg chain len %u",(ub4)(cumchainlen / chaincnt));
 
@@ -477,16 +486,34 @@ int compound(gnet *net)
   net->choporg = choporg;
   net->hopcdur = hopcdur;
 
+  // check if distance valid ( minimum 1 unit)
+#if 1
+  for (hop = 0; hop < chopcnt; hop++) {
+    dep = portsbyhop[hop * 2];
+    arr = portsbyhop[hop * 2 + 1];
+    if (dep == arr) continue;
+    dist = hopdist[hop];
+    pdep = ports + dep;
+    parr = ports + arr;
+    if (hop < hopcnt) {
+      infocc(dist == 0,0,"hop %u %u-%u \ag%u %s to %s",hop,dep,arr,dist,pdep->name,parr->name);
+    } else {
+      hop1 = choporg[hop * 2];
+      hop2 = choporg[hop * 2 + 1];
+      infocc(dist == 0,0,"chop %u = %u-%u %u-%u \ag%u %s to %s",hop,hop1,hop2,dep,arr,dist,pdep->name,parr->name);
+    }
+  }
+#endif
+
   // allocate fare entries here, as they are for both plain and compound hops on reserved routes
   info(0,"\ah%lu + \ah%lu fare entries for %u hops",cumfevcnt,cumcfevcnt,cumfhops);
 
-  if (cumfhops == 0) return 0;
-
   cumfevcnt += cumcfevcnt;
-  net->fareposbase = mkblock(&net->faremem,cumfevcnt * Faregrp,ub2,Init0,"fare entries for %u reserved hops",cumfhops);
   net->fareposcnt = cumfevcnt;
 
-  ub4 *fhopofs = alloc(chopcnt,ub4,0xff,"fare fhopofs",cumfhops);
+  ub4 *fhopofs = NULL;
+
+  if (cumfhops) fhopofs = net->fhopofs = alloc(chopcnt,ub4,0xff,"fare fhopofs",cumfhops);
 
   ub4 ofs = 0;
   ub4 h1ndx,h2ndx,hopndx,h;
@@ -498,11 +525,11 @@ int compound(gnet *net)
     hop1 = choporg[chop * 2];
     hop2 = choporg[chop * 2 + 1];
     hp = hops + hop1;
-    if (hp->reserve) { fhopofs[chop] = ofs; ofs += hp->tp.evcnt; }
+    if (hp->reserve && fhopofs) { fhopofs[chop] = ofs; ofs += hp->tp.evcnt; }
     rid = hp->rid;
     rp = routes + rid;
     hopndx = 0; h1ndx = h2ndx = hi32; 
-    while (hopndx < rp->hopcnt && (h1ndx == hi32 || h2ndx == hi32)) {
+    while (hopndx < min(rp->hopcnt,Chainlen) && (h1ndx == hi32 || h2ndx == hi32)) {
       h = rp->hops[hopndx];
       if (h == hop1) h1ndx = hopndx;
       else if (h == hop2) h2ndx = hopndx;
@@ -513,9 +540,9 @@ int compound(gnet *net)
       continue;
     }
     rp->hop2chop[h1ndx * Chainlen + h2ndx] = chop;
-//    info(0,"rid %u hop %u-%u at %u-%u chop %u",rid,hop1,hop2,h1ndx,h2ndx,chop);
   }
-  net->fhopofs = fhopofs;
+
+  if (cumfhops) net->fareposbase = mkblock(&net->faremem,cumfevcnt * Faregrp,ub2,Init0,"fare entries for %u reserved hops",cumfhops);
 
   return 0;
 }

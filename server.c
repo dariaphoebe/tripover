@@ -276,6 +276,8 @@ static int updfares(gnet *net,ub4 *vals,ub4 valcnt)
   else if (hop2 >= hopcnt) return error(0,"invalid hop %u found for %u-%u",hop2,dep,arr);
   if (hop1 == hop2) chop = hop1;
   else chop = rp->hop2chop[h1ndx * Chainlen + h2ndx];
+  if (chop == hi32) return 1;
+
   info(0,"found hop %u,%u = %u",hop1,hop2,chop);
 
   while (vndx + 2 < valcnt) {

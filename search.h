@@ -45,6 +45,7 @@ struct srcctx {
   ub4 hidist;
   ub4 geodist;
   ub4 lot,lotid;
+  ub4 timestop;
 
   // store current best trip
   ub4 curdts[Nxleg];
@@ -66,12 +67,14 @@ struct srcctx {
   ub4 stat_nxtlim;
   ub4 stat_nxt0,stat_nxt3;
 
+  ub4 nleg;
+
   ub4 duraccs[Nxleg];
   ub4 hop1s[Nxleg];
   ub4 hop2s[Nxleg];
   ub4 parts[Nxleg];
 
-  ub4 dcnts[Nxleg];   // #events in dev[leg
+  ub4 dcnts[Nxleg];   // #events in dev[leg]
 
   ub4 dtcurs[Nxleg];  // low cost (=biased dt) for [0.. curleg]
   ub4 devcurs[Nxleg]; // dev index for above

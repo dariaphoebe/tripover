@@ -24,6 +24,7 @@ enum Msgcode {
   Ind  = 0x800,  // indent
 
   Notty = 0x1000,
+  Ret0  = 0x2000,
 //  GT   = 0x1000,
 //  GE   = 0x2000,
 

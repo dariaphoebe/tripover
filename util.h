@@ -60,7 +60,7 @@ extern void do_clear(void *p,size_t len);
 #define m2geo(m) ((m) / (1000 / Geoscale))
 #define geo2m(g) ((g) * (1000 / Geoscale))
 
-extern int dorun(ub4 fln,enum Runlvl stage);
+extern int dorun(ub4 fln,enum Runlvl stage,bool silent);
 
 extern int getwatchitems(const char *name,ub8 *list,ub4 listlen);
 extern void addwatchitem(const char *name,ub4 val,ub4 fln,int hex);

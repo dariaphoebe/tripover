@@ -222,6 +222,7 @@ int prepnet(netbase *basenet)
       memcpy(rp->name,brp->name,nlen);
       rp->namelen = nlen;
     }
+    nsethi(rp->hop2chop,Chainlen * Chainlen);
   }
   info(0,"%u routes",ridcnt);
 
@@ -340,6 +341,7 @@ int prepnet(netbase *basenet)
 
     dist = hp->dist = bhp->dist;
     hopdist[hop] = dist;
+    error_z(dist,hop);
 
     hp->dep = dep;
     hp->arr = arr;
@@ -468,7 +470,6 @@ int prepnet(netbase *basenet)
       seq = (ub4)(bchip[i] >> 32);
       hop = bchp->hop;
       tdep = bchp->tdep;
-//      infocc(rtid == 109966 || hop == 21300,0,"tid %u rtid %u hop %u tdep \ad%u idx %u/%u",chain,rtid,hop,tdep,i,cnt);
       error_le(seq,prvseq);
       chp->hop = hop;
       chp->tdep = tdep;
@@ -477,7 +478,6 @@ int prepnet(netbase *basenet)
       chp->tarr = bchp->tarr;
       error_lt(chp->tarr,chp->tdep);
       chp->midur = bchp->midur;
-      chp->dist = bchp->dist;
     }
   }
 

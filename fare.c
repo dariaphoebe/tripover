@@ -44,7 +44,7 @@ int fareupd(gnet *net,ub4 rid,ub4 hop1,ub4 hop2,ub4 chop,ub4 t,ub4 mask,ub4 nfar
   ub8 *ev,*events = net->events;
   ub4 rt,tt,prvt;
 
-  if (fhopofs == NULL) return info(0,"no reserved routes for %u",hop1);
+  if (fhopofs == NULL || fareposbase == NULL) return info(0,"no reserved routes for %u",hop1);
 
   hp = hops + hop1;
   tp = &hp->tp;

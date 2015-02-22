@@ -187,7 +187,7 @@ int partition(gnet *gnet)
   ub4 aimcnt = max(1,portcnt / aimpartsize);
 
   info(0,"aimed partition size %u",aimpartsize);
-  if (aimcnt > 1) info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
+  if (aimcnt > 1 && dorun(FLN,Runpart,1)) info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
   else {
     info(0,"skip partitioning %u ports %u routes net",portcnt,ridcnt);
 
@@ -202,12 +202,13 @@ int partition(gnet *gnet)
     net = getnet(part);
 
     net->part = part;
+    net->partcnt = 1;
     net->istpart = 1; // todo
 
     g2p = alloc(portcnt,ub4,0xff,"part g2p-ports",portcnt);
     p2g = alloc(portcnt,ub4,0xff,"part p2g-ports",portcnt);
-    g2phop = alloc(hopcnt,ub4,0xff,"part g2p-hops",hopcnt);
-    p2ghop = alloc(hopcnt,ub4,0xff,"part pgg2p-hops",hopcnt);
+    g2phop = alloc(chopcnt,ub4,0xff,"part g2p-hops",chopcnt);
+    p2ghop = alloc(chopcnt,ub4,0xff,"part pgg2p-hops",chopcnt);
 
     pportcnt = 0;
     for (port = 0; port < portcnt; port++) {
@@ -218,7 +219,7 @@ int partition(gnet *gnet)
     }
     net->vportcnt = pportcnt;
 
-    for (hop = 0; hop < hopcnt; hop++) {
+    for (hop = 0; hop < chopcnt; hop++) {
       g2phop[hop] = hop;
       p2ghop[hop] = hop;
     }
@@ -1351,6 +1352,7 @@ int partition(gnet *gnet)
 #endif
 
     net->part = part;
+    net->partcnt = partcnt;
     net->istpart = (part == tpart && partcnt > 1);
 
     net->portcnt = pportcnt;

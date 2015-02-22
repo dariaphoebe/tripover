@@ -92,7 +92,7 @@ routes.txt  todo
 
 enum stopopts { Stopopt_child = 1, Stopopt_parent = 2 };
 
-static const char *kindnames[Kindcnt] = { "unknown","air","rail","bus","ferry","walk" };
+static const char *kindnames[Kindcnt] = { "unknown","air int","air dom","rail","bus","ferry","walk" };
 
 enum extresult { Next, Newitem, Newcmd, Eof, Parserr };
 

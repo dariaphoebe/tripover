@@ -84,7 +84,6 @@ struct chainhopbase {
   ub4 hop;
   ub4 tdep,tarr;
   ub4 midur;
-  ub4 dist;
 };
 
 struct chainbase {
@@ -170,7 +169,6 @@ struct routebase {
 
   ub4 hopcnt; // initial by reference
   ub4 hopndx; // working rid-relative hop
-//  ub4 rhopcnt; // by chain assignment
   ub4 carriercnt;
   ub4 servicecnt;
   ub4 chaincnt;

@@ -156,28 +156,28 @@ static int initnet(void)
 
   if (*globs.netdir == 0) return 1;
 
-  if (dorun(FLN,Runread)) rv = readextnet(basenet,globs.netdir);
+  if (dorun(FLN,Runread,0)) rv = readextnet(basenet,globs.netdir);
   else return 0;
   if (rv) return rv;
 
-  if (dorun(FLN,Runbaseprep)) rv = prepbasenet();
+  if (dorun(FLN,Runbaseprep,0)) rv = prepbasenet();
   else return 0;
   if (rv) return rv;
 
   if (globs.writgtfs) rv = writegtfs(basenet,globs.netdir);
   if (rv) return rv;
 
-  if (dorun(FLN,Runprep)) rv = prepnet(basenet);
+  if (dorun(FLN,Runprep,0)) rv = prepnet(basenet);
   else return 0;
   if (rv) return rv;
 
   gnet = getgnet();
 
-  if (dorun(FLN,Runcompound)) rv = compound(gnet);
+  if (dorun(FLN,Runcompound,0)) rv = compound(gnet);
   else return 0;
   if (rv) return rv;
 
-  if (dorun(FLN,Runpart)) rv = partition(gnet);
+  if (dorun(FLN,Runpart,0)) rv = partition(gnet);
   else return 0;
   if (rv) return rv;
 
@@ -253,7 +253,7 @@ static int do_main(void)
   showmemsums();
 
   gnet *net = getgnet();
-  if (globs.netok && dorun(FLN,Runserver)) {
+  if (globs.netok && dorun(FLN,Runserver,0)) {
 
     info(0,"overall schedule period \ad%u to \ad%u",net->t0,net->t1);
     info(0,"connectivity precomputed for %u transfer\as",net->histop);

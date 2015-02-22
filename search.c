@@ -43,18 +43,24 @@ static const ub4 Timelimit = 3;
 // emulate walk links as frequency-based
 static const ub4 walkiv_min = 10;
 
+static int vrbena;
+
 void inisearch(void)
 {
   msgfile = setmsgfile(__FILE__);
   iniassert();
+  vrbena = (getmsglvl() >= Vrb);
 }
 
-enum evfld { timefld,tidfld,dtfld,durfld,costfld,prvfld,farefld,fldcnt };
+enum evfld { timefld,tidfld,dtfld,durfld,costfld,prvfld,farefld,flnfld,fldcnt };
+
+static const ub4 evmagic1 = 0xbdc90b28;
+static const ub4 evmagic2 = 0x695c4b78;
 
 static void inisrc(search *src,const char *desc,ub4 arg)
 {
-  ub4 i,leg,t;
-  ub4 *ev;
+  ub4 i,leg,t,legevs;
+  ub4 *ev,*evbase;
   struct trip * stp;
 
   fmtstring(src->desc,"%s %u",desc,arg);
@@ -62,6 +68,7 @@ static void inisrc(search *src,const char *desc,ub4 arg)
   src->costlim = 0;
   src->lodist = hi32;
   src->lodt = hi32;
+  src->reslen = 0;
 
   for (t = 0; t < Elemcnt(src->trips); t++) {
     stp = src->trips + t;
@@ -71,12 +78,29 @@ static void inisrc(search *src,const char *desc,ub4 arg)
       stp->port[i] = hi32;
     }
   }
-  if (src->evpool == NULL) ev = src->evpool = alloc(Nxleg * Maxevs * fldcnt,ub4,0,"src events",Maxevs);
-  else ev = src->evpool;
-  for (leg = 0; leg < Nxleg; leg++) {
-    src->depevs[leg] = ev;
-    ev += Maxevs * fldcnt;
+  legevs = Maxevs * fldcnt;
+  if (src->evpool == NULL) {
+    evbase = src->evpool = alloc(Nxleg * (Maxevs + 2) * fldcnt,ub4,0,"src events",Maxevs);
+  } else evbase = src->evpool;
+  ev = evbase;
+  for (leg = 0; leg < Nxleg; leg++) { // add a redzone around each leg
+    ev = evbase + leg * (Maxevs + 2) * fldcnt;
+    *ev = evmagic1;
+    src->depevs[leg] = ev + fldcnt;
+    ev += (Maxevs + 1) * fldcnt;
+    *ev = evmagic2;
   }
+  if (ev >= evbase + Nxleg * (Maxevs + 2) * fldcnt) error(Exit,"ev %p above %p",ev,evbase + Nxleg * (Maxevs + 2) * fldcnt);
+}
+
+static int chkdev(ub4 *dev,ub4 leg)
+{
+  ub4 *d1 = dev - fldcnt;
+  ub4 *d2 = dev + Maxevs * fldcnt;
+
+  if (*d1 != evmagic1) return errorfln(FLN,0,d1[flnfld],"leg %u magic1 mismatch %x at %p",leg,*d1,d1);
+  else if (*d2 != evmagic2) return errorfln(FLN,0,d2[flnfld],"leg %u magic2 mismatch %x at %p",leg,*d2,d2);
+  else return 0;
 }
 
 // create list of candidate events for first leg
@@ -104,7 +128,8 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
   ub2 fare;
   ub2 *farepos,*fareposbase = net->fareposbase;
 
-  src->dcnts[0] = 0;
+  src->dcnts[0] = src->dcnts[1] = 0;
+  src->nleg = 0;
 
   if (hop < hopcnt) {
     hop1 = hop; hop2 = hi32;
@@ -114,7 +139,7 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
     hop2 = choporg[hop * 2 + 1];
     hp2 = hops + hop2;
     rh2 = hp2->rhop;
-  } else return error(0,"unexpected walk link %u on initial leg",hop);
+  } else return error(Ret0,"unexpected walk link %u on initial leg",hop);
 
   error_ge(hop1,hopcnt);
   hp1 = hops + hop1;
@@ -133,7 +158,7 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
 
   if (gencnt == 0) return vrb0(Notty,"no events for hop %u at \ad%u - \ad%u",hop,t0 + gt0,t1 + gt0);
 
-  if (t0 == t1) return info(0,"hop %u tt range %u-%u, dep window %u-%u",hp1->gid,t0,t1,deptmin,deptmax);
+  if (t0 == t1) return info(Iter|Notty,"hop %u tt range %u-%u, dep window %u-%u",hp1->gid,t0,t1,deptmin,deptmax);
 //  else if (ht0 > deptmax) return info(0,"hop %u tt range %u-%u, dep window %u-%u",hp->gid,ht0,ht1,deptmin,deptmax);
 //  else if (ht1 <= deptmin) return info(0,"hop %u tt range %u-%u, dep window %u-%u",hp->gid,ht0,ht1,deptmin,deptmax);
   if (t0 + gt0 > deptmax) return info(Iter|Notty,"hop %u tt range \ad%u - \ad%u, dep window \aD%u - \aD%u",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
@@ -142,13 +167,15 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
   ev = events + tp->evofs;
   dev = src->depevs[0];
 
+  if (chkdev(dev,0)) return 0;
+
   if (hp1->reserve && net->fhopofs) {
     ofs = net->fhopofs[hop];
     farepos = fareposbase + ofs * Faregrp;
   } else farepos = NULL;
 
   prvt = 0;
-  lodur = hi32; lodev = 0;
+  lodur = hi32; lodev = hi32;
   for (gndx = 0; gndx < gencnt; gndx++) {
     t = (ub4)ev[gndx * 2];
     if (t < prvt) {
@@ -206,6 +233,8 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
     devp[durfld] = dur;
     devp[costfld] = dur;
     devp[farefld] = fare;
+    devp[prvfld] = hi32;
+    devp[flnfld] = FLN;
     if (dur < lodur) { lodur = dur; lodev = dcnt; }
     dcnt++;
     if (dcnt >= dmax) {
@@ -217,13 +246,17 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
   src->duraccs[0] = tp->duracc;
   if (dcnt == 0) return 0;
 
+  src->nleg = 1;
+
   src->hop1s[0] = hop1;
   src->hop2s[0] = hop2;
   src->parts[0] = net->part;
 
   src->dtcurs[0] = lodur;
   src->devcurs[0] = lodev;
-//  info(Iter|Notty,"%u dep events for leg 0",dcnt);
+  warncc(lodev >= dcnt,Notty,"leg 0 lodev %u cnt %u",lodev,dcnt);
+  infocc(vrbena,Notty,"%u dep events for leg 0",dcnt);
+  if (chkdev(dev,0)) return 0;
   return dcnt;
 }
 
@@ -233,10 +266,11 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   ub4 deptmin = src->deptmin;
   ub4 deptmax = src->deptmax;
   ub4 aleg;
-  ub4 dcnt = 0,gencnt;
+  ub4 dndx,dcnt,gencnt;
   ub4 gndx,agndx,prvgndx,dmax = Maxevs;
   ub4 adndx,adcnt,ofs;
-  ub4 rt,t,tid,atid,at,dur,atarr,adur,lodt,lodev,loadev,dt,adt;
+  ub4 rt,t,last,at,dur,atarr,adur,lodt,dt,adt;
+  ub4 tid,atid,lodev,loadev;
   ub4 *dev,*adev,*devp,*adevp;
   ub4 cost,acost;
   ub4 ttmax = src->maxtt;
@@ -258,8 +292,11 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   ub2 *farepos,*fareposbase = net->fareposbase;
 
   error_z(leg,0);
+  aleg = leg - 1;
 
   src->dcnts[leg] = 0;
+  if (leg + 1 < Nxleg) src->dcnts[leg+1] = 0;
+  if (src->nleg < leg) return error(Ret0,"nleg %u vs %u",src->nleg,leg);
 
   if (hop < hopcnt) {
     hop1 = hop; hop2 = hi32;
@@ -288,7 +325,6 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   ub4 t0 = tp->t0;
   ub4 t1 = tp->t1;
 
-  aleg = leg - 1;
   adcnt = src->dcnts[aleg];
   if (adcnt == 0) return 0;
 
@@ -296,10 +332,10 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   else if (t1 == hi32) return warn(0,"hop %u tt range %u-%u, dep window %u-%u",gid,t0,t1,deptmin,deptmax);
   else if (gt0 == hi32) return warn(0,"hop %u tt range %u-%u, dep window %u-%u",gid,t0,t1,deptmin,deptmax);
 
-  if (t0 == t1) return info(0,"hop %u tt range %u-%u, dep window %u-%u",gid,t0,t1,deptmin,deptmax);
+  if (t0 == t1) return info(Notty,"hop %u tt range %u-%u, dep window %u-%u",gid,t0,t1,deptmin,deptmax);
 
-  if (t0 + gt0 > deptmax + src->dtlos[leg]) return info(Iter,"hop %u tt range \ad%u - \ad%u, dep window \aD%u - \aD%u",gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
-  else if (t1 + gt0 <= deptmin + src->dtlos[leg]) return info(Iter,"hop %u tt range \ad%u - \ad%u, dep window \aD%u - \aD%u",gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
+  if (t0 + gt0 > deptmax + src->dtlos[leg]) return info(Iter|Notty,"hop %u tt range \ad%u - \ad%u, dep window \aD%u - \aD%u",gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
+  else if (t1 + gt0 <= deptmin + src->dtlos[leg]) return vrb0(Iter,"hop %u tt range \ad%u - \ad%u, dep window \aD%u - \aD%u",gid,t0 + gt0,t1 + gt0,deptmin,deptmax); // todo
 
   if (hp1->reserve && net->fhopofs) {
     ofs = net->fhopofs[hop];
@@ -313,8 +349,12 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   dev = src->depevs[leg];
   adev = src->depevs[aleg];
 
+  if (chkdev(dev,leg)) return 0;
+  if (chkdev(dev,aleg)) return 0;
+
   lodt = hi32; lodev = loadev = hi32;
   prvgndx = agndx = adndx = 0;
+  dcnt = dndx = last = 0;
   while (adndx < adcnt && prvgndx < gencnt && dcnt < dmax) {
     adevp = adev + adndx * fldcnt;
     at = adevp[timefld];
@@ -328,6 +368,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
     warncc(adur > hi16,0,"adur %u",adur);
 
     // search first candidate departure
+    // note that the output event may already have been written for last iter
     gndx = prvgndx;
     while (gndx < gencnt) {
       rt = (ub4)ev[gndx * 2];
@@ -336,7 +377,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
     }
     prvgndx = gndx;
 
-    while (gndx < gencnt) {
+    while (gndx < gencnt && dcnt < dmax) {
       rt = (ub4)ev[gndx * 2];
       x = ev[gndx * 2 + 1];
       tid = x & hi24;
@@ -353,7 +394,6 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
 
       // above max transfer time
       } else if (t > atarr + ttmax) {
-//        info(Iter,"t %u gt0 %u deptmax %u",t,gt0,deptmax);
         src->stat_nxt3++;
         break;
       }
@@ -407,25 +447,55 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
       // currently, cost is duration plus transfer cost
       cost = acost + dur + t - atarr + costperstop;
 
-      devp = dev + dcnt * fldcnt;
-      devp[timefld] = t;
-      devp[tidfld] = tid;
-      devp[dtfld] = dt;
-      devp[durfld] = dur;
-      devp[costfld] = cost;
-      devp[prvfld] = adndx;
-      devp[farefld] = fare + afare;
+      if (t > last || dcnt == 0) {  // new entry
+        devp = dev + dcnt * fldcnt;
+        devp[timefld] = t;
+        devp[tidfld] = tid;
+        devp[dtfld] = dt;
+        devp[durfld] = dur;
+        devp[costfld] = cost;
+        devp[prvfld] = adndx;
+        devp[farefld] = fare + afare;
+        devp[flnfld] = FLN;
 
-      if (cost < lodt) { lodt = cost; lodev = dcnt; loadev = adndx; }
-
-      dcnt++;
+        if (cost < lodt) { lodt = cost; lodev = dcnt; loadev = adndx; }
+        last = t;
+        dcnt++;
+      } else { // written in earlier pass, overwrite if better
+        dndx = dcnt - 1;  // search matching entry
+        while (t >= last) {
+          devp = dev + dndx * fldcnt;
+          if (devp[timefld] == t) {
+            if (cost < devp[costfld]) {
+              devp[tidfld] = tid;
+              devp[dtfld] = dt;
+              devp[costfld] = cost;
+              devp[prvfld] = adndx;
+              devp[farefld] = fare + afare;
+              devp[flnfld] = FLN;
+            }
+            if (cost < lodt) { lodt = cost; lodev = dndx; loadev = adndx; }
+            break;
+          } else if (devp[timefld] < t) {
+            infocc(vrbena,0,"hop %u time \ad%u not found for \ad%u",hop,t,last);
+            break;
+          }
+          if (dndx == 0) break;
+          dndx--;
+        }
+      }
     }
     adndx++;
   }
+  if (chkdev(dev,leg)) return 0;
+  if (chkdev(dev,aleg)) return 0;
   src->dcnts[leg] = dcnt;
   if (dcnt == 0) return 0;
 
   warncc(dcnt >= dmax,Iter,"exceeding %u dep event",dcnt);
+  if (lodev >= dcnt) return warn(0,"leg %u lodev %u cnt %u",leg,lodev,dcnt);
+
+  src->nleg = leg + 1;
 
   src->hop1s[leg] = hop1;
   src->hop2s[leg] = hop2;
@@ -433,7 +503,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
 
   src->dtcurs[leg] = lodt;
   src->devcurs[leg] = lodev;
-  infocc(src->varcnt < 20,Iter|Notty,"%u dep events for leg %u, locost %u",dcnt,leg,lodt);
+  infocc(vrbena,Notty,"%u dep events for leg %u, locost %u",dcnt,leg,lodt);
   return dcnt;
 }
 
@@ -444,7 +514,7 @@ static ub4 fwdevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
   ub4 dcnt = 0;
   ub4 dmax = Maxevs;
   ub4 adndx,adcnt;
-  ub4 at,adur,acost,lodt,lodev,loadev,dt,adjdt,adt;
+  ub4 t,at,adur,acost,lodt,lodev,loadev,dt,adjdt,adt;
   ub4 *dev,*adev,*devp,*adevp;
   ub4 costperstop = src->costperstop;
   ub4 afare;
@@ -453,13 +523,19 @@ static ub4 fwdevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
   error_ge(midur,hi16);
 
   src->dcnts[leg] = 0;
+  if (leg + 1 < Nxleg) src->dcnts[leg+1] = 0;
 
   aleg = leg - 1;
+  if (src->nleg < leg) return error(Ret0,"nleg %u vs %u",src->nleg,leg);
+
   adcnt = src->dcnts[aleg];
   if (adcnt == 0) return 0;
 
   dev = src->depevs[leg];
   adev = src->depevs[aleg];
+
+  if (chkdev(dev,leg)) return 0;
+  if (chkdev(dev,aleg)) return 0;
 
   lodt = hi32; lodev = loadev = hi32;
   adndx = 0;
@@ -475,13 +551,14 @@ static ub4 fwdevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
     if (dt >= dthi) { adndx++; continue; }
 
     devp = dev + dcnt * fldcnt;
-    dev[timefld] = at + adur + 5;
-    dev[tidfld] = hi32;
-    dev[dtfld] = dt;
-    dev[durfld] = midur;
-    dev[prvfld] = adndx;
+    t = at + adur + 5;
+    devp[timefld] = t;
+    devp[tidfld] = hi32;
+    devp[dtfld] = dt;
+    devp[durfld] = midur;
+    devp[prvfld] = adndx;
     devp[farefld] = afare;
-
+    devp[flnfld] = FLN;
     adjdt = acost + midur + costperstop;
 
     devp[costfld] = adjdt;
@@ -491,8 +568,13 @@ static ub4 fwdevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
 
     adndx++;
   }
+  if (chkdev(dev,leg)) return 0;
+  if (chkdev(dev,aleg)) return 0;
   src->dcnts[leg] = dcnt;
   if (dcnt == 0) return 0;
+  if (lodev >= dcnt) return warn(0,"leg %u lodev %u cnt %u",leg,lodev,dcnt);
+
+  src->nleg = leg + 1;
 
   src->hop1s[leg] = hop1;
   src->hop2s[leg] = hop2;
@@ -501,8 +583,7 @@ static ub4 fwdevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
   src->dtcurs[leg] = lodt;
   src->devcurs[leg] = lodev;
   src->duraccs[leg] = 1;
-
-  infocc(src->varcnt < 20,Iter|Notty,"%u dep events for leg %u",dcnt,leg);
+  infocc(vrbena,Notty,"%u dep events for leg %u",dcnt,leg);
 
   return dcnt;
 }
@@ -519,11 +600,13 @@ static ub4 frqevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
 
   error_nz(leg,hop1);
 
-  src->dcnts[leg] = 0;
+  src->dcnts[0] = src->dcnts[1] = 0;
+  src->nleg = 0;
 
   if (midur >= dthi) return 0;
 
   dev = src->depevs[leg];
+  if (chkdev(dev,leg)) return 0;
 
   t = 0;
   lodt = hi32; lodev = hi32;
@@ -534,17 +617,23 @@ static ub4 frqevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
     devp = dev + dcnt * fldcnt;
     devp[timefld] = t + deptmin;
     devp[tidfld] = hi32;
+    devp[prvfld] = hi32;
     devp[dtfld] = midur;
     devp[durfld] = midur;
     devp[costfld] = midur;
     devp[farefld] = 0;
+    devp[flnfld] = FLN;
 
     if (dt < lodt) { lodt = dt; lodev = dcnt; }
     t += iv_min;
     dcnt++;
   }
+  if (chkdev(dev,leg)) return 0;
   src->dcnts[leg] = dcnt;
   if (dcnt == 0) return 0;
+  if (lodev >= dcnt) return warn(0,"leg %u lodev %u cnt %u",leg,lodev,dcnt);
+
+  src->nleg = 1;
 
   src->hop1s[leg] = hop1;
   src->hop2s[leg] = hop2;
@@ -554,14 +643,14 @@ static ub4 frqevs(search *src,lnet *net,ub4 leg,ub4 hop1,ub4 hop2,ub4 midur,ub4 
   src->devcurs[leg] = lodev;
   src->duraccs[leg] = 0;
 
-  infocc(src->varcnt < 20,Iter|Notty,"%u freq events for leg %u",dcnt,leg);
+  infocc(vrbena,Notty,"%u freq events for leg %u",dcnt,leg);
   return dcnt;
 }
 
 static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
 {
   ub4 dcnt = 0;
-  ub4 lodev,l,part;
+  ub4 lodev,nxtlodev,l,part,fln;
   ub4 t,tid,at,dur,cost,dt,*dev,*devp;
   ub4 *lodevs = src->devcurs;
   lnet *net;
@@ -571,16 +660,24 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
 
   error_z(nleg,0);
 
+  if (nleg != src->nleg) return error(Ret0,"nleg %u vs %u",nleg,src->nleg);
+
   dt = hi32;
   at = hi32;
   l = nleg - 1;
   lodev = lodevs[l];
+  if (lodev == hi32) return warn(0,"no events for leg %u",l);
+  dcnt = src->dcnts[l];
+  if (dcnt == 0) return warn(0,"no events for leg %u",l);
+  else if (lodev >= dcnt) return warn(0,"lodev %u cnt %u for leg %u",lodev,dcnt,l);
+
   do {
     dev = src->depevs[l];
     dcnt = src->dcnts[l];
 
     if (dcnt == 0) return warn(0,"no events for leg %u",l);
 
+    if (chkdev(dev,l)) return 0;
     part = src->parts[l];
     error_ge(part,gnet->partcnt);
     net = getnet(part);
@@ -603,31 +700,38 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
     dt = devp[dtfld];
     dur = devp[durfld];
     cost = devp[costfld];
-    lodev = devp[prvfld];
+    fln = devp[flnfld];
+
+    if (lodev >= dcnt) return errorfln(FLN,Ret0,fln,"lodev %u cnt %u for leg %u hop %u at \ad%u",lodev,dcnt,l,hop1,t);
+
+    nxtlodev = devp[prvfld];
     fare = devp[farefld];
+
+//    infofln2(FLN,0,fln,"leg %u cnt %u at %u hop %u dur %u t \ad%u",l,dcnt,lodev,hop1,dur,t);
 
     src->curdts[l] = dt;
     src->curdurs[l] = dur;
     src->curts[l] = t;
-    error_z(t,l);
+    if (t == 0) return errorfln(FLN,Ret0,devp[flnfld],"t 0 for lodev %u,%u leg %u",lodev,nxtlodev,l);
+
     src->curtids[l] = tid;
     src->curfares[l] = fare;
 
     if (l == nleg - 1) src->curdt = cost;
 
-    if (at < t) warn(Iter,"prvtdep \ad%u after tdep \ad%u",t,at);  // todo
+    if (t && at < t) warn(Iter,"prvtdep \ad%u after tdep \ad%u",t,at);  // todo
     at = t;
 
     if (tid == hi32) {
-      if (hop1 >= chopcnt) info(Notty,"whop %u part %u ev %u of %u leg %u t \ad%u dt %u",hop1,part,lodev,dcnt,l,t,dt);
-      else info(Notty,"hop %u part %u ev %u of %u leg %u t \ad%u dt %u no tid",hop1,part,lodev,dcnt,l,t,dt);
+      infocc(vrbena && hop1 < chopcnt,Notty,"hop %u part %u ev %u of %u leg %u t \ad%u dt %u no tid",hop1,part,lodev,dcnt,l,t,dt);
     } else {
-      warncc(hop1 >= chopcnt,0,"walk link with tid %u",tid);
+      if (hop1 >= chopcnt) return errorfln(FLN,Ret0,fln,"walk link %u with tid %u leg %u pos %u at \aD%u p %p",hop1,tid,l,lodev,t,devp);
       error_ge(tid,tidcnt);
       rtid = tid2rtid[tid];
       vrb0(0,"hop %u-%u part %u ev %u of %u leg %u t \ad%u tid %u rtid %u dt %u",hop1,hop2,part,lodev,dcnt,l,t,tid,rtid,dt);
     }
-  } while (l--);
+    lodev = nxtlodev;
+  } while (lodev != hi32 && l && l--);
 
   src->curt = src->curts[0];
 
@@ -652,7 +756,6 @@ static ub4 addevs(ub4 callee,search *src,lnet *net, ub4 *legs,ub4 nleg,ub4 nxleg
     midur = hopdur[hop];
     if (hop < chopcnt) cnt = mkdepevs(src,net,hop,midur);
     else cnt = frqevs(src,net,0,hop,hi32,midur,walkiv_min,dthi);    // walk links
-
     dtcur = src->dtcurs[0];
     *pdtcur = dtcur;
     if (cnt == 0 || nleg == 1) {
@@ -681,6 +784,8 @@ static ub4 addevs(ub4 callee,search *src,lnet *net, ub4 *legs,ub4 nleg,ub4 nxleg
   leave(callee);
   src->totevcnt += cnt;
   src->combicnt++;
+  if (cnt && src->nleg != nleg + nxleg) return error(Ret0,"nleg %u vs %u",src->nleg,nleg);
+
   return cnt;
 }
 
@@ -716,7 +821,7 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
   ub4 lodt = src->lodt;
   int havetime = src->trips[0].cnt;
 
-  info(0,"dynamic search in %u-stops: precomputed to %u",stop,net->histop);
+  info(0,"dynamic search 1 in %u-stops: precomputed to %u",stop,net->histop);
 
   stp = src->trips;
 
@@ -813,9 +918,10 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
               leg = trip[l];
               stp->trip[l * 2 + 1] = leg;
               stp->trip[l * 2] = part;
+              stp->tid[l] = hi32;
               stp->t[l] = 0;
             }
-            fmtstring(stp->desc,"shortest route-only, \ag%u",dist);
+            fmtstring(stp->desc,"shortest route-only, \ag%u  ref d1 %u",dist,mid);
             stp->cnt = havedist = 1;
             stp->len = nleg;
             lodist = src->lodist = dist;
@@ -823,10 +929,10 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
           }
 
           evcnt = addevs(caller,src,net,trip,nleg,0,lodt,&dtcur);
-//          infocc(evcnt,Notty,"%u event\as dtcur %u lodt %u",evcnt,dtcur,lodt);
 
           stp = src->trips;
           if (evcnt == 0 || (dtcur >= lodt && havetime)) continue;
+          infocc(evcnt,0,"%u legs %u event\as dtcur %u lodt %u",nleg,evcnt,dtcur,lodt);
 
           lodt = dthi = dtcur;
 
@@ -847,7 +953,7 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
           l = nleg - 1;
           sumdt = src->curts[l] - src->curts[0] + src->curdurs[l];
           fare = src->curfares[l];
-          if (fare) fmtstring(stp->desc,"fastest: \at%u  \ag%u fare %u ref d1 %u",sumdt,dist,fare,lodt);
+          if (fare) fmtstring(stp->desc,"fastest: \at%u  \ag%u fare %u ref d1 %u",sumdt,dist,fare,mid);
           else fmtstring(stp->desc,"fastest: \at%u  \ag%u  ref d1 %u",sumdt,dist,lodt);
           stp->cnt = havetime = 1;
           stp->len = nleg;
@@ -858,9 +964,10 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
             src->lot = src->curts[l];
             src->lotid = src->curtids[l];
           }
-          src->lodist = dist;
+          if (dist < src->lodist) src->lodist = dist;
           src->lodt = lodt;
-
+          src->querytlim = min(src->querytlim,src->queryt0 + 1000 * 200);
+          src->timestop = stop;
         } // each v2
       } // each v1
     } // each mid
@@ -883,6 +990,7 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
   ub4 portcnt = net->portcnt;
   ub4 chopcnt = net->chopcnt;
   ub4 *hopdist = net->hopdist;
+  struct port *pmid1,*pmid2,*ports = net->ports;
   ub4 part = net->part;
   ub4 stop1,stop2,stop3;
   ub4 mid1,mid2,depmid1,mid12,mid2arr;
@@ -949,6 +1057,9 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
     n1 = cnts1[depmid1];
     if (n1 == 0) continue;
 
+    pmid1 = ports + mid1;
+    if (pmid1->oneroute) continue;
+
     if (gettime_usec() > src->queryt0 + src->querytlim) return havetime | havedist;
 
 //    info(Notty,"mid1 %u cnt %u lodist %u",mid1,n1,lodist);
@@ -962,6 +1073,11 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
       mid2arr = mid2 * portcnt + arr;
       n3 = cnts3[mid2arr];
       if (n3 == 0) continue;
+
+      pmid2 = ports + mid2;
+      if (pmid2->oneroute) continue;
+
+      if (gettime_usec() > src->queryt0 + src->querytlim) return havetime | havedist;
 
 //      info(Notty,"mid %u-%u cnt %u %u %u",mid1,mid2,n1,n2,n3);
 
@@ -1045,6 +1161,7 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
                 stp->trip[l * 2 + 1] = leg;
                 stp->trip[l * 2] = part;
                 stp->t[l] = 0;
+                stp->tid[l] = hi32;
               }
               fmtstring(stp->desc,"shortest route-only, \ag%u",dist);
               stp->cnt = havedist = 1;
@@ -1054,9 +1171,8 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
             }
 
             evcnt = addevs(caller,src,net,trip,nleg,0,lodt,&dtcur);
-//            infocc(evcnt,Notty,"%u event\as dtcur %u lodt %u",evcnt,dtcur,lodt);
-
             if (evcnt == 0 || (dtcur >= lodt && havetime)) continue;
+            infocc(vrbena && evcnt,0,"%u legs %u event\as dtcur %u lodt %u",nleg,evcnt,dtcur,lodt);
 
             stp = src->trips;
 
@@ -1089,9 +1205,10 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
               src->lot = src->curts[l];
               src->lotid = src->curtids[l];
             }
-            src->lodist = dist;
+            if (dist < src->lodist) src->lodist = dist;
             info(0,"found %u-stop trip %s",nleg-1,stp->desc);
-
+            src->querytlim = min(src->querytlim,src->queryt0 + 1000 * 500);
+            src->timestop = nleg - 1;
           } // each v3
         } // each v2
       } // each v1
@@ -1135,7 +1252,7 @@ static int srcdyn2(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int
         if (nleg != stop + 1) continue;
 
         info(0,"searching %u+%u+%u legs",nleg1,nleg2,nleg3);
-        rv = srcleg3(gnet,net,src,dep,arr,nleg1,nleg2,nleg3,havedist,desc);
+        rv |= srcleg3(gnet,net,src,dep,arr,nleg1,nleg2,nleg3,havedist,desc);
         if (gettime_usec() > src->queryt0 + src->querytlim) return rv;
       }
     }
@@ -1173,8 +1290,10 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
 
   if (stop > nethistop) {
     if (stop > src->histop) return info(Notty,"%s: net part %u only has %u-stop connections, skip %u",desc,part,src->histop,stop);
-    else if (stop > nethistop + 1) return srcdyn2(gnet,net,src,dep,arr,stop,havedist,desc);
-    else return srcdyn(gnet,net,src,dep,arr,stop,havedist,desc);
+    else if (stop > nethistop + 1) {
+      if (src->timestop == 0) return info(Notty,"%s: time connection found at 0-stop, skip %u",desc,stop);
+      return srcdyn2(gnet,net,src,dep,arr,stop,havedist,desc);
+    } else return srcdyn(gnet,net,src,dep,arr,stop,havedist,desc);
   }
   if (stop >= Nstop) return 0;
 
@@ -1224,12 +1343,13 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
         stp->trip[leg * 2 + 1] = vp[leg];
         stp->trip[leg * 2] = part;
         stp->t[leg] = 0;
+        stp->tid[leg] = hi32;
       }
-      fmtstring(stp->desc,"shortest route-only, \ag%u",dist);
+      fmtstring(stp->desc,"shortest route-only, \ag%u  ref s",dist);
       stp->cnt = havedist = 1;
       stp->len = nleg;
       stp->dist = dist;
-      if (dist && dist == lodists[da]) info(Notty,"%u-stop found lodist %u at var %u %s:%u",stop,dist,v0,desc,ln);
+      if (dist && lodists && dist == lodists[da]) info(Notty,"%u-stop found lodist %u at var %u %s:%u",stop,dist,v0,desc,ln);
     }
 
     // time
@@ -1263,7 +1383,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
     }
     leg = nleg - 1;
     sumdt = src->curts[leg] - src->curts[0] + src->curdurs[leg];
-    fmtstring(stp->desc,"fastest: \at%u  \ag%u",sumdt,dist);
+    fmtstring(stp->desc,"fastest: \at%u  \ag%u ref s",sumdt,dist);
     stp->cnt = havetime = 1;
     stp->len = nleg;
     stp->dt = sumdt;
@@ -1273,7 +1393,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
       src->lot = src->curts[leg];
       src->lotid = src->curtids[leg];
     }
-    src->lodist = dist;
+    if (dist < src->lodist) src->lodist = dist;
     src->lodt = lodt;
 
     v0++;
@@ -1283,8 +1403,9 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
 
   if (havetime) {
     src->locsrccnt++;
+    src->timestop = stop;
     info(0,"%s: found %u-stop conn %u-%u",desc,stop,dep,arr);
-    src->querytlim = src->queryt0 + 1000 * 100;
+    src->querytlim = min(src->querytlim,src->queryt0 + 1000 * 100);
     return 1;
   }
 
@@ -1342,7 +1463,7 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
   ub4 *lodists,*tlodists,*alodists,lodist,tlodist,alodist;
   ub4 *hopdist,*thopdist,*ahopdist;
   ub4 dist,distrange,distiv,iv,pct;
-  ub4 dt,dtcur,dthi,dtndx,dtndx2,tdep,tdur,tid;
+  ub4 dt,dtcur,dthi,dtndx,dtndx2,tdep,tdur,tid,sumdt;
   ub4 varcnt = 0;
   ub4 distbins[Distbins];
   ub4 distsums[Distbins];
@@ -1602,6 +1723,9 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
                   stp->trip[leg * 2] = apart;
                   leg++;
                 }
+                leg = triplen - 1;
+                sumdt = src->curts[leg] - src->curts[0] + src->curdurs[leg];
+                fmtstring(stp->desc,"fastest: \at%u  \ag%u  ref d1 %u",sumdt,dist,src->curdt);
                 info(0,"store trip \aV%u%p dur %u dep \ad%u",triplen,(void *)stp->trip,src->curdt,src->curt);
                 for (leg = 0; leg < triplen; leg++) {
                   error_z(src->curts[leg],leg);
@@ -1662,7 +1786,7 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
   ub4 *lodists,*alodists,lodist,alodist;
   ub4 *hopdist,*ahopdist;
   ub4 dist,distrange,distiv,iv,pct;
-  ub4 dt,dtcur,dthi,dtndx,dtndx2;
+  ub4 dt,dtcur,dthi,dtndx,dtndx2,sumdt;
   ub4 varcnt = 0;
   ub4 distbins[Distbins];
   ub4 distsums[Distbins];
@@ -1848,6 +1972,9 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
                   stp->trip[leg * 2] = apart;
                   leg++;
                 }
+                leg = triplen - 1;
+                sumdt = src->curts[leg] - src->curts[0] + src->curdurs[leg];
+                fmtstring(stp->desc,"fastest: \at%u  \ag%u  ref d1 %u",sumdt,dist,src->curdt);
                 info(0,"store trip \aV%u%p dur %u dep \ad%u tid %x",triplen,(void *)stp->trip,src->curdt,src->curt,src->lotid);
                 for (leg = 0; leg < triplen; leg++) {
                   error_z(src->curts[leg],leg);
@@ -2224,6 +2351,91 @@ static int sametrip(struct trip *tp1,struct trip *tp2)
   return 1;
 }
 
+// merge legs if on same route
+static int mergelegs(struct trip *tp)
+{
+  ub4 len = tp->len;
+  ub4 dur12,t1,t2,l1,l = 0;
+  ub4 rid,tid,hop1,hop2,h1,chop,gchop,dep,arr,gdep,garr;
+  ub4 part1,part2;
+  gnet *gnet = getgnet();
+  lnet *net;
+  struct hop *hp;
+  struct route *rp;
+  int merged = 0;
+
+  if (len < 2) return 0;
+
+  if (globs.nomergeroute) return 0;
+
+  while (l + 1 < len) {
+    l1 = l + 1;
+    tid = tp->tid[l];
+    if (tid == hi32 || tid != tp->tid[l1]) { l++; continue; }
+    part1 = tp->trip[l * 2];
+    part2 = tp->trip[l1 * 2];
+    hop1 = tp->trip[l * 2 + 1];
+    hop2 = tp->trip[l1 * 2 + 1];
+    if (part1 != part2) { l++; continue; }
+
+    net = getnet(part1);
+    if (hop1 >= net->chopcnt || hop2 >= net->chopcnt) { l++; continue; }
+    dep = net->portsbyhop[hop1 * 2];
+    arr = net->portsbyhop[hop2 * 2 + 1];
+    if (dep >= net->portcnt || arr >= net->portcnt) { l++; continue; }
+    gdep = net->p2gport[dep];
+    garr = net->p2gport[arr];
+
+    if (hop1 < net->hopcnt) {
+      hp = net->hops + hop1;
+    } else if (hop1 < net->chopcnt) {
+      h1 = net->choporg[2 * hop1];
+      hp = net->hops + h1;
+    } else { l++; continue; }
+
+    rid = hp->rid;
+    rp = net->routes + rid;
+
+    // get hop from rid,dep,arr. orgs in case of compound
+    ub4 hopndx = 0,h1ndx = 0,h2ndx = 0;
+    ub4 h,ghop1 = hi32,ghop2 = hi32;
+    while (hopndx < rp->hopcnt && (ghop1 == hi32 || ghop2 == hi32)) {
+      h = rp->hops[hopndx];
+      if (h >= gnet->chopcnt) break;
+      if (gnet->portsbyhop[h * 2] == gdep) { ghop1 = h; h1ndx = hopndx; }
+      if (gnet->portsbyhop[h * 2 + 1] == garr) { ghop2 = h;  h2ndx = hopndx; }
+      hopndx++;
+    }
+    if (ghop1 == hi32 || ghop2 == hi32) { l++; continue; }
+    else if (ghop1 >= gnet->hopcnt) { l++; continue; }
+    else if (ghop2 >= gnet->hopcnt) { l++; continue; }
+    if (ghop1 == ghop2) gchop = ghop1;
+    else gchop = rp->hop2chop[h1ndx * Chainlen + h2ndx];
+    if (gchop >= gnet->chopcnt) { l++; continue; }
+
+    chop = net->g2phop[gchop];
+    info(0,"merge leg %u+%u on equal tid %u, rid %u hop %u-%u = %u %u",l,l1,tid,rid,ghop1,ghop2,gchop,chop);
+    if (chop >= net->chopcnt) { l++; continue; }
+    info(0,"merge leg %u+%u on equal tid %u, rid %u hop %u-%u = %u",l,l1,tid,rid,ghop1,ghop2,gchop);
+
+    tp->trip[l * 2 + 1] = chop;
+    t1 = tp->t[l]; t2 = tp->t[l1];
+    dur12 = t2 - t1 + tp->dur[l1];
+    tp->dur[l] = dur12;
+    tp->info[l] = 1;
+    if (len + 1 > l1) {
+      memmove(tp->trip + 2 * l1,tp->trip + 2 * (l + 2),(len - l1 - 1) * 2 * sizeof(tp->trip));
+      memmove(tp->t + l + 1,tp->t + l + 2,(len - l1 - 1) * sizeof(tp->t));
+      memmove(tp->tid + l + 1,tp->tid + l + 2,(len - l1 - 1) * sizeof(tp->tid));
+      memmove(tp->dur + l + 1,tp->dur + l + 2,(len - l1 - 1) * sizeof(tp->dur));
+    }
+    merged = 1;
+    len--;
+  }
+  tp->len = len;
+  return merged;
+}
+
 // handle criteria and reporting
 int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 {
@@ -2261,6 +2473,7 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 
   src->costlim = 0;
   src->lodist = hi32;
+  src->timestop = hi32;
 
   src->geodist = fgeodist(pdep,parr);
 
@@ -2302,7 +2515,9 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
 //  info(0,"found %u-%u in %u/%u legs",dep,arr,src->trips[0].len,nleg);
 
   // discard shortest route-only if not shorter
-  if (src->trips[0].cnt && src->trips[1].cnt && src->trips[1].dist == src->trips[0].dist) src->trips[1].cnt = 0;
+  if (src->trips[0].cnt && src->trips[1].cnt && (src->trips[1].dist >= src->trips[0].dist || src->trips[0].dist - src->trips[1].dist < 30)) {
+    src->trips[1].cnt = 0;
+  }
 
   for (t = 0; t < Elemcnt(src->trips); t++) {
     stp = src->trips + t;
@@ -2314,6 +2529,7 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
       if (same) break;
     }
     if (same) continue;
+    while (mergelegs(stp)) ;
     if (gtriptoports(net,stp,src->resbuf,resmax,&src->reslen,utcofs)) return 1;
   }
   src->reslen += mysnprintf(src->resbuf,src->reslen,resmax,"\nsearched \ah%lu combination\as with \ah%lu departure\as in %sseconds\n",src->combicnt,src->totevcnt,dtstr);

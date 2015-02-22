@@ -317,7 +317,7 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
     dlat = dlam * approx_earth_surface * 2 / M_PI;
     dlon = dphi * approx_earth_surface * 2 / M_PI;
     fdist = sqrt(dlat * dlat + dlon * dlon);
-    return fdist;
+    return round(fdist * Geoscale);
   }
 
   d = sin(phi1) * sin(phi2) + cos(phi1) * cos(phi2) * cos(dlam);
@@ -330,7 +330,7 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
 
   dist = dsig * mean_earth_radius;
 
-  return dist;
+  return round(dist * Geoscale);
 }
 
 int inimath(void)

@@ -496,9 +496,9 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     if (uval > (14 + 12) * 60) { dst[n++] = '!'; uval = (14+12) * 60; }
                     if (uval < 12 * 60) { dst[n++] = '-'; uval = 12 * 60 - uval; }
                     else { dst[n++] = '+'; uval -= 12 * 60; }
-                    n += ucnv(dst + n,uval / 60,2,0);
+                    n += ucnv(dst + n,uval / 60,2,'0');
                     dst[n++] = ':';
-                    n += ucnv(dst + n,uval % 60,2,0);
+                    n += ucnv(dst + n,uval % 60,2,'0');
                     break;
                   } else if (do_xu) {
                     do_xu = 0;
@@ -914,6 +914,7 @@ int __attribute__ ((format (printf,4,5))) errorfln(ub4 fln,ub4 code,ub4 fln2,con
   msg(Error, 0, fln, code, fmt, ap);
   va_end(ap);
   if (code & Exit) ccexit(0);
+  else if (code & Ret0) return 0;
   return 1;
 }
 

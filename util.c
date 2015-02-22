@@ -133,7 +133,7 @@ int fileclose(int fd,const char *name)
   return rv;
 }
 
-int dorun(ub4 fln,enum Runlvl stage)
+int dorun(ub4 fln,enum Runlvl stage,bool silent)
 {
   int run;
 
@@ -141,6 +141,7 @@ int dorun(ub4 fln,enum Runlvl stage)
   if (stage >= globs.stopat) run = 0;
   else if (stage >= Runcnt) run = 1;
   else run = globs.doruns[stage];
+  if (silent) return run;
 
   info0(User,"");
   infofln(fln,0,"--- %s stage %u %s ---",run ? "run" : "skip",stage,runlvlnames(stage));

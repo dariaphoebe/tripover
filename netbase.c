@@ -357,8 +357,7 @@ int prepbasenet(void)
     if (progress(&eta,"hop %u of %u in pass 1, \ah%lu events",hop,hopcnt,cumevcnt)) return 1;
 
     hp = hops + hop;
-    if (hp->valid == 0) continue;
-    if (hp->t1 <= hp->t0) continue;
+    if (hp->valid == 0) { info(0,"skip hop %u",hop); continue; }
 
     msgprefix(0,"hop %u",hop);
 
@@ -376,16 +375,17 @@ int prepbasenet(void)
     aname = parr->name;
 
     if (pdep->lat == parr->lat && pdep->lon == parr->lon) {
-      info(Iter,"ports %u-%u coloc %u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,dname,aname);
-      dist = 0;
+      info(0,"ports %u-%u coloc %u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,dname,aname);
+      dist = 1;
     } else {
       fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
-      if (fdist < 1e-10) warning(Iter,"port %u-%u distance ~0 for latlon %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-      else if (fdist < 0.001) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+      if (fdist < 1) warning(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
       else if (fdist > 42000) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-      dist = (ub4)(fdist * Geoscale);
+      dist = (ub4)fdist;
     }
-    hp->dist = dist;
+    hp->dist = max(dist,1);
+
+    if (hp->t1 <= hp->t0) { vrb0(0,"skip hop %u on t %u %u",hop,hp->t0,hp->t1); continue; }
 
     rrid = hp->rrid;
     rid = hp->rid;
@@ -571,7 +571,6 @@ int prepbasenet(void)
       case Kindcnt: duracc = 15; break;
     }
 
-//    infocc(lodur == 0,0,"hop %u lodur 0 hidur %u",hop,hidur);
     if (lodur == hidur) {
       tp->midur = hidur;
       eqdur++;
@@ -680,7 +679,6 @@ int prepbasenet(void)
         dist += hp->dist;
         if (hp->tp.midur == hi32) { prvdur = midur; midur = hi32; }
         else midur += hp->tp.midur;
-        chp->dist = dist;
         chp->midur = midur;
         if (midur == hi32) midur = prvdur;
         sum1 = (sum1 + hop) % hi32;
