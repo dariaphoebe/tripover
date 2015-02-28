@@ -451,13 +451,13 @@ static int rdcfg(const char *name,int *havecfg)
 
   fmtstring(fname,"%s/%s",globs.netdir,name);
   info(0,"check config in %s",fname);
-  rv = readfile(&cfg,fname,0);
+  rv = readfile(&cfg,fname,0,65536);
   if (rv) return 1;
 
   if (cfg.exist == 0) {
     if (streq(globs.netdir,".")) return 0;
     info(0,"check config in %s",name);
-    rv = readfile(&cfg,name,0);
+    rv = readfile(&cfg,name,0,65536);
     if (rv) return 1;
     if (cfg.exist == 0) return 0;
   }

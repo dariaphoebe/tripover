@@ -344,7 +344,7 @@ static int rdagency(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/agency.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;
@@ -467,7 +467,7 @@ static int rdcalendar(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/calendar.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,0);
+  rv = readfile(&eft.mf,fname,0,0);
   if (rv) return 1;
   if (eft.mf.exist == 0) return 0;
 
@@ -598,7 +598,7 @@ static int rdcaldates(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/calendar_dates.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,0);
+  rv = readfile(&eft.mf,fname,0,0);
   if (rv) return 1;
   if (eft.mf.exist == 0) return 0;
 
@@ -709,7 +709,7 @@ static int rdroutes(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/routes.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;
@@ -854,7 +854,7 @@ static int rdstops(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/stops.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;
@@ -1028,7 +1028,7 @@ static int rdtrips(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/trips.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;
@@ -1165,7 +1165,7 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
   fmtstring(eft.mf.name,"%s/stop_times.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;

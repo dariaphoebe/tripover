@@ -385,7 +385,7 @@ int serverloop(void)
     prvseq = seq;
 
     if (req.direxist == 0) osmillisleep(2000);
-    else if (req.exist == 0) osmillisleep(20);  // for linux only we may use inotify instead
+    else if (req.exist == 0) osmillisleep(10);  // for linux only we may use inotify instead
     else {
       info(0,"new client entry %s",req.name);
       c = req.name[req.basename];

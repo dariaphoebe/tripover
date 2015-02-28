@@ -535,7 +535,7 @@ static int rdextports(netbase *net,const char *dir)
   fmtstring(eft.mf.name,"%s/ports.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;
@@ -903,7 +903,7 @@ static int rdexttimes(netbase *net,const char *dir)
   fmtstring(eft.mf.name,"%s/times.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;
@@ -1214,7 +1214,7 @@ static int rdextroutes(netbase *net,const char *dir)
   fmtstring(eft.mf.name,"%s/to_routes.txt",dir);
   fname = eft.mf.name;
 
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;
@@ -1354,7 +1354,7 @@ static int rdexthops(netbase *net,const char *dir)
   fname = eft.mf.name;
 
   info(0,"reading hops from %s",fname);
-  rv = readfile(&eft.mf,fname,1);
+  rv = readfile(&eft.mf,fname,1,0);
   if (rv) return 1;
 
   buf = eft.mf.buf;

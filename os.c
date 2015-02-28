@@ -19,8 +19,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/wait.h>
+#include <sys/socket.h>
 #include <sys/resource.h>
 
+//#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#include <netdb.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -98,12 +104,18 @@ int osrewind(int fd)
 
 long oswrite(int fd, const void *buf,ub4 len)
 {
-  return write(fd,buf,len);
+  ssize_t rx;
+
+  do rx = write(fd,buf,len); while (rx == -1 && errno == EINTR);
+  return rx;
 }
 
 long osread(int fd,void *buf,size_t len)
 {
-  return read(fd,buf,len);
+  ssize_t rx;
+
+  do rx = read(fd,buf,len);  while (rx == -1 && errno == EINTR);
+  return rx;
 }
 
 int osclose(int fd)
@@ -289,6 +301,100 @@ void osmillisleep(ub4 msec)
   ts.tv_nsec = msec2 * 1000UL * 1000UL;
 
   nanosleep(&ts,NULL);
+}
+
+// fork/exec cmd and return reply data from file
+int osrun(const char *cmd,char *const argv[],char *const envp[])
+{
+  pid_t pid;
+  int rv,sig,status = 0;
+
+  fcntl(1,F_SETFD,0);
+  fcntl(2,F_SETFD,0);
+
+  pid = fork();
+
+  if (pid == 0) {
+    if (execve(cmd,argv,envp)) return oserror(0,"cannot run %s",cmd);
+  } else if (pid > 0) {
+    do {
+      rv = waitpid(pid,&status,WUNTRACED);
+      if (rv == -1) return oserror(0,"waitpid %d failed",pid);
+
+      if (WIFEXITED(status)) {
+        rv = WEXITSTATUS(status);
+        if (rv == 0) return info(0,"[%d=0] exited %s",pid,cmd);
+        else return error(0,"[%d=%d] exited %s",pid,rv,cmd);
+      } else if (WIFSIGNALED(status)) {
+        sig = WTERMSIG(status);
+        return error(0,"[%d] got signal %d %s",pid,sig,cmd);
+      } else if (WIFSTOPPED(status)) {
+        sig = WSTOPSIG(status);
+        warn(0,"[%d] got stop signal %d %s",pid,sig,cmd);
+      } else if (WIFCONTINUED(status)) {
+        warn(0,"[%d] got continue signal %s",pid,cmd);
+      }
+    } while (1);
+  } else return oserror(0,"cannot fork for %u",globs.pid);
+  return 1;
+}
+
+int ossocket(bool inet)
+{
+  int fd;
+  int type = SOCK_STREAM;
+
+// linux-specific
+#ifdef SOCK_CLOEXEC
+  type |= SOCK_CLOEXEC;
+#endif
+
+  if (inet) fd = socket(AF_INET,type,0);
+  else fd = socket(AF_UNIX,SOCK_STREAM,0);
+  if (fd == -1) oserror(0,"cannot open %s socket",inet ? "inet" : "local");
+  return fd;
+}
+
+int osbind(int fd,ub4 port)
+{
+  struct sockaddr_in adr;
+
+  oclear(adr);
+
+  adr.sin_family = AF_INET;
+  adr.sin_port = htons(port);
+  adr.sin_addr.s_addr = INADDR_ANY;
+
+  if (bind(fd,(struct sockaddr *)&adr,sizeof(adr)) == -1) {
+    return oserror(0,"cannot bind socket %u",fd);
+  }
+  return 0;
+}
+
+int oslisten(int fd,int backlog)
+{
+  if (listen(fd,backlog)) return oserror(0,"cannot listen on socket %u",fd);
+  return 0;
+}
+
+int osaccept(int sfd,struct osnetadr *ai)
+{
+  int cfd;
+  struct sockaddr_in sa;
+  socklen_t len = sizeof(sa);
+  ub4 port;
+
+  cfd = accept(sfd,(struct sockaddr *)&sa,&len);
+  if (cfd == -1) {
+    if (globs.sigint == 0) oserror(0,"cannot listen on socket %u",sfd);
+    return -1;
+  }
+
+  port = ntohs(sa.sin_port);
+  info(0,"new connection from %s:%u",inet_ntoa(sa.sin_addr),port);
+  ai->host = ntohl(sa.sin_addr.s_addr);
+  ai->port = port;
+  return cfd;
 }
 
 static const char namepattern[] = "p_glob_542346b6_5dfa.rcv";

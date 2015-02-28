@@ -9,6 +9,11 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
+struct osnetadr {
+  ub4 port;
+  ub4 host;
+};
+
 extern ub8 gettime_usec(void);
 extern char *getoserr(void);
 extern int osopen(const char *name);
@@ -19,6 +24,8 @@ extern int osfdinfo(struct myfile *mf,int fd);
 extern int osfileinfo(struct myfile *mf,const char *name);
 extern int osclose(int fd);
 extern int osremove(const char *name);
+
+extern int osrun(const char *cmd,char *const argv[],char *const envp[]);
 
 extern int osdup2(int oldfd,int newfd);
 extern int osrewind(int fd);
@@ -34,6 +41,11 @@ extern int getqentry(const char *qdir,struct myfile *mf,const char *region,const
 extern int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext);
 
 extern void osmillisleep(ub4 msec);
+
+extern int ossocket(bool inet);
+extern int osbind(int fd,ub4 port);
+extern int oslisten(int fd,int backlog);
+extern int osaccept(int sfd,struct osnetadr *ai);
 
 extern ub4 osmeminfo(void);
 

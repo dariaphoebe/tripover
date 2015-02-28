@@ -1265,7 +1265,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
   const char *suffix;
   ub4 rid = hi32,rrid,tid;
   ub4 part,leg,prvleg,ghop,l,l1 = 0,l2 = 0,dep,arr = hi32,deparr,gdep,garr = hi32;
-  ub4 tdep,tarr;
+  ub4 tdep,tarr,txtime,prvtarr = 0;
   ub4 dist,dist0;
   ub4 gportcnt = gnet->portcnt;
   ub4 partcnt = gnet->partcnt;
@@ -1363,16 +1363,33 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
       info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s%s",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode,suffix);
     } else info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s %s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,mode);
 
-    if (tdep) pos += mysnprintf(buf,pos,buflen,"leg %2u dep \ad%u %s%s\n",leg+1,min2lmin(tdep,utcofs),pdep->name,suffix);
-    else pos += mysnprintf(buf,pos,buflen,"leg %2u dep %s%s\n",leg+1,pdep->name,suffix);
-    if (tarr) pos += mysnprintf(buf,pos,buflen,"       arr \ad%u %s\n",min2lmin(tarr,utcofs),parr->name);
-    else pos += mysnprintf(buf,pos,buflen,"       arr %s\n",parr->name);
+    // dep
+    txtime = 0;
+    if (leg) { // add transfer time, omit duplicate stop name
+      if (tdep && prvtarr) {
+        if (tdep >= prvtarr) txtime = tdep - prvtarr;
+        else warn(0,"leg %u depart \ad%u before previous arrival \ad%u",leg,tdep,prvtarr);
+      };
+      if (tdep) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s%s\t\at%u\t# %u\n",min2lmin(tdep,utcofs),pdep->name,suffix,txtime,leg+1);
+      else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s%s\t\t# %u\n",pdep->name,suffix,leg+1);
+    } else {
+      if (tdep) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s%s\t\t# 1\n",min2lmin(tdep,utcofs),pdep->name,suffix);
+      else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s%s\t\t# 1\n",pdep->name,suffix);
+    }
 
-    if (rid == hi32) pos += mysnprintf(buf,pos,buflen,"       %s",name);
-    else pos += mysnprintf(buf,pos,buflen,"       %s %s",mode,rname);
-    if (dist != dist0) pos += mysnprintf(buf,pos,buflen,"  \ag%u direct \ag%u\n\n",dist,dist0);
-    else pos += mysnprintf(buf,pos,buflen," \ag%u\n\n",dist);
-  }
+    // route
+    if (rid == hi32) pos += mysnprintf(buf,pos,buflen,"trip\t\t%s",name);
+    else pos += mysnprintf(buf,pos,buflen,"trip\t%s\t%s",mode,rname);
+    if (dist != dist0) pos += mysnprintf(buf,pos,buflen,"\t\ag%u\t# (direct \ag%u)\n",dist,dist0);
+    else pos += mysnprintf(buf,pos,buflen,"\t\ag%u\n",dist);
+
+    // arr
+    if (tarr) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s\n",min2lmin(tarr,utcofs),parr->name);
+    else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s\n",parr->name);
+    prvtarr = tarr;
+
+  } // each leg
+
   *ppos = pos;
   error_ge(garr,gportcnt);
   ports[triplen] = garr;

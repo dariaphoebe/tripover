@@ -93,6 +93,14 @@ static void inisrc(search *src,const char *desc,ub4 arg)
   if (ev >= evbase + Nxleg * (Maxevs + 2) * fldcnt) error(Exit,"ev %p above %p",ev,evbase + Nxleg * (Maxevs + 2) * fldcnt);
 }
 
+static void fmtsum(struct trip *stp,ub4 dt,ub4 dist,ub4 fare,ub4 lodt,const char *ref)
+{
+  ub4 len = (ub4)sizeof(stp->desc);
+  ub4 pos = mysnprintf(stp->desc,0,len,"#item\ttime\tdistance\tstops\nfare\tref\n");
+
+  mysnprintf(stp->desc,pos,len,"sum\t\at%u\t\ag%u\t%u\t%u\t%s-%u\n",dt,dist,stp->len - 1,fare,ref,lodt);
+}
+
 static int chkdev(ub4 *dev,ub4 leg)
 {
   ub4 *d1 = dev - fldcnt;
@@ -921,9 +929,9 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
               stp->tid[l] = hi32;
               stp->t[l] = 0;
             }
-            fmtstring(stp->desc,"shortest route-only, \ag%u  ref d1 %u",dist,mid);
             stp->cnt = havedist = 1;
             stp->len = nleg;
+            fmtsum(stp,hi32,dist,0,mid,"d1");
             lodist = src->lodist = dist;
             info(0,"find route-only at dist %u",lodist);
           }
@@ -953,12 +961,11 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
           l = nleg - 1;
           sumdt = src->curts[l] - src->curts[0] + src->curdurs[l];
           fare = src->curfares[l];
-          if (fare) fmtstring(stp->desc,"fastest: \at%u  \ag%u fare %u ref d1 %u",sumdt,dist,fare,mid);
-          else fmtstring(stp->desc,"fastest: \at%u  \ag%u  ref d1 %u",sumdt,dist,lodt);
           stp->cnt = havetime = 1;
           stp->len = nleg;
           stp->dt = sumdt;
           stp->dist = dist;
+          fmtsum(stp,sumdt,dist,fare,mid,"d1");
           if (l) {
             l--;
             src->lot = src->curts[l];
@@ -1015,6 +1022,7 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
   ub4 lodist = src->lodist;
   ub4 lodt = src->lodt;
   int havetime = src->trips[0].cnt;
+  ub4 fare = 0;
 
   error_z(nleg1,dep);
   error_z(nleg2,dep);
@@ -1163,9 +1171,9 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
                 stp->t[l] = 0;
                 stp->tid[l] = hi32;
               }
-              fmtstring(stp->desc,"shortest route-only, \ag%u",dist);
               stp->cnt = havedist = 1;
               stp->len = nleg;
+              fmtsum(stp,hi32,dist,fare,0,"d2");
               info(0,"find route-only at dist %u",dist);
               lodist = src->lodist = dist;
             }
@@ -1194,11 +1202,11 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
             }
             l = nleg - 1;
             sumdt = src->curts[l] - src->curts[0] + src->curdurs[l];
-            fmtstring(stp->desc,"fastest: \at%u  \ag%u  ref d2 %u",sumdt,dist,lodt);
             stp->cnt = havetime = 1;
             stp->len = nleg;
             stp->dt = sumdt;
             stp->dist = dist;
+            fmtsum(stp,sumdt,dist,0,lodt,"d2");
             if (l) {
               l--;
               src->lodt = lodt;
@@ -1283,6 +1291,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
   struct trip *stp;
   ub4 ln = callee & 0xffff;
   int rv,havetime = 0,havedist = 0;
+  ub4 fare = 0;
 
   cost = hi32;
   lodist = src->lodist;
@@ -1345,10 +1354,10 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
         stp->t[leg] = 0;
         stp->tid[leg] = hi32;
       }
-      fmtstring(stp->desc,"shortest route-only, \ag%u  ref s",dist);
       stp->cnt = havedist = 1;
       stp->len = nleg;
       stp->dist = dist;
+      fmtsum(stp,hi32,dist,fare,0,"s");
       if (dist && lodists && dist == lodists[da]) info(Notty,"%u-stop found lodist %u at var %u %s:%u",stop,dist,v0,desc,ln);
     }
 
@@ -1383,11 +1392,11 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
     }
     leg = nleg - 1;
     sumdt = src->curts[leg] - src->curts[0] + src->curdurs[leg];
-    fmtstring(stp->desc,"fastest: \at%u  \ag%u ref s",sumdt,dist);
     stp->cnt = havetime = 1;
     stp->len = nleg;
     stp->dt = sumdt;
     stp->dist = dist;
+    fmtsum(stp,sumdt,dist,0,0,"s");
     if (leg) {
       leg--;
       src->lot = src->curts[leg];
@@ -1725,7 +1734,8 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
                 }
                 leg = triplen - 1;
                 sumdt = src->curts[leg] - src->curts[0] + src->curdurs[leg];
-                fmtstring(stp->desc,"fastest: \at%u  \ag%u  ref d1 %u",sumdt,dist,src->curdt);
+                stp->len = triplen;
+                fmtsum(stp,sumdt,dist,0,src->curdt,"d1-xp");
                 info(0,"store trip \aV%u%p dur %u dep \ad%u",triplen,(void *)stp->trip,src->curdt,src->curt);
                 for (leg = 0; leg < triplen; leg++) {
                   error_z(src->curts[leg],leg);
@@ -1738,7 +1748,6 @@ static ub4 srcxpart2(gnet *gnet,lnet *tnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr
                   info(0,"  leg %u dep \ad%u arr \ad%u tid %u",leg,tdep,tdep + tdur,tid);
                 }
                 stp->cnt = 1;
-                stp->len = triplen;
                 leg--;
                 src->lodt = src->curdt;
                 src->lot = src->curts[leg];
@@ -1974,7 +1983,8 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
                 }
                 leg = triplen - 1;
                 sumdt = src->curts[leg] - src->curts[0] + src->curdurs[leg];
-                fmtstring(stp->desc,"fastest: \at%u  \ag%u  ref d1 %u",sumdt,dist,src->curdt);
+                stp->len = triplen;
+                fmtsum(stp,sumdt,dist,0,src->curdt,"d1-xpt");
                 info(0,"store trip \aV%u%p dur %u dep \ad%u tid %x",triplen,(void *)stp->trip,src->curdt,src->curt,src->lotid);
                 for (leg = 0; leg < triplen; leg++) {
                   error_z(src->curts[leg],leg);
@@ -1984,7 +1994,6 @@ static ub4 srcxpart2t(gnet *gnet,ub4 dpart,ub4 apart,ub4 gdep,ub4 garr,ub4 gamid
                   info(0,"  leg %u dep \ad%u",leg,src->curts[leg]);
                 }
                 stp->cnt = 1;
-                stp->len = triplen;
                 leg--;
                 src->lodt = src->curdt;
                 src->lot = src->curts[leg];
@@ -2532,7 +2541,7 @@ int plantrip(search *src,char *ref,ub4 dep,ub4 arr,ub4 nstoplo,ub4 nstophi)
     while (mergelegs(stp)) ;
     if (gtriptoports(net,stp,src->resbuf,resmax,&src->reslen,utcofs)) return 1;
   }
-  src->reslen += mysnprintf(src->resbuf,src->reslen,resmax,"\nsearched \ah%lu combination\as with \ah%lu departure\as in %sseconds\n",src->combicnt,src->totevcnt,dtstr);
+  src->reslen += mysnprintf(src->resbuf,src->reslen,resmax,"\nstat\tsearched \ah%lu combination\as with \ah%lu departure\as in %sseconds\n",src->combicnt,src->totevcnt,dtstr);
   info(0,"%s",src->resbuf);
   return 0;
 }

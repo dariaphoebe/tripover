@@ -119,7 +119,10 @@ ub4 lmin2cd(ub4 min)
     pos = fmtstring(buf,"W day %u after Epoch %u : %u\n",day,Erayear,day2cdmax);
     msg_write(buf,pos);
   }
-  return day2cdtab[min(day,day2cdmax)];
+  if (day2cdtab) return day2cdtab[min(day,day2cdmax)];
+  pos = fmtstring(buf,"E time module not inited for min %u\n",min);
+  msg_write(buf,pos);
+  return 0;
 }
 
 // day to coded decimal yyyymmdd

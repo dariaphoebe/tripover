@@ -18,8 +18,8 @@ use 5.012;
 use strict;
 
 my $version_maj = 0;
-my $version_min = 28;
-my $lastchanged = "19 feb 2015";
+my $version_min = 29;
+my $lastchanged = "28 feb 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -333,7 +333,7 @@ my %routeres;
 
 my $hirrid = 0;
 
-my %uniqhops;
+# my %uniqhops;
 
 my $sumtimes = 0;
 
@@ -2545,7 +2545,7 @@ if (@args > 0) {
   init();
   $cmd = $args[0];
   if ($cmd eq 'import') {
-    error_exit("missing arg 'dir' for import") unless (@args > 1);
+    unless (@args > 1) { basemsg("missing arg 'dir' for import"); exit 1; }
     $outdir = (@args > 1) ? $args[1] : '.';
     $indir = (@args > 2) ? $args[2] : $outdir;
     $anadir = $outdir;
@@ -2556,7 +2556,7 @@ if (@args > 0) {
       writegtfs() if $canonout;
     }
   } elsif ($cmd eq 'merge') {
-    error_exit("merge needs outdir and at least one indir arg") unless (@args > 2);
+    unless (@args > 2) { basemsg("merge needs outdir and at least one indir arg"); exit 1; }
     $outdir = $args[1];
     for ($argno = 2; $argno < @args; $argno++) {
       merge($outdir,$args[$argno],$argno == 2) or exit 1;

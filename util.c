@@ -258,7 +258,7 @@ ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc)
   return n;
 }
 
-int readfile(struct myfile *mf,const char *name, int mustexist)
+int readfile(struct myfile *mf,const char *name, int mustexist,ub4 maxlen)
 {
   int fd;
   char *buf;
@@ -279,6 +279,10 @@ int readfile(struct myfile *mf,const char *name, int mustexist)
   mf->exist = 1;
   len = mf->len;
   if (len == 0) { osclose(fd); return info(0,"%s is empty",name); }
+  if (maxlen && len > maxlen) {
+    warn(0,"limiting read of %u-byte file %s to %u",(ub4)len,name,maxlen);
+    len = maxlen;
+  }
   if (len < sizeof(mf->localbuf)) buf = mf->localbuf;
   else {
     buf = alloc((ub4)len,char,0,name,0);
@@ -290,6 +294,15 @@ int readfile(struct myfile *mf,const char *name, int mustexist)
   osclose(fd);
   if (nr != (long)len) return error(0,"partial read of %s",name);
   return 0;
+}
+
+int readpath(struct myfile *mf,const char *dir,const char *name, int mustexist,ub4 maxlen)
+{
+  char fname[1024];
+
+  if (dir == NULL || *dir == 0) return readfile(mf,name,mustexist,maxlen);
+  fmtstring(fname,"%s/%s",dir,name);
+  return readfile(mf,fname,mustexist,maxlen);
 }
 
 // write simple 2D pixmap
@@ -645,7 +658,7 @@ static void rdwatchitems(void)
   char *buf,c;
   char name[16];
 
-  if (readfile(&mf,logitemfile,0)) return;
+  if (readfile(&mf,logitemfile,0,65536)) return;
   len = (ub4)mf.len;
   if (len == 0) return;
 

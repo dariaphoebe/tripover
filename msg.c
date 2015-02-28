@@ -251,13 +251,11 @@ static ub4 ecnv(char *dst, double x)
 }
 
 // simple %f
-static ub4 fcnv(char *dst, double x)
+static ub4 fcnv(char *dst, ub4 len,double x)
 {
   double fexp,exp;
   ub4 iexp;
-  ub4 ix,n = 0;
-  char *org = dst;
-
+  ub4 ix,n = 0,pos = 0;
 
   // trivia
   if (isnan(x)) { memcpy(dst,"#NaN",4); return 4; }
@@ -266,30 +264,31 @@ static ub4 fcnv(char *dst, double x)
   else if (x < -4e9) { *dst++ = '-'; n = 1 + ucnv(dst,hi32,0,' '); return n; }
   else if (x > 4e9) return ucnv(dst,hi32,0,' ');
 
-  if (x < 0) { *dst++ = '-'; x = -x; }
+  if (x < 0) { dst[pos++] = '-'; x = -x; }
 
   fexp = log10(x);
   if (fexp < 0) {     // |x| < 1.0
-    if (fexp < -7) { *dst = '0'; return n + 1; }
+    if (fexp < -7) { dst[pos] = '0'; return n + 1; }
 
     exp = floor(fexp);
-    iexp = (ub4)exp;
-    *dst++ = '0'; *dst++ = '.';
-    while (iexp--) *dst++ = '0';
+    iexp = (ub4)-exp;
+
+    dst[pos++] = '0'; dst[pos++] = '.';
+    while (iexp-- && pos < len) dst[pos++] = '0';
     x *= 1e7;
     if (x > 1) {
       ix = (ub4)x;
-      dst += ucnv(dst,ix,0,'0');
+      pos += ucnv(dst + pos,ix,0,'0');
     }
   } else { // |x| >= 1.0
     ix = (ub4)x;
-    dst += ucnv(dst,ix,0,'0');
-    *dst++ = '.';
+    pos += ucnv(dst + pos,ix,0,'0');
+    dst[pos++] = '.';
     x = (x - ix) * 1e+7;
     ix = (ub4)x;
-    dst += ucnv(dst,ix,7,'0');
+    pos += ucnv(dst + pos,ix,7,'0');
   }
-  return (ub4)(dst - org);
+  return pos;
 }
 
 /* supports a basic subset of printf plus compatible extensions :
@@ -413,11 +412,12 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
       } else {
         switch(c2) {
         case 'u': uval = va_arg(ap,unsigned int);
-                  if (len - n <= 10) break;
+                  if (len - n <= 16) break;
                   if (do_vec) { vlen = uval; break; }  // save len for vector fmt
 
                   else if (do_dist) { // distance in geo units to Km or m
                     do_dist = 0;
+                    if (uval == hi32) { dst[n++] = '-'; break; }
                     mdist = geo2m(uval);
                     kmdist = mdist / 1000;
                     if (mdist >= 5000) {
@@ -481,10 +481,13 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
 
                   } else if (do_mindur) {  // time duration in minutes
                     do_mindur = 0;
+                    if (uval == hi32) { dst[n++] = '-'; break; }
                     hh = uval / 60; mm = uval % 60;
                     if (uval >= 60) {
                       n += ucnv(dst + n,hh,wid,pad);
-                      memcpy(dst + n," hr ",4); n += 4;
+                      memcpy(dst + n," hour",4); n += 4;
+                      if (hh > 1) dst[n++] = 's';
+                      if (mm == 0) break;
                     }
                     n += ucnv(dst + n,mm,wid,pad);
                     memcpy(dst + n," min ",5); n += 5;
@@ -535,7 +538,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   break;
         case 'f': dval = va_arg(ap,double);
                   if (len - n <= 16) break;
-                  n += fcnv(dst + n,dval);
+                  n += fcnv(dst + n,len - n,dval);
                   break;
         case 'c': uval = va_arg(ap,unsigned int);
                   if (isprint(uval)) dst[n++] = (char)uval;

@@ -826,8 +826,8 @@ sub obj2exe($) {
   my ($dir,$odir,$oname,$o2name,$spath,$opath,$info,$objlist,$gen,$fresh);
   my ($cmd,$arg,$pos,$fh,$line,$incname,$o2path,$xpath,$xtime);
 
-  my $hasmain1 = qr'int\s+main\s*\(\s*int\s+argc\s*,\s*char\s*\*\s*argv\s*\[\s*\]\s*\)';
-  my $hasmain2 = qr'int\s+main\s*\(\s*int\s+argc\s*,\s*char\s*\*\s*\*\s*argv\s*\s*\)';
+  my $hasmain1 = qr'int\s+main\s*\(\s*int\s+argc\s*,\s*char\s*\*\s*argv\s*\[\s*\]';
+  my $hasmain2 = qr'int\s+main\s*\(\s*int\s+argc\s*,\s*char\s*\*\s*\*\s*argv';
   my $inc_dq = qr'^\s*#\s*include\s+\"([a-z0-9_/.]+)\"';
 
 # determine apps
