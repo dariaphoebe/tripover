@@ -74,6 +74,7 @@ static char msgbuf[MSGLEN];
 static char ccbuf[MSGLEN];
 static char ccbuf2[MSGLEN];
 
+static ub4 lastwarntoggle = 1;
 static char lastwarn[MSGLEN];
 static char lastwarn2[MSGLEN];
 static char lasterr[MSGLEN];
@@ -221,7 +222,7 @@ static ub4 ecnv(char *dst, double x)
   else if (isinf(x)) { memcpy(dst,"#Inf",4); return 4; }
 
   if (x < 0) { *dst++ = '-'; x = -x; }
-  if (x < 1.0e-200) { memcpy(dst,"<1e-200",7); return 7; }
+  if (x < 1.0e-200) { *dst++ = '~'; *dst++ = '0'; return (ub4)(dst - org); }
 
   fexp = log10(x);
   if (fexp < 0) {     // |x| < 1.0
@@ -485,10 +486,11 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     hh = uval / 60; mm = uval % 60;
                     if (uval >= 60) {
                       n += ucnv(dst + n,hh,wid,pad);
-                      memcpy(dst + n," hour",4); n += 4;
+                      memcpy(dst + n," hour",5); n += 5;
                       if (hh > 1) dst[n++] = 's';
                       if (mm == 0) break;
                     }
+                    dst[n++] = ' ';
                     n += ucnv(dst + n,mm,wid,pad);
                     memcpy(dst + n," min ",5); n += 5;
                     break;
@@ -785,8 +787,9 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   }
 
   if (lvl == Warn) {
-    memcpy(lastwarn,msgbuf,pos);
-    memcpy(lastwarn2,msgbuf,pos);
+    if (lastwarntoggle) memcpy(lastwarn,msgbuf,pos);
+    else memcpy(lastwarn2,msgbuf,pos);
+    lastwarntoggle ^= 1;
     lastwarn[pos] = 0;
     lastwarn2[pos] = 0;
     lastwarniter = cnt;
@@ -1034,7 +1037,7 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
 {
   va_list ap;
   ub8 sec = 1000 * 1000,dt,est,now = gettime_usec();
-  ub4 perc;
+  ub4 mperc,perc;
   char buf[256];
   ub4 pos,len = sizeof(buf);
 
@@ -1058,17 +1061,19 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
   va_start(ap,fmt);
   pos = vsnprint(buf,0,len,fmt,ap);
   va_end(ap);
-  perc = (ub4)(((unsigned long)cur * 100) / end);
-  perc = min(perc,100);
+  mperc = (ub4)(((unsigned long)cur * 1000) / end);
+  mperc = min(mperc,1000);
 
   dt = (now - eta->start) / sec;
-  if (perc == 0) est = 0;
-  else if (perc == 100) est = 0;
+  if (mperc == 0) est = 0;
+  else if (mperc == 1000) est = 0;
   else {
-    dt = dt * 100 / perc;
-    est = (dt * (100UL - perc)) / 100;
+    dt = dt * 1000 / mperc;
+    est = (dt * (1000UL - mperc)) / 1000;
   }
-  if (est < 120) mysnprintf(buf,pos,len," %u%% ~%u sec",perc,(ub4)est);
+  perc = mperc / 10;
+  if (est == 0) mysnprintf(buf,pos,len," %u%%",perc);
+  else if (est < 120) mysnprintf(buf,pos,len," %u%% ~%u sec",perc,(ub4)est);
   else if (est < 7200) mysnprintf(buf,pos,len," %u%% ~%u min",perc,(ub4)est / 60);
   else mysnprintf(buf,pos,len," %u%% ~%u hr",perc,(ub4)est / 3600);
   infofln(fln,0,"%s",buf);
@@ -1191,7 +1196,7 @@ void eximsg(void)
     showrep(i1);
     showrep(i2);
 
-    if (warncnt) info(0,"%u warning\as\n%s%s",warncnt,lastwarn,warncnt > 1 ? lastwarn2 : "");
+    if (warncnt) info(0,"%u warning\as\n%s\n%s",warncnt,lastwarn,warncnt > 1 ? lastwarn2 : "");
   }
 
   if (assertcnt && !(assertcnt == 1 && assertlimit <= 1) ) info(0,"%u assertion\as",assertcnt);

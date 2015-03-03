@@ -163,7 +163,7 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   }
 
   if (nm >= mmap_from_mb) {
-    if (nm > 64) infofln2(fln,0,FLN,"alloc %u MB for %s-%u",nm,desc,arg);
+    if (nm > 64) infofln2(fln,0,FLN,"alloc %u MB. for %s-%u",nm,desc,arg);
     p = osmmap(n);
     if (!p) { oserrorfln(fln,Exit,"%u: cannot allocate %u MB for %s-%u", __LINE__,nm, desc,arg); return NULL; }
     if (fill) memset(p, fill, n);
@@ -258,8 +258,13 @@ void * trimblock_fln(block *blk,size_t elems,ub4 elsize,const char *selems,const
   if (elsize != blk->elsize) errorfln(fln,Exit,FLN,"size mismatch: %s size %u on %s size %u block '%s'",selsize,elsize,blk->selsize,blk->elsize,desc);
   if (elems >= blk->elems) errorfln(fln,Exit,FLN,"%s:\ah%lu above %s:\ah%lu block '%s'",selems,elems,blk->selems,blk->elems,desc);
   p = blk->base;
-  p = realloc(blk->base,elems * elsize);
-  if (!p) { errorfln(fln,0,FLN,"cannot reallocate to \ah%lu for %s",elems * elsize,desc); exit(1); }
+  if (blk->mmap) {
+    info(0,"skip realloc from \ah%lu to \ah%lu for %s",blk->elems * blk->elsize,elems * elsize,desc);
+    return p;
+  } else {
+    p = realloc(blk->base,elems * elsize);
+    if (!p) errorfln(fln,Exit,FLN,"cannot reallocate to \ah%lu for %s",elems * elsize,desc);
+  }
 
   blk->base = p;
   blk->elems = elems;
@@ -325,8 +330,22 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   if (nm >= Maxmem_mb) errorfln(fln,Exit,FLN,"exceeding %u MB limit by %u MB for %s",Maxmem_mb,nm,desc);
   if (totalMB + nm >= Maxmem_mb) errorfln(fln,Exit,FLN,"exceeding %u MB limit by %u MB for %s",Maxmem_mb,nm,desc);
 
-  p = malloc(n);
-  if (!p) { errorfln(fln,0,FLN,"cannot allocate %u MB for %s",nm,desc); exit(1); }
+  if (nm >= mmap_from_mb) {
+    if (nm > 1024) infofln2(fln,0,FLN,"alloc %u MB. for %s",nm,desc);
+    p = osmmap(n);
+    if (!p) errorfln(fln,Exit,FLN,"cannot allocate %u MB for %s",nm,desc);
+    blk->mmap = 1;
+    if (opts & Init1) {
+      if (nm > 1024) info(0,"preset %u MB",nm);
+      memset(p, 0xff, n);
+    }
+  } else {
+    p = malloc(n);
+    if (!p) errorfln(fln,Exit,FLN,"cannot allocate %u MB for %s",nm,desc);
+    blk->mmap = 0;
+    if (opts & Init0) memset(p, 0, n);
+    else if (opts & Init1) memset(p, 0xff, n);
+  }
 
   blk->base = p;
   blk->elems = elems;
@@ -335,10 +354,7 @@ void * __attribute__ ((format (printf,8,9))) mkblock_fln(
   blk->selsize = selsize;
   blk->fln = fln;
 
-  if (opts & Init0) memset(p, 0, n);
-  else if (opts & Init1) memset(p, 0xff, n);
-
-  if (nm > 64) infofln(fln,0,"alloc %u MB for %s, total %u", nm, desc, totalMB);
+  if (nm > 1024) infofln(fln,0,"alloc %u MB for %s, total %u", nm, desc, totalMB);
 
   addsum(fln,desc,nm);
 

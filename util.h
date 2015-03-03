@@ -37,6 +37,7 @@ extern int fileclose(int fd,const char *name);
 
 extern int readfile(struct myfile *mf,const char *name, int mustexist,ub4 maxlen);
 extern int readpath(struct myfile *mf,const char *dir,const char *name, int mustexist,ub4 maxlen);
+extern int freefile(struct myfile *mf);
 
 extern ub4 sort8(ub8 *p,ub4 n,ub4 fln,const char *desc);
 extern ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc);

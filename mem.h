@@ -26,6 +26,7 @@ struct memblk {
   ub8 stamp;
   ub4 fln;
   ub4 seq;
+  bool mmap;
   const char *selems;
   const char *selsize;
   ub4 desclen;

@@ -82,7 +82,7 @@ struct toreq {
   ub4 deplat,deplon;
   ub4 arrlat,arrlon;
   ub4 dep,arr;
-  ub4 date;
+  ub4 date,time;
   ub4 utcofs;
   ub4 walklim;
 };
@@ -94,7 +94,7 @@ struct torep {
 };
 
 enum cmds { Cmd_plan,Cmd_geo2name };
-enum urlvals { Aver,Ver,Id,Cmd,Deplat,Deplon,Arrlat,Arrlon,Dep,Arr,Date,Utcofs,Delay,Walklim,Vcnt };
+enum urlvals { Aver,Ver,Id,Cmd,Deplat,Deplon,Arrlat,Arrlon,Dep,Arr,Date,Time,Utcofs,Delay,Walklim,Vcnt };
 
 static char rspline[] =
 "HTTP/1.1 200 OK\r\n\
@@ -111,7 +111,7 @@ static int putrep(int fd,struct toreq *treq,struct torep *trep)
   if (treq->id != trep->id) return error(0,"req id %u rep %u",treq->id,trep->id);
 
   len = fmtstring(reply,"%s%u\r\n\r\n%s\n%u.",rspline,trep->len + 5,trep->txt,treq->id);
-  info(0,"write %s",reply);
+  info(Notty,"write %s",reply);
   nw = 0; pos = 0;
   while (pos < len) {
     rx = oswrite(fd,reply + pos,len - pos);
@@ -138,13 +138,12 @@ static int getreq(int fd,struct toreq *tr)
   aclear(vals);
 
   while (nr < maxreqlen && state != Eoh) {
-    chunk = min(maxreqlen - nr,sizeof(buf));
+    chunk = min(maxreqlen - nr,sizeof(buf) - 2);
     rx = osread(fd,buf,chunk);
     if (rx == -1) return oserror(0,"read error at pos %u",nr);
     else if (rx == 0) return error(0,"eof at pos %u",nr);
-    msg_write("\n",1);
-    msg_write(buf,(ub4)rx);
-    msg_write("\n",1);
+    buf[rx] = 0;
+    info(Notty,"%s",buf);
     pos = 0;
     while (pos < rx && state != Eoh) {
       c = buf[pos++];
@@ -189,6 +188,7 @@ static int getreq(int fd,struct toreq *tr)
     tr->dep = vals[Dep];
     tr->arr = vals[Arr];
     tr->date = vals[Date];
+    tr->time = vals[Time];
     tr->utcofs = vals[Utcofs];
     tr->cmd = cmd;
     break;
@@ -203,7 +203,7 @@ static int getreq(int fd,struct toreq *tr)
   default: return error(0,"unknown command %u",cmd);
   }
   info(0,"req ver %u id %u dep %u,%u arr %u,%u date %u delay %u",vals[Ver],tr->id,tr->deplat,tr->deplon,tr->arrlat,tr->arrlon,tr->date,vals[Delay]);
-  osmillisleep(vals[Delay]);
+  if (vals[Delay]) osmillisleep(vals[Delay]);
   return 0;
 }
 
@@ -252,9 +252,9 @@ static int run(struct toreq *treq,struct torep *trep,ub4 seq,char *envp[])
     strcpy(arg3,"iplan");
     fmtstring(arg4,"%u",treq->dep);
     fmtstring(arg5,"%u",treq->arr);
-    fmtstring(arg6,"date=%u",treq->date);
+    fmtstring(arg6,"date=%u.%u",treq->date,treq->time);
     fmtstring(arg7,"utcoffset=%s",utc_ofs);
-    argv[7] = NULL;
+    argv[8] = NULL;
     info(0,"running %s %s %s %s %s %s %s %s",cmd,arg1,arg2,arg3,arg4,arg5,arg6,arg7);
     break;
   case Cmd_geo2name:

@@ -56,8 +56,7 @@ struct portbase {
 
   bool parentsta;
 
-  bool air;
-  bool rail;
+  bool air,rail,bus,ferry;
 
   ub4 lat,lon;
   double rlat,rlon;
@@ -97,6 +96,7 @@ struct chainbase {
   ub4 hopofs;
   ub4 rhopofs;
   ub4 lotdep,lotarr,hitdep,hitarr;
+  ub4 lotdhop,hitahop;
   ub8 code;
 };
 

@@ -272,8 +272,13 @@ int prepnet(netbase *basenet)
     hp->rrid = rrid;
     rid = rrid2rid[rrid];
     hp->rid = rid;
-    rp = routes + rid;
-    hp->reserve = rp->reserve;
+    if (rid != hi32) {
+      rp = routes + rid;
+      hp->reserve = rp->reserve;
+    } else {
+      rp = NULL;
+      hp->reserve = 0;
+    }
     hp->rhop = bhp->rhop;
 
     tp = &hp->tp;

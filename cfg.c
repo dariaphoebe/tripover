@@ -213,10 +213,11 @@ static int writecfg(int havecfg,const char *cname)
   sec70toyymmdd(now,nowstr,sizeof(nowstr));
   if (havecfg) {
     pos = fmtstring(buf,"# tripover %u.%u config in effect at %s\n\n",Version_maj,Version_min,nowstr);
+    pos += mysnprintf(buf,pos,sizeof(buf),"# name value  '#' origin description default\n\n");
   } else {
     pos = fmtstring(buf,"# tripover %u.%u config created at %s\n\n",Version_maj,Version_min,nowstr);
+    pos += mysnprintf(buf,pos,sizeof(buf),"# name value  '#' description default\n\n");
   }
-  pos += mysnprintf(buf,pos,sizeof(buf),"# name value  '#' origin description default\n\n");
   if (filewrite(fd,buf,pos,fname)) return 1;
 
   for (vp = cfgvars; vp->name; vp++) {
@@ -248,18 +249,19 @@ static int writecfg(int havecfg,const char *cname)
     case Cfgcnt: case Section: break;
     }
 
-    if (uval & Cfgcl) origin = "cmdln";
+    if (havecfg == 0) origin = "";
+    else if (uval & Cfgcl) origin = "cmdln ";
     else if (uval & Cfgdef) origin = ".cfg ";
     else origin = "def  ";
     uval &= ~(Cfgcl | Cfgdef);
 
     switch(vp->cnv) {
-    case Uint:       pos = fmtstring(buf,"%s %u\t# %s %s [%u]\n",name,uval,origin,desc,vp->def); break;
-    case Bool:       pos = fmtstring(buf,"%s %u\t# %s %s [%u]\n",name,uval,origin,desc,vp->def); break;
-    case EnumRunlvl: if (uval <= Runcnt) pos = fmtstring(buf,"%s %s=%u\t# %s %s\n",name,lvlnames[uval],uval,origin,desc);
-                     else pos = fmtstring(buf,"%s unknown-%u\t# %s %s\n",name,uval,origin,desc); break;
-    case String:     pos = fmtstring(buf,"%s %s\t# %s %s\n",name,sval,origin,desc);break;
-    case None:       pos = fmtstring(buf,"%s\t# %s %s\n",name,origin,desc);break;
+    case Uint:       pos = fmtstring(buf,"%s %u\t# %s%s [%u]\n",name,uval,origin,desc,vp->def); break;
+    case Bool:       pos = fmtstring(buf,"%s %u\t# %s%s [%u]\n",name,uval,origin,desc,vp->def); break;
+    case EnumRunlvl: if (uval <= Runcnt) pos = fmtstring(buf,"%s %s=%u\t# %s%s\n",name,lvlnames[uval],uval,origin,desc);
+                     else pos = fmtstring(buf,"%s unknown-%u\t# %s%s\n",name,uval,origin,desc); break;
+    case String:     pos = fmtstring(buf,"%s %s\t# %s%s\n",name,sval,origin,desc);break;
+    case None:       pos = fmtstring(buf,"%s\t# %s%s\n",name,origin,desc);break;
     }
     if (filewrite(fd,buf,pos,fname)) return 1;
   }

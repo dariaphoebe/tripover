@@ -819,6 +819,7 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
   ub4 leg,l,nleg;
   ub4 dist,hdist,dist1,dist2,walkdist1,sumwalkdist1,walkdist2,sumwalkdist2;
   ub4 nethistop = min(net->histop,src->nethistop);
+  ub4 nethileg = nethistop + 1;
 
   ub4 deptmin = src->deptmin;
   ub4 deptmax = src->deptmax;
@@ -836,10 +837,12 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
   dtcur = hi32;
 
   stop1 = stop - 1;
-  if (nethistop < stop1 || stop1 >= Nstop) return warn(0,"ending %u-stop search on %u-stop precomputed net",stop,nethistop);
+  nleg = stop + 1;
+  if (nleg > nethileg * 2 || stop1 >= Nstop) return warn(0,"ending %u-stop search on %u-stop precomputed net",stop,nethistop);
 
-  for (midstop1 = 0; midstop1 < stop; midstop1++) {
+  for (midstop1 = 0; midstop1 < min(stop,nethistop); midstop1++) {
     midstop2 = stop1 - midstop1;
+    if (midstop2 > nethistop) continue;
 
     nleg1 = midstop1 + 1;
     nleg2 = midstop2 + 1;
@@ -847,6 +850,9 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
 
     cnts1 = net->concnt[midstop1];
     cnts2 = net->concnt[midstop2];
+
+    if (cnts1 == NULL) return warn(0,"ending %u-stop search on %u-stop precomputed net",stop,nethistop);
+    if (cnts2 == NULL) return warn(0,"ending %u-stop search on %u-stop precomputed net",stop,nethistop);
 
     lstblk1 = net->conlst + midstop1;
     lstblk2 = net->conlst + midstop2;
@@ -1047,6 +1053,8 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
   cnts2 = net->concnt[stop2];
   cnts3 = net->concnt[stop3];
 
+  if (cnts1 == NULL || cnts2 == NULL || cnts3 == NULL) return 0;
+
   lstblk1 = net->conlst + stop1;
   lstblk2 = net->conlst + stop2;
   lstblk3 = net->conlst + stop3;
@@ -1239,18 +1247,19 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
 // dynamic search for one or more extra stops, using 2 vias
 static int srcdyn2(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int havedist,const char *desc)
 {
-  ub4 stop2,nleg1,nleg2,nleg3;
+  ub4 nleg1,nleg2,nleg3;
   ub4 mid1step,mid2step,mid3step;
-  ub4 nleg;
+  ub4 nleg = stop + 1;
   ub4 nethistop = min(net->histop,src->nethistop);
+  ub4 netleg,nethileg = nethistop + 1;
   int rv = 0;
 
   if (stop < 2) return info(0,"skip dyn search for %u-stop",stop);
 
   info(0,"dynamic search 2 in %u-stops: precomputed to %u",stop,net->histop);
 
-  stop2 = stop - 2;
-  if (nethistop < stop2) return info(0,"ending %u-stop search on %u-stop precomputed net",stop,nethistop);
+  netleg = nethileg * 3;
+  if (nleg > netleg) return info(0,"ending %u-stop search on %u-stop precomputed net",stop,netleg - 1);
 
   for (mid1step = 0; mid1step <= nethistop; mid1step++) {
     for (mid2step = 0; mid2step + mid1step <= nethistop; mid2step++) {
@@ -1278,6 +1287,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
   ub4 *lodists,lodist;
   ub4 nleg = stop + 1;
   ub4 nethistop = min(net->histop,src->nethistop);
+  ub4 nethileg = nethistop + 1;
   ub4 deptmin,deptmax;
   ub4 evcnt;
   ub4 cost,dist = 0,leg,l;
@@ -1298,11 +1308,17 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
   lodt = src->lodt;
 
   if (stop > nethistop) {
-    if (stop > src->histop) return info(Notty,"%s: net part %u only has %u-stop connections, skip %u",desc,part,src->histop,stop);
-    else if (stop > nethistop + 1) {
-      if (src->timestop == 0) return info(Notty,"%s: time connection found at 0-stop, skip %u",desc,stop);
+    info(Notty,"%s: net part %u has %u-stop connections, request %u",desc,part,src->nethistop,stop);
+    info(0,"nleg %u nethileg %u nethistop %u",nleg,nethileg,nethistop);
+    if (stop > src->histop) return info(Notty,"%s: stop limit %u reached",desc,src->histop);
+    else if (nleg > nethileg * 2) {
+      if (src->timestop < 2) return info(Notty,"%s: time connection found at 0-stop, skip %u",desc,stop);
       return srcdyn2(gnet,net,src,dep,arr,stop,havedist,desc);
-    } else return srcdyn(gnet,net,src,dep,arr,stop,havedist,desc);
+    } else {
+      rv = srcdyn(gnet,net,src,dep,arr,stop,havedist,desc);
+      if (rv) return rv;
+      return srcdyn2(gnet,net,src,dep,arr,stop,havedist,desc);
+    }
   }
   if (stop >= Nstop) return 0;
 

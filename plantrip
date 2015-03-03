@@ -16,6 +16,7 @@
 
 use 5.012;
 use strict;
+use utf8;
 
 use POSIX ();
 use POSIX qw(strftime);
@@ -49,10 +50,12 @@ my $timeout = 3; # seconds
 my $agelimit = 60; # seconds
 my $repagelimit = 3600; # seconds
 
+my $do_lcname = 0;
+
 # defaults, modifyable with 'set' cmd or args
 my $maxstop = 4;
 my $maxnetstop = 4;
-my $dayrange = 3;
+my $dayrange = 1;
 my $startdate = 0; # implies start of service
 my $mintt = 5;
 my $maxtt = 120;
@@ -97,7 +100,7 @@ binmode(STDOUT,':utf8');
 my %portnames;
 my %portids;
 my %idbysub;
-my (%portlats,%portlons,%portrlats,%portrlons);
+my (%portlats,%portlons,%portrlats,%portrlons,%portmodes);
 my $portcnt = 0;
 
 my ($latscale,$lonscale);
@@ -249,7 +252,7 @@ sub readportrefs($)
 {
   my ($fname) = @_;
 
-  my ($id,$subid,$name,$lcname,$nlen,$lat,$lon,$rlat,$rlon);
+  my ($id,$subid,$name,$lcname,$nlen,$lat,$lon,$modes,$rlat,$rlon);
   my ($fh,$line,$c,$var,$val);
 
   open($fh,'<:encoding(UTF-8)',$fname) or error_exit("cannot open $fname: $!");
@@ -259,8 +262,12 @@ sub readportrefs($)
 
   foreach $line (@lines) {
     next unless length($line);
+    $c = chop $line;
+    $line .= $c if $c ne "\n";
+    next unless length($line);
     $c = substr($line,0,1);
     next if $c eq '#';
+
     if ($c eq '.') {
       ($var,$val) = split("\t",substr($line,1));
       $tzdef = $val if $var eq 'tz';
@@ -268,19 +275,21 @@ sub readportrefs($)
       $lonscale = $val if $var eq 'lonscale';
       next;
     }
-    ($id,$subid,$name,$lat,$lon) = split("\t",$line);
+    ($id,$subid,$name,$lat,$lon,$modes) = split("\t",$line);
     next unless defined $id and defined $name;
-    $lcname = lc($name);
+
     $portnames{$name} = $subid;
-    $portnames{$lcname} = $subid;
+    if ($do_lcname) {
+      $lcname = lc($name);
+      $portnames{$lcname} = $subid;
+    }
     $portids{$subid} = $name unless defined $portids{$subid};
     $idbysub{$subid} = $id;
-#    $portlats{$subid} = $lat;
-#    $portlons{$subid} = $lon;
     $rlat = ($lat / $latscale) - 90;
     $rlon = ($lon / $lonscale) - 180;
     $portrlats{$subid} = $rlat;
     $portrlons{$subid} = $rlon;
+    $portmodes{$subid} = $modes;
   }
   $portcnt = scalar(keys %portids);
   vrb("$portcnt ports");
@@ -359,7 +368,7 @@ sub portbyname($)
 sub portbygeo($$)
 {
   my ($lat,$lon) = @_;
-  my ($clat,$clon,$dist,$lodist,$loid,$id,$pid,$name,$pname,$fmtdist,$mdist);
+  my ($clat,$clon,$dist,$lodist,$loid,$id,$pid,$name,$pname,$fmtdist,$mdist,$modes);
 
   readportrefs($portrefname) unless $haveportrefs;
 
@@ -380,6 +389,7 @@ sub portbygeo($$)
   $pid = $idbysub{$loid};
   $name = $portids{$loid};
   $pname = $portids{$pid};
+  $modes = $portmodes{$loid};
 
   $mdist = int($lodist * 1000);
   if ($lodist < 1.500) { $fmtdist = $mdist . ' m'; }
@@ -390,8 +400,9 @@ sub portbygeo($$)
   } else {
     info("$lat,$lon $fmtdist from $clat,$clon ID $loid > $pid $name > $pname");
   }
-  addtorep("# reqid\tdist\tlat\tlon\tid\tpid\tname\tpname",0);
-  addtorep("$reqid\t$mdist\t$clat\t$clon\t$loid\t$pid\t$name\t$pname",1);
+  info("mode $modes");
+  addtorep("# reqid\tdist\tlat\tlon\tid\tpid\tmodes\tname\tpname",0);
+  addtorep("$reqid\t$mdist\t$clat\t$clon\t$loid\t$pid\t$modes\t$name\t$pname",1);
 
   return $loid;
 }
@@ -505,6 +516,8 @@ sub plan($$)
 
   my ($dep,$arr);
   my ($dlat,$dlon,$alat,$alon);
+
+  $do_lcname = 1;
 
   unless (defined $depname and length($depname)) {
     print('depart from: ');
@@ -758,6 +771,7 @@ sub query($$$)
     if (index($line,"\t") < 0) { $item = $line; }
     else { ($item,$time,$dist,$stops,$fare,$ref) = split("\t",$line); }
     if ($item eq 'sum') {
+      $legno = 1;
       addtorep($line,1);
       printf("%s %s %u stops %s  ref %s",$time,$dist,$stops,$fare == 0 ? '-' : $fare,$ref);
     } elsif ($item eq 'trip') {

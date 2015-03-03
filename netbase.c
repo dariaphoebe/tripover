@@ -242,7 +242,7 @@ static const ub4 maxzev = 500 * 1024 * 1024;  // todo arbitrary
 int prepbasenet(void)
 {
   struct portbase *ports,*pdep,*parr,*pp;
-  struct hopbase *hops,*hp;
+  struct hopbase *hops,*hp,*hp1,*hp2;
   struct sidbase *sids,*sp;
   ub4 portcnt,hopcnt,sidcnt,ridcnt;
   ub4 dep,arr;
@@ -322,6 +322,8 @@ int prepbasenet(void)
     cp->hopofs = chainofs;
     chainofs += cp->hoprefs;
     rid = cp->rid;
+    if (rid == hi32) continue;
+    error_ge(rid,ridcnt);
     rp = routes + rid;
     cnt = rp->hopcnt;
     infocc(cnt == 0,0,"rid %u cnt %u",rid,cnt);
@@ -380,7 +382,7 @@ int prepbasenet(void)
     } else {
       fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
       if (fdist < 1) warning(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-      else if (fdist > 42000) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+      else if (fdist > 42000) vrb0(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
       dist = (ub4)fdist;
     }
     hp->dist = max(dist,1);
@@ -389,8 +391,8 @@ int prepbasenet(void)
 
     rrid = hp->rrid;
     rid = hp->rid;
-    error_ge(rid,ridcnt);
-    rp = routes + rid;
+    if (rid != hi32) rp = routes + rid;
+    else rp = NULL;
 
     if (rrid == rrid2watch || dbg) info(Notty,"r.rid %u.%u %s to %s route %s",rrid,rid,pdep->name,parr->name,hp->name);
 
@@ -469,7 +471,7 @@ int prepbasenet(void)
       if (rawchaincnt == 0) { info(0,"hop %u no chains",hop); continue; }
 
       // create chains: list of hops per trip, sort on tripseq later
-      if (tid != hi32) {
+      if (tid != hi32 && rid != hi32) {
         error_ge(tid,rawchaincnt);
 
         rhop = hp->rhop;
@@ -501,7 +503,8 @@ int prepbasenet(void)
           cp->hopcnt = 1;
           cp->lotdep = cp->hitdep = tdep;
           cp->lotarr = cp->hitarr = tarr;
-          chrp[rhop] = (ub8)tdep << 32 | tarr;
+          cp->lotdhop = cp->hitahop = hop;
+          chrp[rhop] = ((ub8)tdep << 32) + tarr;
           cumhoprefs2++;
         } else {
           if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
@@ -523,16 +526,16 @@ int prepbasenet(void)
             chp->tarr = tarr;
             error_ge(chcnt,cp->hoprefs);
             cp->hopcnt = chcnt + 1;
-            cp->lotdep = min(cp->lotdep,tdep);
+            if (tdep < cp->lotdep) { cp->lotdep = tdep; cp->lotdhop = hop; }
             cp->lotarr = min(cp->lotarr,tarr);
             cp->hitdep = max(cp->hitdep,tarr);
-            cp->hitarr = max(cp->hitarr,tarr);
-            chrp[rhop] = (ub8)tdep << 32 | tarr;
+            if (tarr > cp->hitarr) { cp->hitarr = tarr; cp->hitahop = hop; }
+            chrp[rhop] = ((ub8)tdep << 32) + tarr;
             cumhoprefs2++;
             if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u at %u %s to %s",rrid,rid,tid,hop,i,pdep->name,parr->name);
           }
         }
-      } else info(Iter,"hop %u no tid",hop);
+      } else info(0,"rid %u no tid",rid);
 
       evcnt += cnt;
       sumdur += (dur * cnt);
@@ -616,7 +619,7 @@ int prepbasenet(void)
     cumevcnt += evcnt;
     cumzevcnt += zevcnt;
 
-    if (rp->reserve) cumfevcnt += evcnt;
+    if (rp && rp->reserve) cumfevcnt += evcnt;
 
     msgprefix(0,NULL);
   }
@@ -643,6 +646,7 @@ int prepbasenet(void)
     cnt = cp->hopcnt;
     chstats[min(cnt,ivhi)]++;
     rid = cp->rid;
+    if (rid == hi32) continue;
     if (cnt == 0) { vrb0(0,"chain %u rtid %u rrid %u has no hops",chain,cp->rtid,cp->rrid); continue; }
     else if (cnt && rid != hi32) {
       if (cnt > hichlen) { hichlen = cnt; hichain = chain; }
@@ -658,6 +662,16 @@ int prepbasenet(void)
 
       hidur = cp->hitarr - cp->lotdep;
       infocc(hidur > 240,0,"chain %u rrid %u hidur %u",chain,rrid,hidur);
+      if (hidur > 240) {
+        hp1 = hops + cp->lotdhop;
+        hp2 = hops + cp->hitahop;
+        dep = hp1->dep; arr = hp1->arr;
+        pdep = ports + dep; parr = ports + arr;
+        info(0," dep %u \ad%u %s %s to %s",cp->lotdhop,cp->lotdep,hp1->name,pdep->name,parr->name);
+        dep = hp2->dep; arr = hp2->arr;
+        pdep = ports + dep; parr = ports + arr;
+        info(0," arr %u \ad%u %s %s to %s",cp->hitahop,cp->hitarr,hp2->name,pdep->name,parr->name);
+      }
       ofs = cp->hopofs;
       chip = chainidxs + ofs;
       sort8(chip,cnt,FLN,"chainhops");
@@ -672,7 +686,9 @@ int prepbasenet(void)
         chp = chainhops + ofs + idx;
         hop = chp->hop;
         error_ge(hop,hopcnt);
+        hp = hops + hop;
         tdep = chp->tdep;
+        warncc(tdep < prvtdep,0,"hop %u %s",hop,hp->name);
         error_lt(tdep,prvtdep);
         prvtdep = tdep;
         hp = hops + hop;
@@ -696,7 +712,9 @@ int prepbasenet(void)
 
   // list shortest and longest chain
   lochlen = min(lochlen,hichlen);
+
   cp = chains + hichain;
+
   rid = cp->rid; rrid = cp->rrid;
   info(0,"\ah%u chains len %u .. %u",cumchaincnt,lochlen,hichlen);
   info(0,"longest chain %u len %u rid %u rrid %u",hichain,hichlen,rid,rrid);

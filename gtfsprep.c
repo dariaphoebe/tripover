@@ -353,7 +353,7 @@ static int rdagency(gtfsnet *net,const char *dir)
 
   if (rawcnt == 0) return warning(0,"%s is empty",fname);
 
-  linelen = len;
+  linelen = len + rawcnt;
   char *lines = net->agencylines = mkblock(mem,linelen,char,Noinit,"gtfs %u agency, len %u",rawcnt-1,linelen);
 
   const char tab = '\t';
@@ -718,7 +718,7 @@ static int rdroutes(gtfsnet *net,const char *dir)
 
   if (rawcnt == 0) return warning(0,"%s is empty",fname);
 
-  linelen = len;
+  linelen = len + 4 * rawcnt; // optional agency_id
   char *lines = net->routelines = mkblock(mem,linelen,char,Noinit,"gtfs %u routes, len %u",rawcnt-1,linelen);
 
   const char tab = '\t';
@@ -865,7 +865,7 @@ static int rdstops(gtfsnet *net,const char *dir)
 
 //  struct gtstop *sp,*stops = alloc(rawstopcnt,struct gtstop,0,"ext ports");
 
-  linelen = len;
+  linelen = len + 4 * rawstopcnt;
   char *lines = net->stoplines = mkblock(mem,linelen,char,Noinit,"gtfs %u stops, len %u",rawstopcnt-1,linelen);
 
   const char tab = '\t';
@@ -1037,7 +1037,7 @@ static int rdtrips(gtfsnet *net,const char *dir)
 
   if (rawcnt == 0) return warning(0,"%s is empty",fname);
 
-  linelen = len;
+  linelen = len + rawcnt;
   char *lines = net->triplines = mkblock(mem,linelen,char,Noinit,"gtfs %u trips, len %u",rawcnt-1,linelen);
 
   const char tab = '\t';

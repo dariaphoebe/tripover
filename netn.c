@@ -900,9 +900,9 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   ub4 stat_altlim = 0,stat_oneroute = 0;
 
   // todo
-  ub4 portlimit = 19000;
+  ub4 portlimit = 50000;
   ub4 lstlimit = 1024 * 1024 * 512;
-  ub4 altlimit = min(var12limit * 4,128);
+  ub4 altlimit = min(var12limit * 8,256);
 
   ub4 trip1ports[Nleg * 2];
   ub4 trip2ports[Nleg * 2];
@@ -1269,20 +1269,31 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 
   lstblk = net->conlst + nstop;
 
-  lst = mkblock(lstblk,lstlen * nleg,ub4,Init1,"netv %u-stop conlst",nstop);
+  lst = mkblock(lstblk,lstlen * nleg,ub4,Noinit,"netv %u-stop conlst",nstop);
 
   ofs = newcnt = 0;
-  for (deparr = 0; deparr < port2; deparr++) {
-    cnt = cnts[deparr];
-    cnt1 = cnts1[deparr];
-    if (cnt) {
-      conofs[deparr] = ofs;
-      ofs += cnt;
-      if (cnt1 == 0) newcnt++;
+
+  if (portcnt < 10000) {
+    for (deparr = 0; deparr < port2; deparr++) {
+      cnt = cnts[deparr];
+      cnt1 = cnts1[deparr];
+      if (cnt) {
+        conofs[deparr] = ofs;
+        ofs += cnt;
+        if (cnt1 == 0) newcnt++;
+      }
+    }
+    info(0,"\ah%u new connections",newcnt);
+  } else {
+    for (deparr = 0; deparr < port2; deparr++) {
+      cnt = cnts[deparr];
+      if (cnt) {
+        conofs[deparr] = ofs;
+        ofs += cnt;
+      }
     }
   }
   error_ne(ofs,lstlen);
-  info(0,"\ah%u new connections",newcnt);
 
   aclear(dupstats);
 
@@ -1503,18 +1514,20 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   for (iv = 0; iv <= geniv; iv++) infocc(cntstats[iv],0,"%u: gen \ah%u cnt \ah%u",iv,genstats[iv],cntstats[iv]);
 
   // verify all triplets
-  for (dep = 0; dep < portcnt; dep++) {
-    for (arr = 0; arr < portcnt; arr++) {
-      if (dep == arr) continue;
+  if (portcnt < 10000) {
+    for (dep = 0; dep < portcnt; dep++) {
+      for (arr = 0; arr < portcnt; arr++) {
+        if (dep == arr) continue;
 
-      deparr = dep * portcnt + arr;
-      n1 = cnts[deparr];
-      if (n1 == 0) continue;
-      ofs = conofs[deparr];
-      lstv1 = newlst + ofs * nleg;
-      for (v1 = 0; v1 < n1; v1++) {
-        checktrip(net,lstv1,nleg,dep,arr,hi32);
-        lstv1 += nleg;
+        deparr = dep * portcnt + arr;
+        n1 = cnts[deparr];
+        if (n1 == 0) continue;
+        ofs = conofs[deparr];
+        lstv1 = newlst + ofs * nleg;
+        for (v1 = 0; v1 < n1; v1++) {
+          checktrip(net,lstv1,nleg,dep,arr,hi32);
+          lstv1 += nleg;
+        }
       }
     }
   }
@@ -1523,7 +1536,8 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   ub4 constats[16];
 
   aclear(constats);
-  mkhist2(cnts,port2,&conrange,Elemcnt(constats),constats,"connection",Info);
+
+  if (portcnt < 10000) mkhist2(cnts,port2,&conrange,Elemcnt(constats),constats,"connection",Info);
 
   net->concnt[1] = cnts;
   net->conofs[1] = conofs;

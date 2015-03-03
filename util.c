@@ -258,6 +258,7 @@ ub4 isearch4(ub4 *p,ub4 n,ub4 key,ub4 fln,const char *desc)
   return n;
 }
 
+// read a file, allocating its length
 int readfile(struct myfile *mf,const char *name, int mustexist,ub4 maxlen)
 {
   int fd;
@@ -270,6 +271,7 @@ int readfile(struct myfile *mf,const char *name, int mustexist,ub4 maxlen)
 
   error_zp(name,0);
   if (*name == 0) return errorfln(FLN,0,0,"empty filename %p passed to readfile",name);
+  strcopy(mf->name,name);
   fd = osopen(name);
   if (fd == -1) {
     if (mustexist) return oserror(0,"cannot open %s",name);
@@ -294,6 +296,15 @@ int readfile(struct myfile *mf,const char *name, int mustexist,ub4 maxlen)
   osclose(fd);
   if (nr != (long)len) return error(0,"partial read of %s",name);
   return 0;
+}
+
+int freefile(struct myfile *mf)
+{
+  if (mf->alloced == 0) return 0;
+  error_zp(mf->buf,mf->len);
+  afree(mf->buf,mf->name);
+  mf->alloced = 0;
+  mf->buf = NULL;
 }
 
 int readpath(struct myfile *mf,const char *dir,const char *name, int mustexist,ub4 maxlen)

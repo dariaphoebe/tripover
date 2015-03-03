@@ -536,7 +536,7 @@ int compound(gnet *net)
       hopndx++;
     }
     if (h1ndx == hi32 || h2ndx == hi32) {
-      info(Iter,"rid %u hop %u-%u not found at %u-%u chop %u",rid,hop1,hop2,h1ndx,h2ndx,chop);
+      vrb0(0,"rid %u hop %u-%u not found at %u-%u chop %u",rid,hop1,hop2,h1ndx,h2ndx,chop);
       continue;
     }
     rp->hop2chop[h1ndx * Chainlen + h2ndx] = chop;

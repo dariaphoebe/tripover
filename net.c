@@ -76,6 +76,7 @@ static int mkwalks(struct network *net)
   ub4 dep,arr,deparr,port2;
   ub4 walklimit = net->walklimit;
   ub4 walkspeed = net->walkspeed;  // geo's per hour
+  struct eta eta;
 
   if (portcnt == 0) return error(0,"no ports for %u hops net",hopcnt);
   if (hopcnt == 0) return error(0,"no hops for %u port net",portcnt);
@@ -92,13 +93,13 @@ static int mkwalks(struct network *net)
   // geographical direct-line distance
   ub4 *dist0 = alloc(port2, ub4,0xff,"net0 geodist",portcnt);
 
-  info(0,"calculating \ah%u distance pairs", port2);
   for (dep = 0; dep < portcnt; dep++) {
     pdep = ports + dep;
     if (pdep->valid == 0) continue;
     error_zz(pdep->lat,pdep->lon);
   }
   for (dep = 0; dep < portcnt; dep++) {
+    if (progress(&eta,"port %u of %u for \ah%u distance pairs",dep,portcnt,port2)) return 1;
     pdep = ports + dep;
     if (pdep->valid == 0) continue;
     dname = pdep->name;
@@ -122,11 +123,16 @@ static int mkwalks(struct network *net)
       hidist = max(dist,hidist);
     }
   }
-  info(0,"done calculating \ah%u distance pairs", port2);
 
-  ub4 geohist[64];
-  ub4 iv,ivcnt = Elemcnt(geohist);
+  ub4 geohist[128];
+  ub4 geohist2[64];
+  ub4 cnt,iv,ivcnt = Elemcnt(geohist);
+  ub4 iv2cnt = Elemcnt(geohist2);
+  ub4 hidist2 = min(hidist,walklimit * 2);
+  ub4 range =  max(1,hidist - lodist);
+  ub4 range2 =  max(1,hidist2 - lodist);
   aclear(geohist);
+  aclear(geohist2);
   for (dep = 0; dep < portcnt; dep++) {
     for (arr = 0; arr < portcnt; arr++) {
       if (dep == arr) continue;
@@ -134,12 +140,29 @@ static int mkwalks(struct network *net)
       dist = dist0[deparr];
       pdep = ports + dep;
       parr = ports + arr;
-      if (dist == 1) info(Iter,"port dist %u %u-%u %s to %s",dist,dep,arr,pdep->name,parr->name);
-      iv = (dist - lodist) * ivcnt / max(1,hidist - lodist);
+      if (dist == 1) info(0,"port dist %u %u-%u %s to %s",dist,dep,arr,pdep->name,parr->name);
+      iv = ((dist - lodist) * ivcnt) / range;
       geohist[min(iv,ivcnt-1)]++;
+      iv = ((dist - lodist) * iv2cnt) / range2;
+      geohist2[min(iv,iv2cnt-1)]++;
     }
   }
-  for (iv = 0; iv < ivcnt; iv++) if (geohist[iv]) info(0,"geodist bin %u = %u: %u",iv,lodist + iv * (hidist - lodist),geohist[iv]);
+  info(0,"geodist range %u - %u",lodist,hidist);
+  ub8 sumcnt = 0;
+  for (iv = 0; iv < ivcnt; iv++) {
+    cnt = geohist[iv];
+    if (cnt == 0) continue;
+    sumcnt += cnt;
+    info(0,"%u \ag%u = \ah%u: %u %%",iv,lodist + (iv * range) / ivcnt,cnt,(ub4)((sumcnt * 100) / port2));
+  }
+  info(0,"walklimit \ag%u",walklimit);
+  sumcnt = 0;
+  for (iv = 0; iv < ivcnt; iv++) {
+    cnt = geohist2[iv];
+    if (cnt == 0) continue;
+    sumcnt += cnt;
+    info(0,"%u \ag%u = \ah%u: %u pm",iv,lodist + (iv * range2) / iv2cnt,cnt,(ub4)((sumcnt * 1000) / port2));
+  }
 
   ub4 *orgportsbyhop = net->portsbyhop;
   ub4 *orghopdist = net->hopdist;
@@ -469,9 +492,7 @@ static int mk_netn(struct network *net,ub4 nstop)
   ub4 *lst;
   ub4 ofs,*conofs;
   ub4 dep,arr,deparr;
-  ub4 iv;
-  ub4 depstats[4];
-  ub4 nstop1,cnt,nleg,depcnt;
+  ub4 nstop1,cnt,nleg;
   int rv;
 
   // only fill n-stop if no (nstop-1) exists
@@ -511,16 +532,6 @@ static int mk_netn(struct network *net,ub4 nstop)
   ports = net->ports;
 
   // get connectivity stats
-  aclear(depstats);
-  ub4 depivs = Elemcnt(depstats) - 1;
-  for (dep = 0; dep < portcnt; dep++) {
-    depcnt = 0;
-    for (arr = 0; arr < portcnt; arr++) {
-      depcnt++;
-    }
-    depstats[min(depivs,depcnt)]++;
-  }
-  for (iv = 0; iv <= depivs; iv++) info(0,"%u port\as with %u departures", depstats[iv], iv);
 
   unsigned long doneconn,doneperc,leftcnt,needconn = net->needconn;
   ub4 n,da,nda = 0,port,hascon,hicon,arrcon,loarrcon,lodep = 0;
@@ -893,7 +904,7 @@ static int showgconn(ub4 callee,struct gnetwork *gnet)
   gp2t = tnet->g2pport;
 
   if (gportcnt > 500) {
-    sample = gportcnt / 50;
+    sample = gportcnt / 200;
     info(0,"sampling connectivity in %u steps",sample);
   } else sample = 1;
 
@@ -1398,16 +1409,16 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
 
 ub4 fgeodist(struct port *pdep,struct port *parr)
 {
-  ub4 dist;
+  double dlat = pdep->rlat,dlon = pdep->rlon,alat = parr->rlat,alon = parr->rlon;
+
+  double fdist = geodist(dlat,dlon,alat,alon);
+  if (fdist > 2) return (ub4)fdist;
+
   ub4 dep = pdep->id;
   ub4 arr = parr->id;
   char *dname = pdep->name;
   char *aname = parr->name;
-  double fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
-
-  if (fdist < 1e-9) warning(Iter,"port %u-%u distance ~0 for latlon %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-  else if (fdist < 0.001) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-  else if (fdist > 45000) warning(Iter,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-  dist = (ub4)fdist;
-  return dist;
+  double x = 180 / M_PI;
+  info(0,"port %u-%u distance %e for %f,%f - %f,%f %s to %s",dep,arr,fdist,dlat * x,dlon * x,alat * x,alon * x,dname,aname);
+  return (ub4)fdist;
 }

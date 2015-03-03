@@ -16,6 +16,7 @@
 
 use 5.012;
 use strict;
+use utf8;
 
 my $version_maj = 0;
 my $version_min = 29;
@@ -46,9 +47,9 @@ my $idprefix = '';
 
 my $merge_dup = 1;  # merge if lat,lon,name almost identical: nl
 my $dup_limit = 0.2; # todo in feedcfg
-my $showmerge = 0;
+my $showmerge = 1;
 
-my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
+my $merge_dup_parent = 1;  # merge if lat,lon,name identical: nl
 my $infer_parent = 1;   # infer parent when seemingly missing : seq
 my $infer_limit = 0.1;
 my $showinfer = 0;
@@ -283,6 +284,7 @@ my %parent_ids;
 my %parentbyid;
 my $parentcnt = 0;
 my $parentdupcnt = 0;
+my %stop2parent;
 
 my %uniparents;
 my %parentdups;
@@ -939,8 +941,19 @@ sub readstops($)
     $ilat = str2lat($lat,$linno);
     $ilon = str2lon($lon,$linno);
 
+    $isparent = 0;
+    if (length($loctype)) {
+      if ($loctype eq '1') { $isparent = 1; }
+      elsif ($loctype eq '0') { $isparent = 0; }
+      else {
+        warning("$linno: stop $name has unknown location type $loctype");
+        $loctype = '0';
+      }
+    }
+
     $stopmerge{$rstopid} = $rstopid;
 
+    # merge if name identical and colocated : meant for gtfs merges
     if ($merge_dup) {
       $xname = $loctype . '_' . $name;
       if (exists $rstopbyname{$xname}) {
@@ -953,17 +966,25 @@ sub readstops($)
         } else {
           $dist = geodist($lat,$lon,$lat2,$lon2);
           $diststr = sprintf ("distance %.2f",$dist);
-          if ($dist < $dup_limit) {
-            if ( ($parent eq $parent2) or length($parent) == 0) {
-              infovrb($showmerge,"merge $name id $rstopid to $stopid2 on $diststr");
+          if ($dist < $dup_limit or ($xname eq $loctype2 . '_' . $name2 and $dist < $dup_limit * 5) ) {
+            if ($isparent && $loctype2 == 1) {
+              infovrb($showmerge > 1,"merge parents $name + $name2 id $rstopid to $stopid2 on $diststr");
               $stopmerge{$rstopid} = $stopid2;
+              $mergedupcnt2++;
+            } elsif ($isparent == 0 and $loctype2 == 0) {
+              if ( (length($parent) == 0 and length($parent2) == 0) or ($parent eq $parent2) ) { # same parent or both plain
+                infovrb($showmerge > 1,"merge $name + $name2 $rstopid to $stopid2 on $diststr");
+                $stopmerge{$rstopid} = $stopid2;
+                $mergedupcnt2++;
+              } else {
+                infovrb($showmerge,"not merge $name + $name2 at $diststr different parents");
+              }
             } else {
-              infovrb($showmerge,"merge $name id $stopid2 to $rstopid on $diststr");
-              $stopmerge{stopid2} = $rstopid;
+              infovrb($showmerge,"not merge $name + $name2 at $diststr different types");
+#              $stopmerge{stopid2} = $rstopid;
             }
-            $mergedupcnt2++;
           } else {
-            info("not merge $name id $rstopid to $stopid2 on $diststr");
+            infovrb($showmerge,"not merge $name id $rstopid to $stopid2 on $diststr");
             $mergedupcnt3++;
           }
         }
@@ -1030,11 +1051,7 @@ sub readstops($)
     $stopnames{$stopid} = $name;
 
     $isparent = 0;
-    if (length($loctype) == 1) {
-      if ($loctype eq '1') { $isparent = 1; }
-      elsif ($loctype eq '0') { $isparent = 0; }
-      else { warning("$linno: stop $name has unknown location type $loctype"); }
-    }
+    if ($loctype eq '1') { $isparent = 1; }
 
     $hasparent = (length($parent) > 0);
     if ($hasparent and $isparent) {
@@ -1045,6 +1062,7 @@ sub readstops($)
     $simlats{$stopid} = $lat;
     $simlons{$stopid} = $lon;
 
+    # infer common parent: for missing parent stations
     if ($infer_parent and not $isparent and not $hasparent and length($name) > 3) {
 
       $ilatcell = ($ilat >> 13) + 1; # ~ 300m
@@ -1090,7 +1108,7 @@ sub readstops($)
     if ($merge_dup_parent) {
       if ($isparent) {
         error_exit("duplicate parent id $stopid, first defined at line $parentids{$id}") if exists $parentids{$id};
-        $uniparent = $name . $ilat . $ilon;
+        $uniparent = substr($name,0,3) . int($ilat >> 4) . int($ilon >> 4);
         if (exists $uniparents{$uniparent}) {
           $parent = $uniparents{$uniparent};
           $parentdups{$id} = $parent;
@@ -1131,6 +1149,7 @@ sub readstops($)
   my (@sibstops,$stoplst);
 
   while (($parent,$parent1) = each %parentdups) {
+    next unless exists $parents{$parent};
     $stoplst = $parents{$parent};
     $parents{$parent} = '';
     $parents{$parent1} .= $stoplst;
@@ -1203,7 +1222,15 @@ sub readstops($)
   $stopcnt += $infercnt;
 
   foreach $stopid (keys %stops) {
-    $childstopcnt++ if exists $parentbyid{$stopid};
+    if (exists $parentbyid{$stopid}) {
+      $parent = $parentbyid{$stopid};
+      warning("no parent for $parent") unless exists $parentids{$parent};
+      $parentid = $parentids{$parent};
+      $stop2parent{$stopid} = $parentid;
+      $childstopcnt++
+    } else {
+      $stop2parent{$stopid} = $stopid;
+    }
   }
 
   my $mline = "$stopcnt from $instopcnt stops";
@@ -1231,10 +1258,29 @@ my $include_int_air = 1;
 my @modenames = ( "tram","metro","rail","bus","ferry","cable car","gondola" );
 
 # extended types from support.google.com/transitpartners/answer/3520902
+sub extrtype($)
+{
+  my $xr = shift;
+
+  return 2 if $xr >= 100 and $xr < 118;
+  return 3 if $xr >= 200 and $xr < 210;
+  return 2 if $xr == 300 or $xr == 400 or $xr == 403 or $xr == 404;
+  return 1 if $xr == 401 or $xr == 402 or $xr == 405 or $xr == 500 or $xr == 600;
+  return 3 if $xr >= 700 and $xr < 717;
+  return 3 if $xr == 800;
+  return 2 if $xr >= 900 and $xr < 907;
+  return 4 if $xr >= 1000 and $xr < 1022;
+  return 1101 if $xr == 1103 or $xr == 1106 or $xr == 1107 or $xr == 1112 or $xr == 1114;
+  return 1102 if $xr == 1104 or $xr == 1105 or $xr == 1108 or $xr == 1109 or $xr == 1110 or $xr == 1111 or $xr == 1113;
+  return 4 if $xr == 1200;
+  return $xr;
+}
+
 sub filtermode($)
 {
-  my ($type) = @_;
+  my ($xtype) = @_;
 
+  my $type = extrtype($xtype);
   return 0 if $type == 0 and $include_tram == 0;
   return 0 if $type == 1 and $include_metro == 0;
   return 0 if $type == 2 and $include_rail == 0;
@@ -1809,7 +1855,7 @@ sub readstoptimes($)
   my $nottcnt = 0;
 
   my (@newtrip,@newstrip,@newstrip1);
-  my ($newtripln,$parent,$parentid,$sid,$service_id,$xtripid,$xlinno);
+  my ($newtripln,$parent,$parentid,$sid,$service_id,$xtripid,$xlinno,$prvpid,$pid);
   my $prvtrip = 0;
   my $prvroute = 0;
   $tripid = 0; $routeid = 0;
@@ -1852,7 +1898,7 @@ sub readstoptimes($)
     $routeid = $triproutes{$tripid};
     $route_id = $routebyids{$routeid};
     if (exists $norouteids{$route_id}) { # filtered
-      info("filter $stop_id on route $route_id");
+#     info("filter $stop_id on route $route_id");
       next;
     }
 
@@ -1880,20 +1926,23 @@ sub readstoptimes($)
       $tripsids{$tripid} = $sid;
     }
 
-    $ridsidtime = join('_',$routeid,$sid,$stopid,$dep_time);
-    if (exists $ridsidtimes{$ridsidtime}) { # todo
+# todo check if valid
+#    $ridsidtime = join('_',$routeid,$sid,$stopid,$dep_time);
+#    if (exists $ridsidtimes{$ridsidtime}) {
+#       info("line $linno duplicate entry $ridsidtime");
 #      $prvtrip = $tripid;
 #      next;
-    }
-    $ridsidtimes{$ridsidtime} = 1;
+#    }
+#    $ridsidtimes{$ridsidtime} = 1;
 
     push(@stop_times, join("\t",$tripid,$stopid,$seq,$arr_time,$dep_time)) if $canonout;
 
-    if (exists($parentbyid{$stopid})) {
-      $parent = $parentbyid{$stopid};
-      $parentid = $parentids{$parent};
-      $id = $parentid;
-    } else { $id = $stopid; }
+#    if (exists($parentbyid{$stopid})) {
+#      $parent = $parentbyid{$stopid};
+#      $parentid = $parentids{$parent};
+#      $id = $parentid;
+#    } else { $id = $stopid; }
+    $id = $stopid;
 
     if ($prvtrip == 0) {
       @newtrip = ();
@@ -1904,6 +1953,7 @@ sub readstoptimes($)
       if ($prvtrip == $tripid) {
         push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
       }
+      next if @newtrip == 0;
       warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1; # todo
       @newstrip = sort { substr($a,0,3) <=> substr($b,0,3) } @newtrip;
       @newstrip1 = ();
@@ -1927,9 +1977,9 @@ sub readstoptimes($)
 
         ($seq,$xtripid,$id,$dep_time,$arr_time,$xlinno) = split("\t",$tripline);
 
-        if ($xtripid ne $prvtrip) { # todo: at merge ?
-          warning("trip ID '$xtripid' mismatches '$prvtrip' $tripline");
-          last;
+        if ($xtripid ne $prvtrip) { # todo: at filter or at merge
+          info("trip ID '$xtripid' mismatches '$prvtrip' $tripline");
+#          last;
         }
 
         return error("trip ID '$xtripid' unsorted sequence $seq") if $seq < $prvseq;
@@ -1976,7 +2026,10 @@ sub readstoptimes($)
         $tarrsec += $tbias;
         next if $id == $prvid;
 
-        return error("trip ID '$xtripid' duplicate sequence $seq line $xlinno") if $seq == $prvseq;
+        if ($seq == $prvseq) {
+          warning("trip ID '$xtripid' duplicate sequence $seq line $xlinno");
+          next;
+        }
 
         if ( ($tdepsec / 3600) > 72 or ($tarrsec / 3600) > 72) {
           printf("dep %u h arr %u h %u\n",($tdepsec / 3600),($tarrsec / 3600),$tripid);
@@ -1995,7 +2048,10 @@ sub readstoptimes($)
         warning("tdep $htdep equals tarr $htarr") if $htdep == $htarr;
 
         # actual hop derived from key lateron
-        $uniqid = join('_',$prvroute,$prvid,$id);
+        warning("no 2parent for $prvid") unless exists $stop2parent{$prvid};
+        $prvpid = $stop2parent{$prvid};
+        $pid = $stop2parent{$id};
+        $uniqid = join('_',$prvroute,$prvpid,$pid);
 #        info("uniqid $uniqid");
         $sumtimes++;
         if (exists($tripseq{$uniqid})) {
@@ -2005,6 +2061,9 @@ sub readstoptimes($)
           push @uniqids,$uniqid;
           $stopdeps[$prvid]++;
           $stoparrs[$id]++;
+          $stopdeps[$prvpid]++ if $prvid != $prvpid;
+          $stoparrs[$pid]++ if $id != $pid;
+
           $hopcnt++;
         }
       } # each tripline
@@ -2102,7 +2161,7 @@ sub writext($$)
   my ($name,$portfile,$hopfile,$routefile);
   my ($stop,$stopid,$hop,$route,$hopid);
   my ($dep_id,$arr_id,$dep,$arr,$depname,$arrname);
-  my ($routeid,$route_id,$agency_id,$reserve,$rid,$rtype,$shortname,$longname);
+  my ($routeid,$route_id,$agency_id,$reserve,$rid,$rtype,$srtype,$shortname,$longname);
   my ($cnt,$line);
 
   return 1 if $testonly;
@@ -2127,6 +2186,7 @@ sub writext($$)
   my ($stop_id,$stopid_to,$stop_name,$stop_code,$ilat,$ilon,$desc,$opts);
   my ($parent,$parentid,$stopstr);
   my $portcnt = $parentcnt;
+  my $unconcnt = 0;
 
   foreach $stopid (sort { $a <=> $b } keys %stops) {
     $stopstr = $stops{$stopid};
@@ -2135,7 +2195,10 @@ sub writext($$)
 
     $stop_id = $stop_ids{$stopid};  # gtfs-view : stop_id.parent = stopid@tripover
 
-#    next if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+    if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
+      $unconcnt++;
+      next;
+    }
 
     $stop_code = '' unless defined $stop_code;
     $opts = 0 unless defined $opts;
@@ -2156,6 +2219,7 @@ sub writext($$)
   }
   close($portfile);
   info("wrote $stopcnt stops to $portcnt ports");
+  info("omitted $unconcnt unconnected stops") if $unconcnt;
 
   my $timefile;
   my $timename = $outdir . '/times.txt';
@@ -2219,7 +2283,8 @@ sub writext($$)
     } else {
       $name = join(' ',$agency_id,$shortname,$longname);
     }
-    printf($routefile "%s\t%u\t%u\t%u\t%u\n",$name,$rid,$rtype,$reserve,$utcofs12);
+    $srtype = extrtype($rtype);
+    printf($routefile "%s\t%u\t%u\t%u\t%u # %u\n",$name,$rid,$srtype,$reserve,$utcofs12,$rtype);
   }
   close($routefile);
   info("wrote to_routes.txt");
@@ -2242,6 +2307,7 @@ sub writext($$)
   my ($uniqid,$hoptime,$mark,$fmt,$timestr);
   my $xinfo = '';
   my $hopno = 0;
+  my $dupcnt = 0;
   my @times;
   my @hoptimes;
   my ($tid,$tdep,$tarr,$seq,$tdeparr,$ztid,$ztdep,$ztarr,$prvsid,$prvtid,$prvtdep,$prvtarr);
@@ -2256,6 +2322,11 @@ sub writext($$)
     ($rid,$dep,$arr) = split('_',$uniqid);
     error_exit("missing hop arguments") unless defined $arr;
 
+    warning("route ID $rid not found") unless exists $routebyids{$rid};
+    $route = $routebyids{$rid};
+    warning("route $route not found") unless exists $routeids{$route};
+    next if exists $norouteids{$route_id}; # filtered: should not reach upto here
+
     $hopid = $hopno;
 
     $timecnt = scalar @times;
@@ -2265,13 +2336,11 @@ sub writext($$)
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
 
-    if ($dep == $arr) {
-      warning("hop $hopid dep $dep equals arr $depname");
+    if ($dep == $arr) { # possible due to nearby dup merging
+      vrb("hop $hopid dep $dep equals arr $depname");
+      $dupcnt++;
       next;
     }
-    warning("route ID $rid not found") unless exists $routebyids{$rid};
-    $route = $routebyids{$rid};
-    warning("route $route not found") unless exists $routeids{$route};
 
     warning("$route type not found") unless exists $rtypes{$rid};
     $rtype = $rtypes{$rid};
@@ -2321,7 +2390,7 @@ sub writext($$)
   }
   return error("wrote 0 hops") if $hopno == 0;
   print "\n";
-  info("wrote $hopno hops");
+  info("wrote $hopno hops, filtered $dupcnt duplicates");
   return 1;
 }
 
@@ -2340,7 +2409,7 @@ sub writegtfs()
 
   my ($route_id,$shortname,$longname,$rtype,$utcofs,$reserve);
 
-  my ($service_id,$headsign,$dir);
+  my ($service_id,$sid,$headsign,$dir);
 
   my ($tripid,$trip_id,$stop_id,$seq,$dep_time,$arr_time);
 
@@ -2380,7 +2449,8 @@ sub writegtfs()
 
     $loctype = ($opt & $opt_parentstop) ? 1 : 0;
 
-    next if ($omit_unconnect and $loctype == 1 and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+#    next if ($omit_unconnect and $loctype == 1 and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+    next if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
 
     $lat = ilat2lat($ilat);
     $lon = ilon2lon($ilon);
@@ -2400,6 +2470,10 @@ sub writegtfs()
 
     foreach $line (@calendar) {
       ($service_id,$mon,$tue,$wed,$thu,$fri,$sat,$sun,$startdate,$enddate) = split("\t",$line);
+
+      $sid = $serviceids{$service_id};
+      next unless exists $sidrefs{$sid};
+
       $service_id = $idprefix . $service_id;
       print($calendarfile join("\t",$service_id,$mon,$tue,$wed,$thu,$fri,$sat,$sun,$startdate,$enddate));
       print($calendarfile "\n");
@@ -2416,6 +2490,10 @@ sub writegtfs()
 
     foreach $line (@caldates) {
       ($service_id,$date,$extype) = split("\t",$line);
+
+      $sid = $serviceids{$service_id};
+      next unless exists $sidrefs{$sid};
+
       $service_id = $idprefix . $service_id;
       print($caldatesfile "$service_id\t$extype\t$date\n");
     }
@@ -2447,6 +2525,9 @@ sub writegtfs()
 
   foreach $line (@trips) {
     ($route_id,$service_id,$trip_id,$headsign) = split("\t",$line);
+
+    next if exists($norouteids{$route_id});
+
     $route_id = join '_',$canonmagic,$reserveprefix,$idprefix,$route_id;
     $service_id = $idprefix . $service_id;
     $trip_id = $idprefix . $trip_id;

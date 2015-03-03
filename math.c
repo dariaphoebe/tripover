@@ -261,7 +261,7 @@ double lat2rad(ub4 lat,ub4 scale)
 
 double lon2rad(ub4 lon,ub4 scale)
 {
-  double r = ((double)lon / (double)scale - 180.0) * 2 * M_PI / 360.0;
+  double r = ((double)lon / (double)scale - 180.0) * M_PI / 180.0;
   return r;
 }
 
@@ -283,7 +283,7 @@ void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt])
 }
 
 static double geolow = M_PI * 2.0e-5;   // ~ 500 m
-static double geolimit = M_PI * 1.0e-7;
+static double geolimit = M_PI * 1.0e-9;
 static double approx_earth_surface = 9009.955; // sqrt(radius^2 * 2)
 static double mean_earth_radius = 6371.0;
 

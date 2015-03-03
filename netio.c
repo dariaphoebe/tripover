@@ -188,7 +188,7 @@ static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *f
    x switch radix to hex
  */
 
-#define Maxval 16 * 1024
+#define Maxval 32 * 1024
 #define Maxname 256
 
 enum extstates { Init,Out,Val0,Hex1,Dec0,Dec1,Val1,Name,Cmd0,Fls};
@@ -454,7 +454,7 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
     pp = ports + port;
     name = pp->name;
     ndep = pp->ndep; narr = pp->narr;
-    if (ndep == 0 && narr == 0) { warning(0,"port %u %u has no connections - %s",port,pp->id,name); nodeparr++; }
+    if (ndep == 0 && narr == 0) { warning(Iter,"port %u %u has no connections - %s",port,pp->id,name); nodeparr++; }
     else if (ndep == 0) { info(0,"port %u has no deps, %u arrs %s",port,narr,name); nodep++; }
     else if (narr == 0) { info(0,"port %u has no arrs, %u deps %s",port,ndep,name); noarr++; }
     if (ndep < 16 && narr < 16) constats[(ndep << 4) | narr]++;
@@ -1100,7 +1100,7 @@ static int rdexttimes(netbase *net,const char *dir)
       t1hi = max(t1hi,t1);
 
       rsidlog(rsid,"rsid \ax%u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daycnt,dow,t0_cd,t1_cd,t0,t1);
-      info(0,"rsid \ax%u start %u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daybox0,daycnt,dow,t0_cd,t1_cd,t0,t1);
+      vrb0(0,"rsid \ax%u start %u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daybox0,daycnt,dow,t0_cd,t1_cd,t0,t1);
 
       error_le(t1,t0);
 
@@ -1621,8 +1621,14 @@ static int rdexthops(netbase *net,const char *dir)
 // todo generalise
       tx = rt2tx(rtype);
       hp->kind = tx; kinds[tx]++;
-      if (tx == Walk) routeid = hi32;
-
+      switch(tx) {
+      case Unknown: case Kindcnt: break;
+      case Airint: case Airdom: pdep->air = parr->air = 1; break;
+      case Rail: pdep->rail = parr->rail = 1; break;
+      case Ferry: pdep->ferry = parr->ferry = 1; break;
+      case Bus: pdep->bus = parr->bus = 1; break; // info(0,"hop %u type %u on bus route %u %s to %s",hop,rtype,routeid,dname,aname); break;
+      case Walk: routeid = hi32; break;
+      }
       hp->rrid = routeid;
       hp->namelen = namelen;
       if (namelen) memcpy(hp->name,name,namelen);
@@ -1646,6 +1652,8 @@ static int rdexthops(netbase *net,const char *dir)
   progress(&eta,"reading hop %u of %u, \ah%u time entries",hop,hopcnt,timespos);
 
   infocc(duptndx,0,"\ah%u of \ah%u duplicate time entries",duptndx,timespos);
+
+  freefile(&eft.mf);
 
   if (hopcnt == 0) return error(0,"0 hops from %u",rawhopcnt);
 
@@ -1802,6 +1810,17 @@ int readextnet(netbase *net,const char *dir)
 static ub4 lat2ext(ub4 lat) { return lat; }
 static ub4 lon2ext(ub4 lon) { return lon; }
 
+static ub4 portmodes(struct portbase *pp)
+{
+  ub4 m = 0;
+
+  if (pp->air) m |= 1;
+  if (pp->rail) m |= 2;
+  if (pp->bus) m |= 4;
+  if (pp->ferry) m |= 8;
+  return m;
+}
+
 // write port reference for name and lat/lon lookup
 int wrportrefs(netbase *net)
 {
@@ -1842,7 +1861,7 @@ int wrportrefs(netbase *net)
   pos += mysnprintf(buf,pos,buflen,".latscale\t%u\n\n",net->latscale);
   pos += mysnprintf(buf,pos,buflen,".lonscale\t%u\n\n",net->lonscale);
 
-  pos += mysnprintf(buf,pos,buflen,"# gid\tname\tlat\tlon\n\n");
+  pos += mysnprintf(buf,pos,buflen,"# gid\tname\tlat\tlon\tmodes\n\n");
 
   if (filewrite(fd,buf,pos,portsname)) return 1;
 
@@ -1852,7 +1871,8 @@ int wrportrefs(netbase *net)
 
     y = lat2ext(pp->lat);
     x = lon2ext(pp->lon);
-    pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\n", port,port,pp->name,y,x);
+    
+    pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n", port,port,pp->name,y,x,portmodes(pp));
     if (filewrite(fd,buf,pos,portsname)) return 1;
     wportcnt++;
     scnt = pp->subcnt;
@@ -1861,7 +1881,7 @@ int wrportrefs(netbase *net)
       spp = sports + sofs + sport;
       y = lat2ext(spp->lat);
       x = lon2ext(spp->lon);
-      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\n",port,spp->subid + portcnt,spp->name,y,x); // use parent port to make alias
+      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n",port,spp->subid + portcnt,spp->name,y,x,portmodes(pp)); // use parent port to make alias
       if (filewrite(fd,buf,pos,portsname)) return 1;
       wportcnt++;
     }
