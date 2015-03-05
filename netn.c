@@ -890,14 +890,14 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
   ub4 *lodists;
   ub4 dist1,dist2,distlim,sumwalkdist1,sumwalkdist2,walkdist1,walkdist2;
   ub4 cntlim,cntlimdist,cntlimdur,gen,outcnt;
-  ub4 dur,midur,durndx,durcnt,durlim,distcnt,distndx;
+  ub4 midur,durndx,durcnt,durlim,distcnt,distndx;
   ub4 *hopdur;
   ub4 midurs[Durcnt];
   ub4 dists[Distcnt];
   ub4 walklimit = net->walklimit;
   ub4 sumwalklimit = net->sumwalklimit;
   ub4 stat_nocon = 0,stat_partcnt = 0,stat_cntlim = 0,stat_partlimdur = 0,stat_partlimdist = 0;
-  ub4 stat_altlim = 0,stat_oneroute = 0;
+  ub4 stat_altlim = 0,stat_oneroute = 0,stat_var12limit = 0;
 
   // todo
   ub4 portlimit = 50000;
@@ -1078,7 +1078,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
         error_ovf(n2,ub2);
 
         n12 = n1 * n2;
-        if (n12 > var12limit) n12 = var12limit;
+        if (n12 > var12limit) { n12 = var12limit; stat_var12limit++; }
         cnt += n12;
         cntlim = min(cnt,varlimit);
       } // each mid stopover port
@@ -1169,10 +1169,11 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
                 walkdist2 += hopdist[leg2];
                 sumwalkdist2 += hopdist[leg2];
               } else walkdist2 = 0;
-              dur = hopdur[leg2];
-              if (dur != hi32 && midur != hi32) midur += dur;
+//              dur = hopdur[leg2];
+//              if (dur != hi32 && midur != hi32) midur += dur;
               if ((distlim != hi32 && dist2 > distlim) && (durlim != hi32 && midur > durlim)) continue;
               else if (distlim != hi32 && dist2 > distlim * 15) continue;
+
               if (walkdist2 > walklimit || sumwalkdist2 > sumwalklimit) continue;
 
               // maintain top-n list, discard actual trip here
@@ -1236,14 +1237,15 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 
   info(0,"1-stop pass 1 done, tentative \ah%lu triplets",lstlen);
 
-  info(0,"cntlim %u partlim %u %u altlim %u oneroute %u",stat_cntlim,stat_partlimdist,stat_partlimdur,stat_altlim,stat_oneroute);
+  info(0,"cntlim %u partlim dist %u dur %u altlim %u var12 %u",stat_cntlim,stat_partlimdist,stat_partlimdur,stat_altlim,stat_var12limit);
+  info(0,"oneroute %u",stat_oneroute);
 
   for (iv = 0; iv <= dmidivs; iv++) if (dmidbins[iv] > 64) info(0,"dmids %u: \ah%u",iv,dmidbins[iv]);
 
   warncc(lstlen == 0 && nilonly == 0,0,"no connections at 1-stop for %u ports",portcnt);
   if (lstlen == 0) return 0;
 
-  ub4 cnt1,newcnt;
+  ub4 cnt1,newcnt,walklimcnt;
   struct range portdr;
   ub4 ivportdst[32];
   mkhist(caller,portdst,portcnt,&portdr,Elemcnt(ivportdst),ivportdst,"outbounds by port",Vrb);
@@ -1336,10 +1338,13 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
       cnt = cnts[deparr];
       if (cnt == 0) continue;
       gen = cnts[deparr] = 0;
+      walklimcnt = 0;
 
       distlim = distlims[deparr];
       durlim = durlims[deparr];
       if (durlim == hi16) durlim = hi32;
+
+      infocc(dbg,0,"distlim %u durlim %u",distlim,durlim);
 
 //      if (distlim != hi32 || durlim != hi32) info(0,"distlim %u durlim %u",distlim,durlim);
 
@@ -1386,10 +1391,8 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
           error_ne(portsbyhop[leg1 * 2],dep);
           error_ne(portsbyhop[leg1 * 2 + 1],mid);
           dist1 += hopdist[leg1];
-          if (leg1 >= chopcnt) {
-            walkdist1 = hopdist[leg1];
-            sumwalkdist1 = hopdist[leg1];
-          } else walkdist1 = 0;
+          if (leg1 >= chopcnt) walkdist1 = sumwalkdist1 = hopdist[leg1];
+
           if (durlim != hi32) {
             midur = prepestdur(net,lst11,1);
             if ((distlim != hi32 && dist1 > distlim) && midur > durlim) continue;
@@ -1413,11 +1416,13 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
               walkdist2 += hopdist[leg2];
               sumwalkdist2 += hopdist[leg2];
             } else walkdist2 = 0;
-            dur = hopdur[leg2];
-            if (dur != hi32 && midur != hi32) midur += dur;
+//            dur = hopdur[leg2];
+//            if (dur != hi32 && midur != hi32) midur += dur;
 
             if ((distlim != hi32 && dist2 > distlim) && (durlim != hi32 && midur > durlim)) continue;
-            if (walkdist2 > walklimit || sumwalkdist2 > sumwalklimit) continue;
+
+            if (walkdist2 > walklimit) { walklimcnt++; continue; }
+            if (sumwalkdist2 > sumwalklimit) continue;
 
             if (durlim != hi32) {
               midur = estdur(net,lst11,1,lst22,1);
@@ -1444,7 +1449,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
         if (gen >= cnt) break;
       } // each mid
 
-      if (gen < cnt) {
+      if (gen + walklimcnt < cnt) {
         stat_partcnt++;
         infocc(dmid < dmidcnt,0,"dmid %u of %u",dmid,dmidcnt);
       }
@@ -1453,9 +1458,9 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
       cntstats[min(cnt,geniv)]++;
 
       // if none found for any dep-Mid-arr, but mid exists, use first one
-      if (cnt && gen == 0 && firstmid != hi32) {
+      if (cnt > walklimcnt && gen == 0 && firstmid != hi32) {
         stat_nocon++;
-        vrbcc(vrbena,0,"dep %u arr %u no conn for mid %u cnt %u distlim %u",dep,arr,firstmid,cnt,distlim);
+        info(0,"dep %u arr %u no conn for mid %u cnt %u distlim %u",dep,arr,firstmid,cnt,distlim);
         depmid = dep * portcnt + firstmid;
         midarr = firstmid * portcnt + arr;
 

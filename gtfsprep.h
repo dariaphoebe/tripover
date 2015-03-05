@@ -9,10 +9,20 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
+#define Nearstop 256
+
 struct gtstop {
-  ub4 idofs,codeofs,nameofs,latofs,lonofs;
-  ub4 idlen,codelen,namelen,latlen,lonlen;
+  ub4 id;
+
+  ub4 gidofs,codeofs,nameofs,parentofs,latofs,lonofs,descofs;
+  ub4 gidlen,codelen,namelen,parentlen,latlen,lonlen,desclen;
+  bool isparent,hasparent;
   ub4 parent,loctype;
+  double lat,lon,rlat,rlon;
+  ub4 nearcnt,enearcnt;
+  ub4 nears[Nearstop];
+  ub4 group,iparent;
+  char parentname[64];
 };
 
 struct gtfsnet {
@@ -27,7 +37,7 @@ struct gtfsnet {
   block calendarmem;
   block caldatesmem;
   block routemem;
-  block stopmem;
+  block stopmem,estopmem;
   block tripmem;
   block stoptimesmem;
   char *agencylines;

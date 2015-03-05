@@ -275,7 +275,7 @@ static ub4 fcnv(char *dst, ub4 len,double x)
     iexp = (ub4)-exp;
 
     dst[pos++] = '0'; dst[pos++] = '.';
-    while (iexp-- && pos < len) dst[pos++] = '0';
+    while (iexp && pos < len) { dst[pos++] = '0'; if (iexp) iexp--; }
     x *= 1e7;
     if (x > 1) {
       ix = (ub4)x;
@@ -564,7 +564,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     while (wid > plen) { dst[n++] = pad; wid--; }
                   } else {
                     while (wid > plen) { dst[n++] = pad; wid--; }
-                    while (*pval && n < len && prec--) dst[n++] = *pval++;
+                    while (*pval && n < len && prec) { dst[n++] = *pval++; if (prec) prec--; }
                   }
                   break;
         case 'p': puval = va_arg(ap,unsigned int *);

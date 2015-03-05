@@ -71,6 +71,7 @@ static int init0(char *progname)
 
   info(User,"\ntripover %u.%u %s %s\n%s\n", Version_maj,Version_min,Version_phase,mtimestr,copyright);
 
+  inibase();
   if (iniutil(0)) return 1;
   initime(0);
   if (inicfg()) return 1;

@@ -19,8 +19,8 @@ use strict;
 use utf8;
 
 my $version_maj = 0;
-my $version_min = 29;
-my $lastchanged = "28 feb 2015";
+my $version_min = 30;
+my $lastchanged = "6 mar 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -45,14 +45,16 @@ my $verbose_hops = 1;
 
 my $idprefix = '';
 
-my $merge_dup = 1;  # merge if lat,lon,name almost identical: nl
+my $merge_dup = 0;  # merge if lat,lon,name almost identical: nl
 my $dup_limit = 0.2; # todo in feedcfg
 my $showmerge = 1;
 
-my $merge_dup_parent = 1;  # merge if lat,lon,name identical: nl
-my $infer_parent = 1;   # infer parent when seemingly missing : seq
+my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
+my $infer_parent = 0;   # infer parent when seemingly missing : seq
 my $infer_limit = 0.1;
 my $showinfer = 0;
+
+my $dateshift = 0;
 
 my $allreserved = 0;
 
@@ -248,6 +250,8 @@ my $fmt_prvsid = 1;
 my $fmt_diftid = 2;
 my $fmt_difdep = 4;
 my $fmt_difarr = 8;
+my $fmt_prvdep = 16;
+my $fmt_prvarr = 32;
 
 my $opt_childstop = 1;
 my $opt_parentstop = 2;
@@ -471,12 +475,20 @@ sub rdgtfscfg($$)
         $rest = '(no description)' unless defined $rest;
         info("ignore service $arg $rest");
         $sids2ignore{$arg} = "$gtfscfgfile:$linno $rest";
+      } elsif ($var eq 'shift-date') {
+        ($arg,$rest) = ($args =~ $arg1pat);
+        next unless defined $arg and length($arg) > 0;
+        $rest = '(no description)' unless defined $rest;
+        info("shift date by $arg $rest");
+        $dateshift = $arg;
       } elsif ($var eq 'merge-duplicate-stations') {
-        $merge_dup_parent = 1;
-        info("merging duplicate stations if name,lat,lon equal $args");
+        info("option $var disabled");
+#        $merge_dup_parent = 1;
+#        info("merging duplicate stations if name,lat,lon equal $args");
       } elsif ($var eq 'infer-common-station') {
-        $infer_parent = 1;
-        info("infer common parent station if name,lat,lon almost equal $args");
+        info("option $var disabled");
+#        $infer_parent = 1;
+#        info("infer common parent station if name,lat,lon almost equal $args");
       } elsif ($var eq 'no-infer-common-station') {
         $infer_parent = 0;
         info("not infer common parent station if name,lat,lon almost equal $args");
@@ -1648,6 +1660,8 @@ sub readcaldates($)
 
     ($service_id,$extype,$date) = split "\t",$line;
 
+    $date += $dateshift;
+
     if (length($service_id) == 0) {
       warning("$linno: missing service id");
       $filtercnt++;
@@ -2055,9 +2069,9 @@ sub readstoptimes($)
 #        info("uniqid $uniqid");
         $sumtimes++;
         if (exists($tripseq{$uniqid})) {
-          push @{ $tripseq{$uniqid} },($xtripid,$htdep,$htarr,$seq);
+          push @{ $tripseq{$uniqid} },join('_',$prvid,$id,$xtripid,$htdep,$htarr,$seq);
         } else {
-          $tripseq{$uniqid} = [ ($xtripid,$htdep,$htarr,$seq) ];
+          $tripseq{$uniqid} = [ join('_',$prvid,$id,$xtripid,$htdep,$htarr,$seq) ];
           push @uniqids,$uniqid;
           $stopdeps[$prvid]++;
           $stoparrs[$id]++;
@@ -2302,18 +2316,22 @@ sub writext($$)
   printf($hopfile ".hitrip\t.%u\t# highest trip ID\n\n",$hitripid);
 
   print($hopfile "# route\tID\tfrom\tto\ttype\trid\ttimes\t# from-name to-name\n");
-  print($hopfile "#   times: fmt sid tid tdep tarr\n\n");
+  print($hopfile "#   times: fmt sdep sarr sid tid tdep tarr\n\n");
 
-  my ($uniqid,$hoptime,$mark,$fmt,$timestr);
+  my ($uniqid,$hoptime,$mark,$fmt,$timestr,$testr);
   my $xinfo = '';
   my $hopno = 0;
   my $dupcnt = 0;
   my @times;
   my @hoptimes;
   my ($tid,$tdep,$tarr,$seq,$tdeparr,$ztid,$ztdep,$ztarr,$prvsid,$prvtid,$prvtdep,$prvtarr);
-  my ($timendx,$timecnt);
+  my ($sdep,$sarr,$prvsdep,$prvsarr);
+  my ($depstr,$arrstr,$timecnt);
 
   foreach $uniqid (@uniqids) {
+
+    my $testcnt1 = 0;
+    my $testcnt2 = 0;
 
     @times = @{ $tripseq{$uniqid} };
 
@@ -2330,8 +2348,7 @@ sub writext($$)
     $hopid = $hopno;
 
     $timecnt = scalar @times;
-    return error("$timecnt not a multiple of 4") if $timecnt % 4;
-    $timecnt /= 4;
+    info("$timecnt time entries");
 
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
@@ -2347,23 +2364,30 @@ sub writext($$)
     $route = '.' . $route if (substr($route,0,1) eq '.');
     $xinfo = "\t# '$depname' to '$arrname'" if ($verbose_hops > 0);
 
-    ($tid,$tdep,$tarr,$seq) = @times[0 .. 3];
+    ($sdep,$sarr,$tid,$tdep,$tarr,$seq) = split('_',shift @times);
     $sid = $tripsids{$tid};
     $fmt = 0;
-    $timestr = sprintf("%x\t%x\t%x\t%x\t%x\t%x",$fmt,$sid,$tid,$tdep,$tarr,$seq);
+    $timestr = sprintf("%x\t%x\t%x\t%x\t%x\t%x\t%x\t%x",$fmt,$sdep,$sarr,$sid,$tid,$tdep,$tarr,$seq);
 
     warning("tdep $tdep after tarr $tarr for tid $tid") if $tdep > $tarr;
     warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
 
-    for ($timendx = 4; $timendx < $timecnt * 4; $timendx += 4) {
+    for $testr (@times) {
       $prvsid = $sid; $prvtid = $tid; $prvtdep = $tdep; $prvtarr = $tarr;
-      ($tid,$tdep,$tarr,$seq) = @times[$timendx .. $timendx + 3];
+      $prvsdep = $sdep; $prvsarr = $sarr;
+      ($sdep,$sarr,$tid,$tdep,$tarr,$seq) = split('_',$testr);
       $sid = $tripsids{$tid};
 
       warning("tdep $tdep after tarr $tarr") if $tdep > $tarr;
       warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
 
       $fmt = 0;
+
+      if ($sdep == $prvsdep) { $fmt |= $fmt_prvdep; $depstr = ''; }
+      else { $depstr = sprintf("%x\t",$sdep); $testcnt1++; }
+      if ($sarr == $prvsarr) { $fmt |= $fmt_prvarr; $arrstr = ''; }
+      else { $arrstr = sprintf("%x\t",$sarr); $testcnt2++; }
+
       if ($tid >= $prvtid) {
         $fmt |= $fmt_diftid;
         $ztid = $tid - $prvtid;
@@ -2378,15 +2402,17 @@ sub writext($$)
       } else { $ztarr = $tarr; }
       if ($sid == $prvsid) {
         $fmt |= $fmt_prvsid;
-        $timestr .= sprintf("\t%x\t%x\t%x\t%x\t%x",$fmt,$ztid,$ztdep,$ztarr,$seq);
+        $timestr .= sprintf("\t%x\t%s%s%x\t%x\t%x\t%x",$fmt,$depstr,$arrstr,$ztid,$ztdep,$ztarr,$seq);
       } else {
-        $timestr .= sprintf("\t%x\t%x\t%x\t%x\t%x\t%x",$fmt,$sid,$ztid,$ztdep,$ztarr,$seq);
+        $timestr .= sprintf("\t%x\t%s%s%x\t%x\t%x\t%x\t%x",$fmt,$depstr,$arrstr,$sid,$ztid,$ztdep,$ztarr,$seq);
       }
-
     }
     printf($hopfile "%s\t%x\t.%u\t.%u\t%x\t.%u\t.%u\t%s%s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$timecnt,$timestr,$xinfo);
     $hopno++;
     progress("hop %u of %u",$hopno,$hopcnt) if $hopno == 1 or $hopno >= $hopcnt or ($hopno % 10000) == 0;
+
+#    info("eq dep $testcnt1  eq arr $testcnt2");
+
   }
   return error("wrote 0 hops") if $hopno == 0;
   print "\n";

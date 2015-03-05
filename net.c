@@ -291,7 +291,7 @@ static int mknet0(struct network *net)
   for (hop = 0; hop < whopcnt; hop++) {
     dep = portsbyhop[hop * 2];
     arr = portsbyhop[hop * 2 + 1];
-    if (dep == hi32 || arr == hi32) continue;
+    if (dep == hi32 || arr == hi32 || dep == arr) continue;
 
     if (hop < hopcnt) {
       hp = hops + hop;
@@ -349,7 +349,7 @@ static int mknet0(struct network *net)
   for (hop = 0; hop < whopcnt; hop++) {
     dep = portsbyhop[hop * 2];
     arr = portsbyhop[hop * 2 + 1];
-    if (dep == hi32 || arr == hi32) continue;
+    if (dep == hi32 || arr == hi32 || dep == arr) continue;
     da = dep * portcnt + arr;
     if (da != hida) continue;
 
@@ -397,7 +397,7 @@ static int mknet0(struct network *net)
   for (hop = 0; hop < whopcnt; hop++) {
     dep = portsbyhop[hop * 2];
     arr = portsbyhop[hop * 2 + 1];
-    if (dep == hi32 || arr == hi32) continue;
+    if (dep == hi32 || arr == hi32 || dep == arr) continue;
     pdep = ports + dep;
     parr = ports + arr;
     if (dep == arr || pdep->valid == 0 || parr->valid == 0) continue;
@@ -509,7 +509,7 @@ static int mk_netn(struct network *net,ub4 nstop)
 
   // todo configurable
   switch (nstop) {
-  case 1: nilonly = 0; varlimit = 64; var12limit = 256; break;
+  case 1: nilonly = 0; varlimit = 128; var12limit = 256; break;
   case 2: nilonly = 0; varlimit = 8; var12limit = 64; break;
   case 3: nilonly = 1; varlimit = 8; var12limit = 64; break;
   default: nilonly = 1; varlimit = 2; var12limit = 32; break;
@@ -1265,20 +1265,23 @@ int triptoports_fln(ub4 fln,struct network *net,ub4 *trip,ub4 triplen,ub4 *ports
   return 0;
 }
 
-int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,ub4 *ppos,ub4 utcofs)
+int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,struct trip *ptrip,char *buf,ub4 buflen,ub4 *ppos,ub4 utcofs)
 {
   struct network *net;
-  struct port *gports = gnet->ports,*pdep,*parr = gports;
+  struct port *pdep,*parr,*gports = gnet->ports;
+  struct sport *psdep,*psarr,*gsports = gnet->sports;
   struct hop *hops,*hp,*hp2;
   struct route *rp,*routes = gnet->routes;
   ub4 *trip = ptrip->trip;
-  const char *name,*rname,*mode = "";
+  const char *name,*rname,*dname,*aname,*mode = "";
   const char *suffix;
   ub4 rid = hi32,rrid,tid;
   ub4 part,leg,prvleg,ghop,l,l1 = 0,l2 = 0,dep,arr = hi32,deparr,gdep,garr = hi32;
+  ub4 sdep,sarr,srdep,srarr;
   ub4 tdep,tarr,txtime,prvtarr = 0;
-  ub4 dist,dist0;
+  ub4 dist,dist0,dt;
   ub4 gportcnt = gnet->portcnt;
+  ub4 gsportcnt = gnet->sportcnt;
   ub4 partcnt = gnet->partcnt;
 
   ub4 hopcnt,whopcnt,chopcnt;
@@ -1290,11 +1293,54 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
   ub4 pos = *ppos;
   ub4 triplen = ptrip->len;
   ub4 *ports = ptrip->port;
+  double dlat,dlon,alat,alon,fdist;
+  ub4 walkspeed = gnet->walkspeed;  // geo's per hour
 
-  if (triplen == 0) return warning(0,"nil trip for %u port net",gportcnt);
+  if (triplen == 0) { // trivial case: within same parent group
+    if (udep == uarr && usrdep == usrarr) return 1;
+    else if (udep != uarr) return warning(0,"nil trip for %u port net",gportcnt);
+    pdep = gports + udep;
+    if (usrdep != hi32) {
+      sdep = pdep->subofs + usrdep;
+      psdep = gsports + sdep;
+      dname = psdep->name;
+      dlat = psdep->rlat; dlon = psdep->rlon;
+    } else {
+      dname = pdep->name;
+      dlat = pdep->rlat; dlon = pdep->rlon;
+    }
+    if (usrarr != hi32) {
+      sarr = pdep->subofs + usrarr;
+      psarr = gsports + sarr;
+      aname = psarr->name;
+      alat = psarr->rlat; alon = psarr->rlon;
+    } else {
+      aname = pdep->name;
+      alat = pdep->rlat; alon = pdep->rlon;
+    }
+
+    fdist = geodist(dlat,dlon,alat,alon);
+    dist = (ub4)fdist;
+    dt = (dist * 60) / walkspeed;
+
+    pos += mysnprintf(buf,pos,buflen,"sum\t\at%u\t\ag%u\t%u\t%u\t%s-%u\n",dt,dist,0,0,"t",0);
+
+    pos += mysnprintf(buf,pos,buflen,"trip\t\t%s\t\t# %u\n",dname,1);
+    pos += mysnprintf(buf,pos,buflen,"trip\t\twalk\t\ag%u\n",dist);
+
+    pos += mysnprintf(buf,pos,buflen,"trip\t\t%s\n",aname);
+
+    *ppos = pos;
+
+    info(0,"%s",buf);
+    return 0;
+  }
+
   error_ge(triplen,Nxleg);
 
   pos += mysnprintf(buf,pos,buflen,"%s  tz = utc\au%u\n",ptrip->desc,utcofs);
+
+  parr = NULL;
 
   for (leg = 0; leg < triplen; leg++) {
     part = trip[leg * 2];
@@ -1319,6 +1365,7 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     error_ge(gdep,gportcnt);
     pdep = gports + gdep;
     dist = hopdist[l];
+    sdep = sarr = hi32;
     if (l < hopcnt) {
       hp = hops + l;
       name = hp->name; rid = hp->rid; rrid = hp->rrid; ghop = hp->gid;
@@ -1328,23 +1375,63 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
       if (l1 >= hopcnt) return error(0,"part %u compound leg %u = %u-%u >= %u",part,l,l1,l2,hopcnt);
       hp = hops + l1;
       name = hp->name; rid = hp->rid; rrid = hp->rrid; ghop = hp->gid;
+      hp2 = hops + l2;
     } else {
       hp = NULL;
       name = "walk"; rid = rrid = ghop = hi32;
     }
+
     if (leg) {
       if (gdep != garr) {
         prvleg = leg - 1;
         if (l < whopcnt) return error(0,"leg %u hop %u.%u dep %u not connects to preceding arr %u.%u %s vs %s route %s",leg,part,l,gdep,trip[prvleg * 2],garr,pdep->name,parr->name,name);
         else return error(0,"leg %u chop %u.%u = %u-%u dep %u not connects to preceding arr %u.%u %s vs %s route %s",leg,part,l,l1,l2,gdep,trip[prvleg * 2],garr,pdep->name,parr->name,name);
       }
-    }
+    } else if (gdep != udep) return error(0,"trip starting with %u, not inital dep %u",gdep,udep);
+
     arr = portsbyhop[2 * l + 1];
     error_ge(arr,portcnt);
     ports[leg] = gdep;
     garr = p2g[arr];
     error_ge(garr,gportcnt);
     parr = gports + garr;
+
+    if (leg == 0) srdep = usrdep; else srdep = ptrip->srdep[leg];
+    if (leg == triplen - 1) srarr = usrarr; else srarr = ptrip->srarr[leg];
+    if (srdep != hi32 && srdep >= pdep->subcnt) {
+      warn(0,"leg %u srdep %u subcnt %u",leg,srdep,pdep->subcnt);
+      srdep = hi32;
+    }
+    if (srdep != hi32) {
+      sdep = pdep->subofs + srdep;
+      if (sdep >= gsportcnt) {
+        warn(0,"sdep %u sportcnt %u",sdep,gsportcnt);
+        srdep = hi32;
+      }
+    }
+    if (srdep != hi32) {
+      psdep = gsports + sdep;
+      dname = psdep->name;
+      vrb0(0,"dname %s",dname);
+    } else dname = pdep->name;
+
+    if (srarr != hi32 && srarr >= parr->subcnt) {
+      warn(0,"srarr %u subcnt %u",srarr,pdep->subcnt);
+      srarr = hi32;
+    }
+    if (srarr != hi32) {
+      sarr = parr->subofs + srarr;
+      if (sarr >= gsportcnt) {
+        warn(0,"sarr %u sportcnt %u",sarr,gsportcnt);
+        srarr = hi32;
+      }
+    }
+    if (srarr != hi32) {
+      psarr = gsports + sarr;
+      aname = psarr->name;
+      vrb0(0,"aname %s",aname);
+    } else aname = parr->name;
+
     deparr = dep * portcnt + arr;
     dist0 = fgeodist(pdep,parr);
     tdep = ptrip->t[leg];
@@ -1381,11 +1468,11 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
         if (tdep >= prvtarr) txtime = tdep - prvtarr;
         else warn(0,"leg %u depart \ad%u before previous arrival \ad%u",leg,tdep,prvtarr);
       };
-      if (tdep) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s%s\t\at%u\t# %u\n",min2lmin(tdep,utcofs),pdep->name,suffix,txtime,leg+1);
-      else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s%s\t\t# %u\n",pdep->name,suffix,leg+1);
+      if (tdep) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s%s\t\at%u\t# %u\n",min2lmin(tdep,utcofs),dname,suffix,txtime,leg+1);
+      else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s%s\t\t# %u\n",dname,suffix,leg+1);
     } else {
-      if (tdep) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s%s\t\t# 1\n",min2lmin(tdep,utcofs),pdep->name,suffix);
-      else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s%s\t\t# 1\n",pdep->name,suffix);
+      if (tdep) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s%s\t\t# 1\n",min2lmin(tdep,utcofs),dname,suffix);
+      else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s%s\t\t# 1\n",dname,suffix);
     }
 
     // route
@@ -1395,8 +1482,8 @@ int gtriptoports(struct gnetwork *gnet,struct trip *ptrip,char *buf,ub4 buflen,u
     else pos += mysnprintf(buf,pos,buflen,"\t\ag%u\n",dist);
 
     // arr
-    if (tarr) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s\n",min2lmin(tarr,utcofs),parr->name);
-    else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s\n",parr->name);
+    if (tarr) pos += mysnprintf(buf,pos,buflen,"trip\t\ad%u\t%s\n",min2lmin(tarr,utcofs),aname);
+    else pos += mysnprintf(buf,pos,buflen,"trip\t\t%s\n",aname);
     prvtarr = tarr;
 
   } // each leg

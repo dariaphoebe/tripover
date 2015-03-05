@@ -32,7 +32,17 @@ struct globs globs;
 static ub4 msgfile;
 #include "msg.h"
 
+#include "math.h"
+
 #include "gtfsprep.h"
+
+// can be set on commandline
+static double grouplimit = 10;
+static bool useparentname = 0;
+
+static char *fileext = "txt";
+static bool canonin;
+static bool testonly;
 
 static int init0(char *progname)
 {
@@ -117,7 +127,7 @@ static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *f
     myvsnprintf(buf,pos,len,fmt,ap);
     va_end(ap);
   }
-  return warnfln(fln,Iter,"%s",buf);
+  return warnfln(fln,0,"%s",buf);
 }
 
 /* parse comma-separated file, e.g. gtfs.
@@ -129,7 +139,7 @@ static int __attribute__ ((format (printf,5,6))) parsewarn(ub4 fln,const char *f
 #define Valcnt 32
 #define Collen 256
 
-enum extstates {Init,Val0,Val1,Val2,Val2q,Val3q,Cmd0,Cmd1,Cmd2};
+enum extstates {Init,Val0,Val1,Val2,Val2q,Val3q,Cmd0,Cmd1,Cmd2,Cfls,Fls};
 
 struct extfmt {
   struct myfile mf;
@@ -142,7 +152,7 @@ struct extfmt {
   char vals[Valcnt * Collen];
 };
 
-static enum extresult nextchar(struct extfmt *ef)
+static enum extresult nextchar_csv(struct extfmt *ef)
 {
   char *fname;
   ub1 c;
@@ -168,7 +178,7 @@ static enum extresult nextchar(struct extfmt *ef)
   vals = ef->vals;
   vallens = ef->vallens;
 
-  c = (ub1)ef->mf.buf[pos];
+  c = ef->mf.buf[pos];
   ef->pos = pos + 1;
 
   newitem = iscmd = 0;
@@ -291,6 +301,7 @@ static enum extresult nextchar(struct extfmt *ef)
       }
       break;
 
+    case Cfls: case Fls: break;
     } // end switch state
 
   if (c == '\n') { linno++; colno = 1; }
@@ -311,6 +322,158 @@ static enum extresult nextchar(struct extfmt *ef)
     ef->valcnt = valndx + 1;
     return iscmd ? Newcmd : Newitem;
   } else return Next;
+}
+
+// similar to above, tab-separated canonical
+static enum extresult nextchar_canon(struct extfmt *ef)
+{
+  char *fname;
+  ub1 c;
+  ub4 pos,len,linno,colno,valndx,valno;
+  char *val,*vals;
+  ub4 *vallens,vallen;
+  int newitem,iscmd;
+
+  enum extstates state;
+
+  len = (ub4)ef->mf.len;
+  pos = ef->pos;
+  if (pos >= len) return Eof;
+
+  // state
+  state = ef->state;
+  valndx = ef->valndx;
+  linno = ef->linno + 1;
+  colno = ef->colno;
+
+  // convenience
+  fname = ef->mf.name;
+  vals = ef->vals;
+  vallens = ef->vallens;
+
+  c = ef->mf.buf[pos];
+  ef->pos = pos + 1;
+
+  newitem = iscmd = 0;
+
+//    info(0,"state %u c %c",state,c);
+
+    if (c == '\r') return parserr(FLN,fname,linno,colno,"unexpected char %x",c);
+
+    switch(state) {
+
+    case Init:
+      if (c == 0xef) { // utf8 can have byte order mark
+        if (len < 3 || (ub1)ef->mf.buf[pos+1] != 0xbb || (ub1)ef->mf.buf[pos+2] != 0xbf) {
+          return parserr(FLN,fname,linno,colno,"headline has unexpected char 0x%x %x %x",c,ef->mf.buf[pos+1],ef->mf.buf[pos+2]);
+        }
+        pos += 3;
+        ef->pos = pos + 1;
+        c = ef->mf.buf[pos];
+      }
+      linno = 1; // cascade
+
+    case Cmd0:
+      switch (c) {
+        case '#': valndx = 0; state = Cfls; break;
+        case '\t': return parserr(FLN,fname,linno,colno,"empty column name");
+        case '\n': valndx = 0; break;
+        default:
+          if (c != '_' && !(c >= 'a' && c <= 'z')) return parserr(FLN,fname,linno,colno,"headline has unexpected char '%c'",c);
+          valndx = 0;
+          val = vals;
+          val[0] = c; vallens[0] = 1;
+          state = Cmd1;
+      }
+      break;
+
+    case Cmd1:
+      switch (c) {
+        case '\t': info(0,"col %u %.*s",valndx,vallens[valndx],vals + valndx * Collen); valndx++; vallens[valndx] = 0; state = Cmd2; break;
+        case '\n': newitem = iscmd = 1; state = Val0; break;
+        default:
+          val = vals + valndx * Collen;
+          vallen = vallens[valndx]; val[vallen] = c; vallens[valndx] = vallen + 1;
+      }
+      break;
+
+    case Cmd2:
+      switch (c) {
+        case '\t': return parserr(FLN,fname,linno,colno,"empty column name");
+        case '\n': newitem = iscmd = 1; state = Val0; break;
+        default:
+          val = vals + valndx * Collen;
+          vallen = vallens[valndx]; val[vallen] = c; vallens[valndx] = vallen + 1;
+          state = Cmd1;
+      }
+      break;
+
+    case Val0:
+      valndx = 0;
+      switch (c) {
+        case '#': state = Fls; break;
+        case '\t': vallens[0] = 0; valndx = 1; state = Val1; break;
+        case '\n': parsewarn(FLN,fname,linno,colno,"skipping empty line"); break;
+        default:
+          val = vals;
+          val[0] = c; vallens[0] = 1;
+          state = Val1;
+      }
+      break;
+
+    case Val1:
+      switch(c) {
+        case '\t': vrb0(0,"col %u %.*s",valndx,vallens[valndx],vals + valndx * Collen); valndx++; vallens[valndx] = 0; state = Val2; break;
+        case '\n': vrb0(0,"col %u %.*s",valndx,vallens[valndx],vals + valndx * Collen); newitem = 1; state = Val0; break;
+        default:
+          val = vals + valndx * Collen;
+          vallen = vallens[valndx]; val[vallen] = c; vallens[valndx] = vallen + 1;
+      }
+      break;
+
+    case Val2:
+      switch (c) {
+        case '\t': vrb0(0,"col %u %.*s",valndx,vallens[valndx],vals + valndx * Collen); valndx++; vallens[valndx] = 0; break;
+        case '\n': vrb0(0,"col %u %.*s",valndx,vallens[valndx],vals + valndx * Collen); newitem = 1; state = Val0; break;
+        default:
+          val = vals + valndx * Collen;
+          val[0] = c; vallens[valndx] = 1;
+          state = Val1;
+      }
+      break;
+
+    case Fls: if (c == '\n') state = Val0; break;
+    case Cfls: if (c == '\n') state = Cmd0; break;
+
+    case Val2q:
+    case Val3q: break;
+
+    } // end switch state
+
+  if (c == '\n') { linno++; colno = 1; }
+  else colno++;
+
+  ef->state = state;
+
+  ef->valndx = valndx;
+  ef->linno = linno - 1;
+  ef->colno = colno;
+
+  if (newitem) {
+    for (valno = 0; valno <= valndx; valno++) {
+      val = vals + valno * Collen;
+      vallen = vallens[valno];
+      val[vallen] = 0;
+    }
+    ef->valcnt = valndx + 1;
+    return iscmd ? Newcmd : Newitem;
+  } else return Next;
+}
+
+static enum extresult nextchar(struct extfmt *ef)
+{
+  if (canonin) return nextchar_canon(ef);
+  else return nextchar_csv(ef);
 }
 
 static ub4 addcol(char *lines,ub4 pos,char *col,ub4 collen,char c)
@@ -341,7 +504,7 @@ static int rdagency(gtfsnet *net,const char *dir)
 
   oclear(eft);
 
-  fmtstring(eft.mf.name,"%s/agency.txt",dir);
+  fmtstring(eft.mf.name,"%s/agency.%s",dir,fileext);
   fname = eft.mf.name;
 
   rv = readfile(&eft.mf,fname,1,0);
@@ -464,7 +627,7 @@ static int rdcalendar(gtfsnet *net,const char *dir)
 
   oclear(eft);
 
-  fmtstring(eft.mf.name,"%s/calendar.txt",dir);
+  fmtstring(eft.mf.name,"%s/calendar.%s",dir,fileext);
   fname = eft.mf.name;
 
   rv = readfile(&eft.mf,fname,0,0);
@@ -595,7 +758,7 @@ static int rdcaldates(gtfsnet *net,const char *dir)
 
   oclear(eft);
 
-  fmtstring(eft.mf.name,"%s/calendar_dates.txt",dir);
+  fmtstring(eft.mf.name,"%s/calendar_dates.%s",dir,fileext);
   fname = eft.mf.name;
 
   rv = readfile(&eft.mf,fname,0,0);
@@ -706,7 +869,7 @@ static int rdroutes(gtfsnet *net,const char *dir)
 
   oclear(eft);
 
-  fmtstring(eft.mf.name,"%s/routes.txt",dir);
+  fmtstring(eft.mf.name,"%s/routes.%s",dir,fileext);
   fname = eft.mf.name;
 
   rv = readfile(&eft.mf,fname,1,0);
@@ -836,7 +999,8 @@ static int rdstops(gtfsnet *net,const char *dir)
   struct extfmt eft;
   const char *fname;
 
-  ub4 rawstopcnt,stopcnt = 0;
+  ub4 rawstopcnt,stopcnt,stop2,stop3,stop = 0;
+  ub4 pstopcnt = 0;
   int rv;
   char *buf;
   ub4 len,linno,colno;
@@ -846,12 +1010,13 @@ static int rdstops(gtfsnet *net,const char *dir)
   ub4 valcnt,valno;
   ub4 linepos = 0,linelen;
   block *mem = &net->stopmem;
+  block *emem = &net->estopmem;
 
   struct eta eta;
 
   oclear(eft);
 
-  fmtstring(eft.mf.name,"%s/stops.txt",dir);
+  fmtstring(eft.mf.name,"%s/stops.%s",dir,fileext);
   fname = eft.mf.name;
 
   rv = readfile(&eft.mf,fname,1,0);
@@ -863,14 +1028,17 @@ static int rdstops(gtfsnet *net,const char *dir)
 
   if (rawstopcnt == 0) return warning(0,"%s is empty",fname);
 
-//  struct gtstop *sp,*stops = alloc(rawstopcnt,struct gtstop,0,"ext ports");
+  struct gtstop *sp,*sp2,*sp3,*psp,*stops = alloc(rawstopcnt,struct gtstop,0,"ext ports",rawstopcnt);
 
-  linelen = len + 4 * rawstopcnt;
+  linelen = len + 5 * rawstopcnt;
   char *lines = net->stoplines = mkblock(mem,linelen,char,Noinit,"gtfs %u stops, len %u",rawstopcnt-1,linelen);
 
   const char tab = '\t';
+
   ub4 stop_idpos,stop_codepos,stop_namepos,stop_descpos,stop_latpos,stop_lonpos,stop_locpos,parent_stapos;
   stop_idpos=stop_codepos=stop_namepos=stop_descpos=stop_latpos=stop_lonpos=stop_locpos=parent_stapos = hi32;
+
+  sp = stops;
 
   do {
 
@@ -905,23 +1073,25 @@ static int rdstops(gtfsnet *net,const char *dir)
 
     case Newitem:
 
-      if (progress(&eta,"reading stop %u of %u in %s",stopcnt,rawstopcnt,fname)) return 1;
+      if (progress(&eta,"reading stop %u of %u in %s",stop,rawstopcnt,fname)) return 1;
 
       valcnt = eft.valcnt;
       linno = eft.linno;
       colno = eft.colno;
       vallens = eft.vallens;
-      error_ge(stopcnt,rawstopcnt);
       for (valno = 0; valno < valcnt; valno++) {
         val = vals + valno * Collen;
         vrb0(0,"col %u val '%s'",valno,val);
       }
       if (valcnt < 4) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
 
+      sp->id = stop;
 // id
       val = vals + stop_idpos * Collen;
       vlen = vallens[stop_idpos];
 
+      sp->gidofs = linepos;
+      sp->gidlen = vlen;
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab);
 
@@ -929,12 +1099,14 @@ static int rdstops(gtfsnet *net,const char *dir)
       if (stop_codepos != hi32) {
         val = vals + stop_codepos * Collen;
         vlen = vallens[stop_codepos];
-
+        sp->codeofs = linepos;
+        sp->codelen = vlen;
         bound(mem,linepos + vlen + 1,char);
         linepos = addcol(lines,linepos,val,vlen,tab);
       } else lines[linepos++] = tab;
 
 // loc
+      sp->isparent = 0;
       if (stop_locpos != hi32) {
         val = vals + stop_locpos * Collen;
         vlen = vallens[stop_locpos];
@@ -944,6 +1116,10 @@ static int rdstops(gtfsnet *net,const char *dir)
         else if (vlen == 1)  x = *val;
         else { parsewarn(FLN,fname,linno,colno,"location_type %s not '0' or '1'",val); x = '0'; }
         if (x != '0' && x != '1') { parsewarn(FLN,fname,linno,colno,"location_type %c not '0' or '1'",x); x = '0'; }
+        if (x == '1') {
+          sp->isparent = 1;
+          pstopcnt++;
+        }
         lines[linepos++] = (char)x;
       }
       lines[linepos++] = tab;
@@ -953,14 +1129,22 @@ static int rdstops(gtfsnet *net,const char *dir)
         val = vals + parent_stapos * Collen;
         vlen = vallens[parent_stapos];
 
-        bound(mem,linepos + vlen + 1,char);
-        linepos = addcol(lines,linepos,val,vlen,tab);
+        if (vlen) {
+          if (sp->isparent) parsewarn(FLN,fname,linno,colno,"parent stop with parent");
+          sp->hasparent = 1;
+          sp->parentofs = linepos;
+          sp->parentlen = vlen;
+          bound(mem,linepos + vlen + 1,char);
+          linepos = addcol(lines,linepos,val,vlen,tab);
+        }
       } else lines[linepos++] = tab;
 
 //name
       val = vals + stop_namepos * Collen;
       vlen = vallens[stop_namepos];
 
+      sp->nameofs = linepos;
+      sp->namelen = vlen;
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab);
 
@@ -969,6 +1153,11 @@ static int rdstops(gtfsnet *net,const char *dir)
       vlen = vallens[stop_latpos];
       if (vlen && *val == ' ') { val++; vlen--; }
 
+      sp->latofs = linepos;
+      if (vlen) {
+        if (str2dbl(val,vlen,&sp->lat)) parsewarn(FLN,fname,linno,colno,"cannot convert coord '%.*s'",vlen,val);
+        else sp->latlen = vlen;
+      }
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab);
 
@@ -977,6 +1166,12 @@ static int rdstops(gtfsnet *net,const char *dir)
       vlen = vallens[stop_lonpos];
       if (vlen && *val == ' ') { val++; vlen--; }
 
+      sp->lonofs = linepos;
+      if (vlen) {
+        if (str2dbl(val,vlen,&sp->lon)) parsewarn(FLN,fname,linno,colno,"cannot convert coord '%.*s'",vlen,val);
+        else sp->lonlen = vlen;
+      }
+      sp->lonlen = vlen;
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab);
 
@@ -985,12 +1180,15 @@ static int rdstops(gtfsnet *net,const char *dir)
         val = vals + stop_descpos * Collen;
         vlen = vallens[stop_descpos];
 
+        sp->descofs = linepos;
+        sp->desclen = vlen;
         bound(mem,linepos + vlen + 1,char);
         linepos = addcol(lines,linepos,val,vlen,'\n');
       } else lines[linepos++] = '\n';
 
-//      sp++;
-      stopcnt++;
+      sp++;
+      stop++;
+      error_gt(stop,rawstopcnt,0);
       break;  // newitem
 
     case Next: break;
@@ -1000,9 +1198,227 @@ static int rdstops(gtfsnet *net,const char *dir)
 
   } while (res < Eof);  // each input char
 
-  info(0,"%u from %u stops",stopcnt,rawstopcnt);
-  net->stopcnt = stopcnt;
-  net->stoplinepos = linepos;
+  stopcnt = stop;
+  info(0,"%u stops from %u lines %u parents",stopcnt,rawstopcnt,pstopcnt);
+  error_ge(pstopcnt,stopcnt);
+
+  struct gtstop *pstops = allocnz(pstopcnt,struct gtstop,0,"ext pports",pstopcnt);
+
+  psp = pstops;
+  for (stop = 0; stop < stopcnt; stop++) {
+    sp = stops + stop;
+    if (sp->isparent == 0) continue;
+    *psp++ = *sp;
+  }
+
+  // optionally let child stops inherit parent name
+  ub4 pstop,plen;
+  char *pofs;
+  for (stop = 0; stop < stopcnt; stop++) {
+    sp = stops + stop;
+    if (useparentname == 0 || (sp->isparent == 0 && sp->hasparent == 0)) continue;
+
+    if (sp->hasparent) {
+      plen = sp->parentlen;
+      pofs = lines + sp->parentofs;
+      for (pstop = 0; pstop < pstopcnt; pstop++) {
+        psp = pstops + pstop;
+        if (plen != psp->gidlen || memcmp(pofs,lines + psp->gidofs,plen)) continue;
+        sp->nameofs = psp->nameofs;
+        sp->namelen = psp->namelen;
+        break;
+      }
+      if (pstop == pstopcnt) warning(0,"parent %.*s not found",plen,pofs);
+    }
+  }
+
+  ub4 cstopcnt = stopcnt - pstopcnt;
+  info(0,"prepare grouping for %u stops",cstopcnt);
+
+  struct gtstop *csp,*cstops = alloc(cstopcnt,struct gtstop,0,"ext cports",cstopcnt);
+  ub4 id;
+
+  ub4 cstop = 0;
+  csp = cstops;
+  for (stop = 0; stop < stopcnt; stop++) {
+    sp = stops + stop;
+    if (sp->isparent) continue;
+    *csp = *sp;
+    csp->id = cstop;
+    csp++;
+    cstop++;
+  }
+  error_ne(cstop,cstopcnt);
+
+  ub4 cnt,hicnt = 0,histop = 0,sumcnt = 0;
+  double d2r = M_PI / 180;
+  double axislim = M_PI * 8.0e-5;
+  double a1,a2,o1,o2,dist;
+
+  for (stop = 0; stop < cstopcnt; stop++) {
+    sp = cstops + stop;
+    sp->group = hi32;
+    sp->iparent = hi32;
+    if (sp->latlen == 0 || sp->lonlen == 0) continue;
+    sp->rlat = sp->lat * d2r;
+    sp->rlon = sp->lon * d2r;
+  }
+  for (stop = 0; stop < cstopcnt; stop++) {
+    if (progress(&eta,"pass 1 group stop %u of %u sum %u",stop,cstopcnt,sumcnt)) return 1;
+    sp = cstops + stop;
+    if (sp->latlen == 0 || sp->lonlen == 0) continue;
+    cnt = sp->nearcnt;
+    if (cnt >= Nearstop) continue;
+    id = sp->id;
+    a1 = sp->rlat; o1 = sp->rlon;
+    for (stop2 = 0; stop2 < cstopcnt; stop2++) {
+      if (stop2 == stop) continue;
+      sp2 = cstops + stop2;
+      a2 = sp2->rlat; o2 = sp2->rlon;
+      if (a1 - a2 > axislim || a1 - a2 < -axislim) continue;
+      if (o1 - o2 > axislim || o1 - o2 < -axislim) continue;
+      dist = geodist(a1,o1,a2,o2);
+      if (dist > grouplimit) continue;
+      sp->nears[cnt++] = stop2;
+      if (cnt >= Nearstop) break;
+    }
+    if (cnt > hicnt) { hicnt = cnt; histop = stop; }
+    sp->nearcnt = cnt;
+    sumcnt += cnt;
+  }
+
+  info(0,"hicnt %u sum %u",hicnt,sumcnt);
+
+  ub4 iparentcnt,iparent = 0;
+  ub4 s2ndx,s3ndx;
+  ub4 orghicnt = hicnt;
+
+  sumcnt = 0;
+  ub4 enearcnt;
+
+  while (hicnt) {
+    if (progress(&eta,"iter %u of ~%u sum %u", orghicnt - hicnt,orghicnt,sumcnt)) return 1;
+//    info(0,"iter %u of ~%u sum %u", orghicnt - hicnt,orghicnt,sumcnt);
+
+    sp = cstops + histop;
+    id = sp->id;
+    cnt = sp->nearcnt;
+    enearcnt = 0;
+    for (s2ndx = 0; s2ndx < cnt; s2ndx++) {
+      stop2 = sp->nears[s2ndx];
+      if (stop2 == hi32) continue;
+      sp2 = cstops + stop2;
+      sp2->group = id;
+      enearcnt++;
+
+      // remove this stop from other groups
+      sp->nears[s2ndx] = hi32;
+      for (stop3 = 0; stop3 < cstopcnt; stop3++) {
+        if (stop3 == histop) continue;
+        sp3 = cstops + stop3;
+        for (s3ndx = 0; s3ndx < sp3->nearcnt; s3ndx++) {
+          if (sp3->nears[s3ndx] == stop2) sp3->nears[s3ndx] = hi32;
+        }
+      }
+    }
+    for (stop3 = 0; stop3 < cstopcnt; stop3++) {
+      if (stop3 == histop) continue;
+      sp3 = cstops + stop3;
+      for (s3ndx = 0; s3ndx < sp3->nearcnt; s3ndx++) {
+        if (sp3->nears[s3ndx] == histop) sp3->nears[s3ndx] = hi32;
+      }
+    }
+
+    sp->group = id;
+    sp->iparent = iparent;
+    enearcnt++;  // include hicnt self
+    sp->enearcnt = enearcnt;
+    iparent++;
+    sumcnt += enearcnt;
+
+    // search next hicnt
+    hicnt = 0;
+    for (stop = 0; stop < cstopcnt; stop++) {
+      sp = cstops + stop;
+      cnt = 0;
+      for (s2ndx = 0; s2ndx < sp->nearcnt; s2ndx++) {
+        stop2 = sp->nears[s2ndx];
+        if (stop2 != hi32) cnt++;
+      }
+//      info(0,"stop %u cnt %u"
+      if (cnt > hicnt) { hicnt = cnt; histop = stop; }
+    }
+    error_gt(sumcnt,cstopcnt,iparent);
+//    info(0,"hicnt %u sum %u",hicnt,sumcnt);
+  }
+  iparentcnt = iparent;
+
+  ub4 plainstopcnt = cstopcnt - sumcnt;
+  ub4 planstopcnt = plainstopcnt + iparentcnt;
+  ub4 estopcnt = cstopcnt + iparentcnt;
+  info(0,"%u plain stops %u inferred parents %u planning stops",plainstopcnt,iparentcnt,planstopcnt);
+
+  ub4 elinelen = 0;
+  ub4 iparentlen = 8 + 6 + 6;
+  ub4 geopreclen = 6 + 1 + 1 + 4;
+  ub4 pos,group;
+
+  for (stop = 0; stop < cstopcnt; stop++) {
+    sp = cstops + stop;
+    len = sp->gidlen + sp->codelen + sp->namelen + sp->desclen;
+    len += geopreclen * 2;
+    if (sp->group != hi32) len += iparentlen;
+    len += 10;
+    if (sp->iparent != hi32) len += len;
+    elinelen += len;
+  }
+
+  char *elines = net->stoplines = mkblock(emem,elinelen,char,Noinit,"gtfs %u stops, len %u",estopcnt,elinelen);
+
+  // stops
+  pos = 0;
+  for (stop = 0; stop < cstopcnt; stop++) {
+    sp = cstops + stop;
+
+    // id,code,loctype
+    pos += mysnprintf(elines,pos,elinelen,"%.*s\t%.*s\t0\t",sp->gidlen,lines + sp->gidofs,sp->codelen,lines + sp->codeofs);
+
+    // parent
+    group = sp->group;
+    if (group != hi32) {
+      psp = cstops + group;
+      fmtstring(psp->parentname,"%u-%u-c8gaTX73",group,psp->enearcnt);
+      pos += mysnprintf(elines,pos,elinelen,"%s",psp->parentname);
+    }
+    elines[pos++] = '\t';
+
+    // name
+    pos += mysnprintf(elines,pos,elinelen,"%.*s\t",sp->namelen,lines + sp->nameofs);
+
+    // lat,lon
+    pos += mysnprintf(elines,pos,elinelen,"%f\t%f\t",sp->lat,sp->lon);
+
+    // desc
+    pos += mysnprintf(elines,pos,elinelen,"%.*s\n",sp->desclen,lines + sp->descofs);
+    bound(emem,pos,char);
+    error_gt(pos,elinelen,stop);
+//    info(0,"stop %u pos %u",stop,pos);
+  }
+
+  // inferred parents
+  for (stop = 0; stop < cstopcnt; stop++) {
+    sp = cstops + stop;
+    if (sp->iparent == hi32) continue;
+    pos += mysnprintf(elines,pos,elinelen,"%s\t%.*s\t1\t\t",sp->parentname,sp->codelen,lines + sp->codeofs);
+    pos += mysnprintf(elines,pos,elinelen,"%.*s\t",sp->namelen,lines + sp->nameofs);
+    pos += mysnprintf(elines,pos,elinelen,"%f\t%f\t",sp->lat,sp->lon);
+    pos += mysnprintf(elines,pos,elinelen,"%.*s\n",sp->desclen,lines + sp->descofs);
+    bound(emem,pos,char);
+    error_gt(pos,elinelen,stop);
+  }
+
+  net->stopcnt = estopcnt;
+  net->stoplinepos = pos;
 
   return 0;
 }
@@ -1025,7 +1441,7 @@ static int rdtrips(gtfsnet *net,const char *dir)
 
   oclear(eft);
 
-  fmtstring(eft.mf.name,"%s/trips.txt",dir);
+  fmtstring(eft.mf.name,"%s/trips.%s",dir,fileext);
   fname = eft.mf.name;
 
   rv = readfile(&eft.mf,fname,1,0);
@@ -1162,7 +1578,7 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
 
   oclear(eft);
 
-  fmtstring(eft.mf.name,"%s/stop_times.txt",dir);
+  fmtstring(eft.mf.name,"%s/stop_times.%s",dir,fileext);
   fname = eft.mf.name;
 
   rv = readfile(&eft.mf,fname,1,0);
@@ -1305,11 +1721,12 @@ static int wragency(gtfsnet *net,const char *dir)
 
   fmtstring(fname,"%s/agency.tab",dir);
 
+  osrotate(fname,0,'0');
   fd = filecreate(fname,1);
   if (fd == -1) return 1;
 
   pos = wrhdr(fname,buf,buflen);
-  pos += mysnprintf(buf,pos,buflen,"# %u entries\n\n",net->stopcnt);
+  pos += mysnprintf(buf,pos,buflen,"# %u %s\n\n",net->agencycnt,net->agencycnt == 1 ? "entry" : "entries");
 
   if (filewrite(fd,buf,pos,fname)) return 1;
 
@@ -1333,6 +1750,7 @@ static int wrcalendar(gtfsnet *net,const char *dir)
 
   fmtstring(fname,"%s/calendar.tab",dir);
 
+  osrotate(fname,0,'0');
   fd = filecreate(fname,1);
   if (fd == -1) return 1;
 
@@ -1361,6 +1779,7 @@ static int wrcaldates(gtfsnet *net,const char *dir)
 
   fmtstring(fname,"%s/calendar_dates.tab",dir);
 
+  osrotate(fname,0,'0');
   fd = filecreate(fname,1);
   if (fd == -1) return 1;
 
@@ -1387,6 +1806,7 @@ static int wrroutes(gtfsnet *net,const char *dir)
 
   fmtstring(fname,"%s/routes.tab",dir);
 
+  osrotate(fname,0,'0');
   fd = filecreate(fname,1);
   if (fd == -1) return 1;
 
@@ -1413,6 +1833,7 @@ static int wrstops(gtfsnet *net,const char *dir)
 
   fmtstring(fname,"%s/stops.tab",dir);
 
+  osrotate(fname,0,'0');
   fd = filecreate(fname,1);
   if (fd == -1) return 1;
 
@@ -1439,6 +1860,7 @@ static int wrtrips(gtfsnet *net,const char *dir)
 
   fmtstring(fname,"%s/trips.tab",dir);
 
+  osrotate(fname,0,'0');
   fd = filecreate(fname,1);
   if (fd == -1) return 1;
 
@@ -1465,6 +1887,7 @@ static int wrstoptimes(gtfsnet *net,const char *dir)
 
   fmtstring(fname,"%s/stop_times.tab",dir);
 
+  osrotate(fname,0,'0');
   info(0,"writing %s",fname);
   fd = filecreate(fname,1);
   if (fd == -1) return 1;
@@ -1483,7 +1906,6 @@ static int wrstoptimes(gtfsnet *net,const char *dir)
   info(0,"wrote %s",fname);
   return 0;
 }
-
 
 static int readgtfs(gtfsnet *net,const char *dir)
 {
@@ -1509,6 +1931,30 @@ static int writegtfs(gtfsnet *net,const char *dir)
   if (wrstops(net,dir)) return 1;
   if (wrtrips(net,dir)) return 1;
   if (wrstoptimes(net,dir)) return 1;
+  return 0;
+}
+
+static int cmd_mergelim(struct cmdval *cv) {
+  if (cv->valcnt) grouplimit = cv->uval;
+  return 0;
+}
+
+static int cmd_parentname(struct cmdval *cv) {
+  useparentname = 1;
+  info(0,"%s set",cv->subarg);
+  return 0;
+}
+
+static int cmd_test(struct cmdval *cv) {
+  testonly = 1;
+  info(0,"%s set",cv->subarg);
+  return 0;
+}
+
+static int cmd_canonin(struct cmdval *cv) {
+  canonin = 1;
+  fileext = "tab";
+  info(0,"%s set",cv->subarg);
   return 0;
 }
 
@@ -1541,6 +1987,10 @@ static int cmd_arg(struct cmdval *cv)
 }
 
 static struct cmdarg cmdargs[] = {
+  { "mergelimit|m", "[limit]%u", "merge stops witin given distance", cmd_mergelim },
+  { "test|t", NULL, "test only, no output", cmd_test },
+  { "parentname", NULL, "use parent name for stops", cmd_parentname },
+  { "canonin", NULL, "use canonical input", cmd_canonin },
   { "verbose|v", "[level]%u", "set or increase verbosity", cmd_vrb },
   { "assert-limit", "[limit]%u", "stop at this #assertions", cmd_limassert },
   { NULL, "dir", "gtfsprep", cmd_arg }
@@ -1565,7 +2015,7 @@ int main(int argc, char *argv[])
   }
 
   if (readgtfs(&net,dir)) return 1;
-  if (writegtfs(&net,dir)) return 1;
+  if (testonly == 0 && writegtfs(&net,dir)) return 1;
 
   return 0;
 }

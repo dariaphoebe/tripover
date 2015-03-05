@@ -53,6 +53,8 @@ struct srcctx {
   ub4 curts[Nxleg];
   ub4 curtids[Nxleg];
   ub4 curfares[Nxleg];
+  ub4 cursdeps[Nxleg];
+  ub4 cursarrs[Nxleg];
   ub4 curdt,curt; // shorthand for overall props
 
   ub4 locvarcnt;

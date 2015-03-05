@@ -116,6 +116,7 @@ int prepnet(netbase *basenet)
 {
   struct gnetwork *gnet = getgnet();
   struct portbase *bports,*bpp;
+  struct subportbase *bsports,*bspp;
   struct hopbase *bhops,*bhp;
   struct sidbase *bsids,*bsp;
   struct chainbase *bchains,*bcp;
@@ -125,6 +126,7 @@ int prepnet(netbase *basenet)
   struct chainhopbase *bchp,*bchainhops;
 
   struct port *ports,*pdep,*parr,*pp;
+  struct sport *sports,*spp;
   struct hop *hops,*hp;
   struct sidtable *sids,*sp;
   struct chain *chains,*cp;
@@ -133,6 +135,7 @@ int prepnet(netbase *basenet)
   struct timepat *tp;
 
   ub4 bportcnt,portcnt;
+  ub4 bsportcnt,sportcnt;
   ub4 bhopcnt,hopcnt;
   ub4 dep,arr;
   ub4 bsidcnt,sidcnt,bchaincnt,chaincnt,chainhopcnt;
@@ -140,13 +143,14 @@ int prepnet(netbase *basenet)
   ub4 nlen,cnt,acnt,dcnt,sid,rid,rrid;
 
   enum txkind kind;
-  ub4 hop,port,chain;
+  ub4 hop,port,sport,chain;
 
   ub4 *rrid2rid = basenet->rrid2rid;
   ub4 hirrid = basenet->hirrid;
 
   bhopcnt = basenet->hopcnt;
   bportcnt = basenet->portcnt;
+  bsportcnt = basenet->subportcnt;
   bsidcnt = basenet->sidcnt;
   bridcnt = basenet->ridcnt;
   bchaincnt = basenet->rawchaincnt;
@@ -182,10 +186,46 @@ int prepnet(netbase *basenet)
     pp->rlat = bpp->rlat;
     pp->rlon = bpp->rlon;
     pp->utcofs = bpp->utcofs;
+    pp->subcnt = bpp->subcnt;
+    pp->subofs = bpp->subofs;
     portcnt++;
   }
   info(0,"%u from %u ports",portcnt,bportcnt);
   portcnt = bportcnt;
+
+  sports = alloc(bsportcnt,struct sport,0,"sports",bsportcnt);
+  sportcnt = 0;
+  bsports = basenet->subports;
+  for (sport = 0; sport < bsportcnt; sport++) {
+    bspp = bsports + sport;
+    spp = sports + sport;
+    nlen = bspp->namelen;
+    if (bspp->ndep == 0 && bspp->narr == 0) {
+      info(0,"skip unconnected port %u %s",sport,bspp->name);
+      if (nlen) memcpy(spp->name,bspp->name,nlen);
+      spp->namelen = nlen;
+      continue;
+    }
+
+    spp->valid = 1;
+    spp->id = sportcnt;
+    spp->cid = bspp->cid;
+    spp->parent = bspp->parent;
+    nlen = bspp->namelen;
+    if (nlen) {
+      memcpy(spp->name,bspp->name,nlen);
+      spp->namelen = nlen;
+    } else info(0,"sport %u has no name", sport);
+    spp->lat = bspp->lat;
+    error_z(spp->lat,sport);
+    spp->lon = bspp->lon;
+    spp->rlat = bspp->rlat;
+    spp->rlon = bspp->rlon;
+    spp->seq = bspp->seq;
+    sportcnt++;
+  }
+  info(0,"%u from %u sports",sportcnt,bsportcnt);
+  sportcnt = bsportcnt;
 
   sidcnt = bsidcnt;
   sids = alloc(sidcnt,struct sidtable,0,"sids",sidcnt);
@@ -487,12 +527,14 @@ int prepnet(netbase *basenet)
   }
 
   gnet->portcnt = portcnt;
+  gnet->sportcnt = sportcnt;
   gnet->hopcnt = hopcnt;
   gnet->sidcnt = sidcnt;
   gnet->chaincnt = chaincnt;
   gnet->ridcnt = ridcnt;
 
   gnet->ports = ports;
+  gnet->sports = sports;
   gnet->hops = hops;
   gnet->sids = sids;
   gnet->chains = chains;
@@ -504,6 +546,7 @@ int prepnet(netbase *basenet)
 
   gnet->chainhops = chainhops;
   gnet->chainrhops = basenet->chainrhops;
+  gnet->chainrphops = basenet->chainrphops;
   gnet->chainhopcnt = chainhopcnt;
 
   gnet->hirrid = hirrid;

@@ -162,12 +162,12 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 }
 
 // similar to above, second pass after alloc
-ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid,ub4 dur)
+ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid,ub4 dur,ub4 srdep,ub4 srarr)
 {
   ub4 t,n = 0;
   ub4 t00,t01,t0,t1,tt,tday,t1day,mday;
   ub4 dayid = 0;
-  ub8 x;
+  ub8 x,dursub;
   ub4 hop = tp->hop;
   ub4 utcofs = sp->utcofs;
 
@@ -189,6 +189,7 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
     dayid = 255;
   }
 
+  srdep &= 0xff; srarr &= 0xff;
   t1day = min(t1 / daymin,t01);
 
   tday = t0 / daymin;
@@ -201,7 +202,8 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
       error_ge(tt,xlen);
       if ( (xp[tt] & hi32) == hi32) {
         x = (ub8)tid | ((ub8)dayid << 24);
-        x |= ((ub8)dur << 32);
+        dursub = (dur & hi16) | (srdep << 24) | (srarr << 16);
+        x |= (dursub << 32);
         xp[tt] = x;
         n++;
         xpacc[tt >> 4] = 1;
@@ -224,7 +226,6 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
   ub4 t,tid,prvt,rep,hirep = 0,evcnt2 = 0,zevcnt = 0;
   ub4 rt,dayid,tlo = hi32,thi = 0,hit = 0;
   ub8 sum,sum1,sum2;
-
 
   if (evcnt == 0) return 0;
 
@@ -406,7 +407,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
   ub4 hop = tp->hop;
   ub4 t0,t1,t,gt0,tdays,tdays5,day;
   ub4 tid,rep,zevcnt = 0;
-  ub8 x,dur;
+  ub8 x,dursub,dur;
   ub4 rt,dayid;
   ub8 sum,sum1,sum2;
 
@@ -457,9 +458,10 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
 
       error_ge(gndx,tp->genevcnt * 2);
       bound(evmem,gndx + 1,ub8);
-      dur = x >> 32;
+      dursub = x >> 32;
+      dur = dursub & hi16;
       evs[gndx++] = (ub8)t | (dur << 32);
-      evs[gndx++] = x;  // dur + tid + dayid
+      evs[gndx++] = x;  // srarr-srdep-dur-dayid-tid
       day = (t - t0) / daymin;
       error_ge(genday + day,tdays5);
       days[genday + day]++;

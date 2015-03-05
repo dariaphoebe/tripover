@@ -98,6 +98,7 @@ static void cpfromgnet(gnet *gnet,lnet *net)
   net->chaincnt = gnet->chaincnt;
   net->chainhops = gnet->chainhops;
   net->chainrhops = gnet->chainrhops;
+  net->chainrphops = gnet->chainrphops;
   net->chainhopcnt = gnet->chainhopcnt;
   net->tid2rtid = gnet->tid2rtid;
   net->eventmem = gnet->eventmem;

@@ -728,6 +728,7 @@ static int rdextports(netbase *net,const char *dir)
     error_eq(pid,extport);
     pep = extports + pid;
     cnt = pep->subcnt;
+    error_ge(cnt,255);
     pep->subcnt = cnt + 1;
     ep->seq = cnt;
     vrb(0,"port %u has parent %u %s %s",subid,id,ep->name,pep->name);
@@ -798,7 +799,7 @@ static int rdextports(netbase *net,const char *dir)
       subofs = pep->subofs;
       error_ge(subofs,subportcnt);
       seq = ep->seq;
-      vrb(0,"seq %u cnt %u",seq,cnt);
+      vrb0(0,"seq %u cnt %u",seq,cnt);
       error_z(cnt,pid);
       subport = subofs + seq;
       error_ge(subport,subportcnt);
@@ -827,12 +828,18 @@ static int rdextports(netbase *net,const char *dir)
     id2ports[id] = port;
     pp->rlat = lat2rad(pp->lat,latscale);
     pp->rlon = lon2rad(pp->lon,lonscale);
+    for (subport = 0; subport < pp->subcnt; subport++) {
+      sp = subports + pp->subofs + subport;
+      sp->parent = port;
+    }
   }
   for (subid = 0; subid <= subidhi; subid++) subid2ports[subid] = hi32;
   for (port = 0; port < subportcnt; port++) {
     sp = subports + port;
     subid = sp->subid;
     subid2ports[subid] = port;
+    sp->rlat = lat2rad(sp->lat,latscale);
+    sp->rlon = lon2rad(sp->lon,lonscale);
   }
 
   info(0,"read %u stops into %u ports from %s", extportcnt,portcnt, fname);
@@ -1303,10 +1310,7 @@ static int rdextroutes(netbase *net,const char *dir)
 }
 
 // match with gtfstool
-#define Fmt_prvsid 1
-#define Fmt_diftid 2
-#define Fmt_diftdep 4
-#define Fmt_diftarr 8
+enum Zformat { Fmt_prvsid=1,Fmt_diftid=2,Fmt_diftdep=4,Fmt_diftarr=8,Fmt_prvdep=16,Fmt_prvarr=32 };
 
 // name id dport.id aport.id route.seq (dow.hhmm.rep.t0.t1.dur dow.hhmm.rep)+ 
 static int rdexthops(netbase *net,const char *dir)
@@ -1319,10 +1323,9 @@ static int rdexthops(netbase *net,const char *dir)
   ub4 portcnt,subportcnt;
   ub4 ridcnt;
   ub4 chain,chaincnt;
-  ub4 maxportid;
   struct hopbase *hops,*hp;
   struct portbase *ports,*pdep,*parr;
-  struct subportbase *subports,*sbp;
+  struct subportbase *subports,*psdep,*psarr;
   struct sidbase *sids,*sp;
   struct chainbase *chains = NULL,*cp;
   struct routebase *rp,*routes;
@@ -1332,7 +1335,8 @@ static int rdexthops(netbase *net,const char *dir)
   int rv;
   char *buf;
   ub4 len,linno,colno,val,namelen,valndx,id,maxid,hirrid,maxsid;
-  ub4 depid,arrid,dep,arr,pid,rtype,routeid,timecnt;
+  ub4 depid,arrid,sdepid,sarrid,dep,arr,sdep,sarr,srdep,srarr,prvsdep,prvsarr,pid;
+  ub4 rtype,routeid,timecnt;
   char *name,*dname,*aname;
   ub4 *vals;
   ub4 namemax = sizeof(hops->name) - 1;
@@ -1372,7 +1376,9 @@ static int rdexthops(netbase *net,const char *dir)
   subports = net->subports;
   id2ports = net->id2ports;
   subid2ports = net->subid2ports;
-  maxportid = net->maxportid;
+
+  ub4 maxportid = net->maxportid;
+  ub4 maxsubportid = net->maxsubportid;
 
   rsid2sids = net->rsid2sids;
   sids = net->sids;
@@ -1407,7 +1413,7 @@ static int rdexthops(netbase *net,const char *dir)
     case Newitem:
       if (inited == 0) {
         if (sumtimes) {
-          timesbase = net->timesbase = mkblock(&net->timesmem,sumtimes * 5,ub4,Init0,"time timebase %u",sumtimes);
+          timesbase = net->timesbase = mkblock(&net->timesmem,sumtimes * Tentries,ub4,Init0,"time timebase %u",sumtimes);
         }
         if (sid2add != hi32) {
           chaincnt = 1; // entry 0 is generic internal
@@ -1449,23 +1455,28 @@ static int rdexthops(netbase *net,const char *dir)
 
       dep = id2ports[depid];
       if (dep == hi32) {
-        dep = subid2ports[depid];
-        if (dep >= subportcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest subport %u",dep,depid,subportcnt);
-        sbp = subports + dep;
-        pid = sbp->id;
+        sdep = subid2ports[depid];
+        if (sdep >= subportcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest subport %u",sdep,depid,subportcnt);
+        psdep = subports + sdep;
+        pid = psdep->id;
         dep = id2ports[pid];
-      }
+        psdep->pid = dep;
+        warn(0,"parent %u for %u %s",dep,sdep,psdep->name);
+      } else { sdep = hi32; psdep = NULL; }
       if (dep >= portcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest port %u",dep,depid,portcnt);
 
       arr = id2ports[arrid];
       if (arr == hi32) {
-        arr = subid2ports[arrid];
-        if (arr >= subportcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest subport %u",arr,subportcnt);
-        sbp = subports + arr;
-        pid = sbp->id;
+        sarr = subid2ports[arrid];
+        if (sarr >= subportcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest subport %u",sarr,subportcnt);
+        psarr = subports + sarr;
+        pid = psarr->id;
         arr = id2ports[pid];
-      }
+        psarr->pid = arr;
+        warn(0,"parent %u for %u %s",arr,sarr,psarr->name);
+      } else { sarr = hi32; psarr = NULL; }
       if (arr >= portcnt) return inerr(FLN,fname,linno,colno,"arr %u above highest port %u",arr,portcnt);
+
       pdep = ports + dep;
       parr = ports + arr;
       dname = pdep->name; aname = parr->name;
@@ -1474,6 +1485,8 @@ static int rdexthops(netbase *net,const char *dir)
         info(0,"line %u hop id %u dep %u id %u equal to arr id %u %s",linno,id,dep,depid,arrid,dname);
         break;
       }
+
+      if (routeid == hi32) return inerr(FLN,fname,linno,colno,"hop %u has no route id %s to %s",hop,dname,aname);
 
       if (routeid != hi32) hirrid = max(hirrid,routeid);
       else info(0,"hop %u has no route id %s to %s",hop,dname,aname);
@@ -1487,7 +1500,7 @@ static int rdexthops(netbase *net,const char *dir)
       if (timecnt * 4 > valndx - 6) return parserr(FLN,fname,linno,colno,"%u time entries, but only %u args",timecnt,valndx);
 
       error_zp(timesbase,timecnt);
-      tbp = timesbase + timespos * 5;
+      tbp = timesbase + timespos * Tentries;
 
       if (timecnt > timecntlimit) {
         warn(Iter,"%s.%u: hop %u has %u time entries, max %u",fname,linno,hop,timecnt,timecntlimit);
@@ -1496,8 +1509,10 @@ static int rdexthops(netbase *net,const char *dir)
 
       tndx = 0; vndx = 6;
       rsid = rtid = tdep = tarr = tdepsec = tarrsec = 0;
+      sdepid = sarrid = 0;
       ht0 = hi32; ht1 = 0;
 
+      error_ne(sid2add,hi32);
       if (sid2add != hi32) {
         rsid = sid2add;
         sid = rsid2sids[rsid];
@@ -1517,14 +1532,23 @@ static int rdexthops(netbase *net,const char *dir)
         tbp[1] = tid;
         tbp[2] = tdep;
         tbp[3] = tarr;
-        tbp += 5;
+        tbp += Tentries;
         tndx++;
       }
       hoplog(hop,1,"at %u %u-%u %s to %s",linno,dep,arr,dname,aname);
 
+      info(0,"%u time entries, %u vals",timecnt,valndx);
       while (vndx + 4 <= valndx && tndx < timecnt) {
         prvsid = rsid; prvtid = rtid; prvtdep = tdepsec; prvtarr = tarrsec;
+        prvsdep = sdepid; prvsarr = sarrid;
+
+        // first entry is not compressed
         fmt = vals[vndx++];
+
+        if (fmt & Fmt_prvdep) sdepid = prvsdep;
+        else sdepid = vals[vndx++];
+        if (fmt & Fmt_prvarr) sarrid = prvsarr;
+        else sarrid = vals[vndx++];
         if (fmt & Fmt_prvsid) rsid = prvsid;
         else rsid = vals[vndx++];
         rtid = vals[vndx];
@@ -1534,11 +1558,33 @@ static int rdexthops(netbase *net,const char *dir)
         vndx += 4;
         if (fmt & Fmt_diftid) rtid += prvtid;
 
+        srdep = srarr = hi32;
+        if (sdepid > maxsubportid) return inerr(FLN,fname,linno,colno,"dep id %u above highest port id %u",sdepid,maxsubportid);
+        sdep = subid2ports[sdepid];
+        if (sdep != hi32) {
+          if (sdep >= subportcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest subport %u",sdep,sdepid,subportcnt);
+          psdep = subports + sdep;
+          pid = psdep->id;
+          if (id2ports[pid] != dep) return inerr(FLN,fname,linno,colno,"parent %u for sub %u differss from dep %u",id2ports[pid],sdep,dep);
+          srdep = psdep->seq;
+        } else psdep = NULL;
+
+        if (sarrid > maxsubportid) return inerr(FLN,fname,linno,colno,"arr id %u above highest port id %u",sarrid,maxsubportid);
+        sarr = subid2ports[sarrid];
+        if (sarr != hi32) {
+          if (sarr >= subportcnt) return inerr(FLN,fname,linno,colno,"arr %u id %u above highest subport %u",sarr,sarrid,subportcnt);
+          psarr = subports + sarr;
+          pid = psarr->id;
+          if (id2ports[pid] != arr) return inerr(FLN,fname,linno,colno,"parent %u for sub %u differss from arr %u",id2ports[pid],sarr,arr);
+          srarr = psarr->seq;
+        } else psarr = NULL;
+
         error_gt(rtid,hitripid,hop);
         if (rawtripcnt) {
           tid = rtid2tid[rtid];
           if (tid == hi32) {
             error_ge(chaincnt,rawtripcnt);
+            error_ge(chaincnt,hi24);   // event limited to 24
             tid = chaincnt++;
             rtid2tid[rtid] = tid;
             tid2rtid[tid] = rtid;
@@ -1558,6 +1604,8 @@ static int rdexthops(netbase *net,const char *dir)
           parsewarn(FLN,fname,linno,colno,"hop %u arr time %u equals dep",hop,tarrsec);
         }
 
+//        info(0,"fmt %x at %u.%u rsid \ax%u tid %u,%u td %u ta %u",fmt,linno,tndx,rsid,tid,rtid,tdepsec,tarrsec);
+
         if (rsid > maxsid) return inerr(FLN,fname,linno,colno,"service id %u above highest id %u",rsid,maxsid);
         sid = rsid2sids[rsid];
 
@@ -1572,45 +1620,52 @@ static int rdexthops(netbase *net,const char *dir)
 
         t0 = sp->t0;
         t1 = sp->t1;
-        hoplog(hop,1,"at %u.%u rsid \ax%u tid %u,%u td \ad%u ta \ad%u",linno,tndx,rsid,tid,rtid,tdep,tarr);
+//        hoplog(hop,1,"at %u.%u rsid \ax%u tid %u,%u td \ad%u ta \ad%u",linno,tndx,rsid,tid,rtid,tdep,tarr);
 
         ht0 = min(ht0,t0);
         ht1 = max(ht1,t1);
 
-        tbp2 = timesbase + timespos * 5;
+        tbp2 = timesbase + timespos * Tentries;
         duptndx = 0;
         for (tndx2 = 0; tndx2 < tndx; tndx2++) { // check for duplicates
-          if (tbp[0] == sid
-            && tbp[1] == tid
-            && tbp[2] == tdepsec
-            && tbp[3] == tarrsec) {
-            tndx++;
+          if (tbp2[Tesid] == sid
+            && tbp2[Tetid] == tid
+            && tbp2[Tetdep] == tdepsec
+            && tbp2[Tetarr] == tarrsec) {
             duptndx = 1;
             break;
           }
-          tbp2 += 5;
+          tbp2 += Tentries;
         }
-        if (duptndx) continue;
+        if (duptndx) { warn(0,"duplicate time entry %u",tndx); continue; }
 
-        tbp[0] = sid;
-        tbp[1] = tid;
-        tbp[2] = tdepsec;
-        tbp[3] = tarrsec;
-        tbp[4] = tripseq;
-        tbp += 5;
+        tbp[Tesid] = sid;
+        tbp[Tetid] = tid;
+        tbp[Tetdep] = tdepsec;
+        tbp[Tetarr] = tarrsec;
+        tbp[Teseq] = tripseq;
+        tbp[Tesdep] = srdep;
+        tbp[Tesarr] = srarr;
+
+//        infocc(hop == 0,0,"tarr %u at %p",tarrsec,tbp + Tetarr);
+        tbp += Tentries;
         tndx++;
       }
-      if (tndx != timecnt) vrb0(0,"%u from %u time entries",tndx,timecnt);
+      if (tndx != timecnt) info(0,"%u from %u time entries",tndx,timecnt);
       timecnt = tndx;
       if (tndx) {
         hp->t0 = ht0;
         hp->t1 = ht1 + 1440; // tdep can be above 24h
-      }
+      } else continue;
+
       hoplog(hop,0,"t range %u-%u \ad%u \ad%u",ht0,ht1,ht0,ht1);
 
-      parr = ports + arr;
       pdep->ndep++;
       parr->narr++;
+
+      if (psdep) psdep->ndep++;
+      if (psarr) psarr->narr++;
+
       if (pdep->parentsta) vrb(0,"hop %u dport %u %u %s",id,dep,pdep->id,dname);
       if (parr->parentsta) vrb(0,"hop %u aport %u %u %s",id,arr,parr->id,aname);
 
@@ -1623,12 +1678,13 @@ static int rdexthops(netbase *net,const char *dir)
       hp->kind = tx; kinds[tx]++;
       switch(tx) {
       case Unknown: case Kindcnt: break;
-      case Airint: case Airdom: pdep->air = parr->air = 1; break;
-      case Rail: pdep->rail = parr->rail = 1; break;
-      case Ferry: pdep->ferry = parr->ferry = 1; break;
-      case Bus: pdep->bus = parr->bus = 1; break; // info(0,"hop %u type %u on bus route %u %s to %s",hop,rtype,routeid,dname,aname); break;
+      case Airint: case Airdom: pdep->air = parr->air = 1; if (psdep) psdep->air = 1; if (psarr) psarr->air = 1; break;
+      case Rail: pdep->rail = parr->rail = 1; if (psdep) psdep->rail = 1; if (psarr) psarr->rail = 1; break;
+      case Ferry: pdep->ferry = parr->ferry = 1; if (psdep) psdep->ferry = 1; if (psarr) psarr->ferry = 1; break;
+      case Bus: pdep->bus = parr->bus = 1; if (psdep) psdep->bus = 1; if (psarr) psarr->bus = 1; break;
       case Walk: routeid = hi32; break;
       }
+
       hp->rrid = routeid;
       hp->namelen = namelen;
       if (namelen) memcpy(hp->name,name,namelen);
@@ -1871,7 +1927,7 @@ int wrportrefs(netbase *net)
 
     y = lat2ext(pp->lat);
     x = lon2ext(pp->lon);
-    
+
     pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n", port,port,pp->name,y,x,portmodes(pp));
     if (filewrite(fd,buf,pos,portsname)) return 1;
     wportcnt++;
@@ -1881,7 +1937,7 @@ int wrportrefs(netbase *net)
       spp = sports + sofs + sport;
       y = lat2ext(spp->lat);
       x = lon2ext(spp->lon);
-      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n",port,spp->subid + portcnt,spp->name,y,x,portmodes(pp)); // use parent port to make alias
+      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n",port,sofs + sport + portcnt,spp->name,y,x,portmodes(pp)); // use parent port to make alias
       if (filewrite(fd,buf,pos,portsname)) return 1;
       wportcnt++;
     }

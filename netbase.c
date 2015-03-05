@@ -242,10 +242,11 @@ static const ub4 maxzev = 500 * 1024 * 1024;  // todo arbitrary
 int prepbasenet(void)
 {
   struct portbase *ports,*pdep,*parr,*pp;
+  struct subportbase *sports;
   struct hopbase *hops,*hp,*hp1,*hp2;
   struct sidbase *sids,*sp;
   ub4 portcnt,hopcnt,sidcnt,ridcnt;
-  ub4 dep,arr;
+  ub4 dep,arr,srdep,srarr,srda;
   ub4 hop,rhop;
   char *dname,*aname;
 
@@ -253,6 +254,7 @@ int prepbasenet(void)
   hopcnt = basenet.hopcnt;
   portcnt = basenet.portcnt;
   ports = basenet.ports;
+  sports = basenet.subports;
   sids = basenet.sids;
   sidcnt = basenet.sidcnt;
   ridcnt = basenet.ridcnt;
@@ -335,6 +337,7 @@ int prepbasenet(void)
   cumrhops = ofs;
 
   ub8 *chrp,*chainrhops = alloc(cumrhops,ub8,0xff,"chain rhops",cnt);
+  ub8 *chrpp,*chainrphops = alloc(cumrhops,ub8,0xff,"chain rphops",cnt);
 
   // assign rid-relative hops
   for (hop = 0; hop < hopcnt; hop++) {
@@ -401,8 +404,8 @@ int prepbasenet(void)
     // times
     timespos = hp->timespos;
     timecnt = hp->timecnt;
-    if (timecnt) bound(&basenet.timesmem,(timespos + timecnt - 1) * 5,ub4);
-    tbp = timesbase + timespos * 5;
+    if (timecnt) bound(&basenet.timesmem,(timespos + timecnt - 1) * Tentries,ub4);
+    tbp = timesbase + timespos * Tentries;
     evcnt = 0;
     error_le(hp->t1,hp->t0);
     hdt = hp->t1 - gt0 + 1 * daymin;
@@ -421,13 +424,17 @@ int prepbasenet(void)
     tp->t0 = hi32;
     lodur = hi32; hidur = sumdur = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
-      sid = tbp[0];
-      tid = tbp[1];
+      sid = tbp[Tesid];
+
+      tid = tbp[Tetid];
       error_ge(tid,rawchaincnt);
       rtid = tid2rtid[tid];
-      tdepsec = tbp[2];
-      tarrsec = tbp[3];
-      tripseq = tbp[4];
+
+      tdepsec = tbp[Tetdep];
+      tarrsec = tbp[Tetarr];
+      tripseq = tbp[Teseq];
+      srdep = tbp[Tesdep];
+      srarr = tbp[Tesarr];
 
       tdep = tdepsec / 60;
       tarr = tarrsec / 60;
@@ -441,7 +448,7 @@ int prepbasenet(void)
       sp = sids + sid;
       if (sp->valid == 0) {
         tbp[0] = sidcnt; // disable for next pass
-        tbp += 5;
+        tbp += Tentries;
         continue;
       }
 
@@ -463,8 +470,8 @@ int prepbasenet(void)
       infocc(dbg,Notty,"r.tid %u.%u rsid %u \ad%u \ad%u td \ad%u ta \ad%u %u events",rtid,tid,rsid,t0,t1,tdep,tarr,cnt);
       if (cnt == 0) {
         vrb0(Iter,"tid %u r.sid %u.%u \ad%u \ad%u dep \ad%u arr \ad%u no events",tid,rsid,sid,t0,t1,tdep,tarr);
-        tbp[0] = sidcnt; // disable for next pass
-        tbp += 5;
+        tbp[Tesid] = sidcnt; // disable for next pass
+        tbp += Tentries;
         continue;
       }
 
@@ -474,6 +481,9 @@ int prepbasenet(void)
       if (tid != hi32 && rid != hi32) {
         error_ge(tid,rawchaincnt);
 
+        srdep &= 0xff;
+        srda = (srdep << 8) | (srarr & 0xff);
+
         rhop = hp->rhop;
         error_ge(rhop,rp->hopcnt);
         cp = chains + tid;
@@ -481,6 +491,7 @@ int prepbasenet(void)
         rtid = cp->rtid;
         chip = chainidxs + cp->hopofs;
         chrp = chainrhops + cp->rhopofs;
+        chrpp = chainrphops + cp->rhopofs;
         error_ge(cp->rhopofs + rhop,cumrhops);
         chcnt = cp->hopcnt;
         ofs = cp->hopofs;
@@ -505,6 +516,7 @@ int prepbasenet(void)
           cp->lotarr = cp->hitarr = tarr;
           cp->lotdhop = cp->hitahop = hop;
           chrp[rhop] = ((ub8)tdep << 32) + tarr;
+          chrpp[rhop] = srda;
           cumhoprefs2++;
         } else {
           if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
@@ -531,6 +543,7 @@ int prepbasenet(void)
             cp->hitdep = max(cp->hitdep,tarr);
             if (tarr > cp->hitarr) { cp->hitarr = tarr; cp->hitahop = hop; }
             chrp[rhop] = ((ub8)tdep << 32) + tarr;
+            chrpp[rhop] = srda;
             cumhoprefs2++;
             if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u at %u %s to %s",rrid,rid,tid,hop,i,pdep->name,parr->name);
           }
@@ -545,7 +558,7 @@ int prepbasenet(void)
         break;
       }
       tp->evcnt = evcnt;
-      tbp += 5;
+      tbp += Tentries;
       sumtimes++;
     } // each time entry
 
@@ -567,9 +580,9 @@ int prepbasenet(void)
       case Airdom:  duracc = 15; break;
       case Airint:  duracc = 30; break;
       case Rail: if (lodur > 12 * 60) duracc = 10; else duracc = 2; break;
-      case Bus:  if (lodur > 60) duracc = 10; else duracc = 5; break;
-      case Ferry: duracc = 15; break;
-      case Walk: duracc = 15; break;
+      case Bus:  if (lodur > 2 * 60) duracc = 10; else duracc = 5; break;
+      case Ferry: duracc = 10; break;
+      case Walk: duracc = 5; break;
       case Unknown: duracc = 15; break;
       case Kindcnt: duracc = 15; break;
     }
@@ -800,6 +813,7 @@ int prepbasenet(void)
   basenet.chainhops = chainhops;
   basenet.chainidxs = chainidxs;
   basenet.chainrhops = chainrhops;
+  basenet.chainrphops = chainrphops;
 
   eventmem = &basenet.eventmem;
   evmapmem = &basenet.evmapmem;
@@ -836,7 +850,7 @@ int prepbasenet(void)
 
     timespos = hp->timespos;
     timecnt = hp->timecnt;
-    tbp = timesbase + timespos * 5;
+    tbp = timesbase + timespos * Tentries;
     evcnt = 0;
     hdt = hp->t1 - gt0 + daymin;
     error_ge(hdt,xtimelen);
@@ -846,19 +860,23 @@ int prepbasenet(void)
     memset(xpacc,0,(hdt >> 4) + 1);
     vndx = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
-      sid = tbp[0];
-      if (sid >= sidcnt) { tbp += 5; continue; }  // skip non-contributing entries disabled above
+      sid = tbp[Tesid];
+      if (sid >= sidcnt) { tbp += Tentries; continue; }  // skip non-contributing entries disabled above
 
       vndx++;
-      tid = tbp[1];
-      tdepsec = tbp[2];
-      tarrsec = tbp[3];
-      tripseq = tbp[4];
+      tid = tbp[Tetid];
+      tdepsec = tbp[Tetdep];
+      tarrsec = tbp[Tetarr];
+      tripseq = tbp[Teseq];
+      srdep = tbp[Tesdep];
+      srarr = tbp[Tesarr];
 
       tdep = tdepsec / 60;
       tarr = tarrsec / 60;
 
+      warncc(tarr < tdep,0,"tdep %u tarr %u at %p",tdepsec,tarrsec,tbp + Tetarr);
       dur = tarr - tdep;
+      error_ge(dur,hi16);
       sp = sids + sid;
 
       t0 = sp->t0;
@@ -867,7 +885,7 @@ int prepbasenet(void)
       mapofs = sp->mapofs;
       daymap = sidmaps + mapofs;
 
-      cnt = fillxtime2(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid,dur);
+      cnt = fillxtime2(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid,dur,srdep,srarr);
       hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events seq %u",tid,sp->rsid,t0,t1,tdep,tarr,cnt,tripseq);
       error_z(cnt,hop);
       evcnt += cnt;
@@ -877,7 +895,7 @@ int prepbasenet(void)
         break;
       }
       tp->evcnt = evcnt;
-      tbp += 5;
+      tbp += Tentries;
     }
     if (timecnt == 0) continue;
 

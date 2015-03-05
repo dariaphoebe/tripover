@@ -31,56 +31,6 @@ static ub4 msgfile;
 
 static const char logitemfile[] = "watches.cfg";
 
-ub4 str2ub4(const char *s, ub4 *pv)
-{
-  unsigned long n;
-
-  char *ep;
-
-  *pv = 0;
-  if (!s || !*s) return 0;
-  n = strtoul(s,&ep,0);
-  if (ep == s) return 0;
-  if (n > hi32) *pv = hi32;
-  else *pv = (ub4)n;
-  return (ub4)(ep - s);
-}
-
-int hex2ub4(const char *s, ub4 *pv)
-{
-  unsigned long n;
-  char *ep;
-
-  *pv = 0;
-  if (!s || !*s) return 1;
-  n = strtoul(s,&ep,16);
-  if (ep == s) return 1;
-  if (n > hi32) *pv = hi32;
-  else *pv = (ub4)n;
-  return 0;
-}
-
-void memcopyfln(void *dst,const void *src,size_t len,ub4 fln)
-{
-  char *d = dst;
-  const char *s = src;
-
-  if (len == 0) infofln(fln,0,"zero copy");
-  else if (s < d && s + len > d) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %lu",src,dst,(unsigned long)len);
-  else if (s > d && d + len > s) errorfln(fln,Exit,FLN,"overlapping copy: %p %p %lu",src,dst,(unsigned long)len);
-  else memcpy(dst,src,len);
-}
-
-void do_clear(void *p,size_t len) { memset(p,0,len); }
-
-int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln)
-{
-  vrbfln(fln,0,"cmp %s %s",sa,sb);
-  if (a == NULL) return errorfln(fln,Exit,FLN,"strcmp(%s:nil,%s",sa,sb);
-  else if (b == NULL) return errorfln(fln,Exit,FLN,"strcmp(%s,%s:nil",sa,sb);
-  else return strcmp(a,b);
-}
-
 int filecreate(const char *name,int mustsucceed)
 {
   int fd = oscreate(name);
@@ -271,7 +221,7 @@ int readfile(struct myfile *mf,const char *name, int mustexist,ub4 maxlen)
 
   error_zp(name,0);
   if (*name == 0) return errorfln(FLN,0,0,"empty filename %p passed to readfile",name);
-  strcopy(mf->name,name);
+  if (name != mf->name) strcopy(mf->name,name);
   fd = osopen(name);
   if (fd == -1) {
     if (mustexist) return oserror(0,"cannot open %s",name);
@@ -301,10 +251,11 @@ int readfile(struct myfile *mf,const char *name, int mustexist,ub4 maxlen)
 int freefile(struct myfile *mf)
 {
   if (mf->alloced == 0) return 0;
-  error_zp(mf->buf,mf->len);
+  error_zp(mf->buf,(ub4)mf->len);
   afree(mf->buf,mf->name);
   mf->alloced = 0;
   mf->buf = NULL;
+  return 0;
 }
 
 int readpath(struct myfile *mf,const char *dir,const char *name, int mustexist,ub4 maxlen)

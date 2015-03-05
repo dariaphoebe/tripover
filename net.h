@@ -62,6 +62,8 @@ struct port {
   ub4 lat,lon;
   double rlat,rlon;
 
+  ub4 subcnt,subofs;
+
   ub4 utcofs;
 
   ub4 partcnt;  // #parts member of
@@ -101,6 +103,24 @@ struct port {
   ub4 arids[Nlocal];
 
   ub2 prox0cnt;  // #ports in 0-stop proximity. aka direct neighbours
+};
+
+struct sport {
+  ub4 id,pid;
+  ub4 cid;     // constant at net changes
+  ub4 parent;
+
+  char name[128];
+  ub4 namelen;
+
+  bool valid;
+
+  ub4 ndep,narr;
+//  bool air,rail,bus,ferry;
+
+  ub4 lat,lon;
+  double rlat,rlon;
+  ub4 seq;
 };
 
 struct chainhop {
@@ -226,6 +246,7 @@ struct network {
 
   struct chainhop *chainhops;  // points to gnet
   ub8 *chainrhops;
+  ub8 *chainrphops;
 
   bool istpart;
 
@@ -308,7 +329,7 @@ struct partition {
 };
 
 struct gnetwork {
-  ub4 portcnt,zportcnt;
+  ub4 portcnt,sportcnt,zportcnt;
   ub4 hopcnt,chopcnt,zhopcnt;
   ub4 sidcnt;
   ub4 ridcnt;
@@ -317,6 +338,7 @@ struct gnetwork {
   ub4 chainhopcnt;
 
   struct port *ports;
+  struct sport *sports;
   struct hop *hops;
   struct sidtable *sids;
   struct chain *chains;
@@ -362,6 +384,7 @@ struct gnetwork {
 
   struct chainhop *chainhops;
   ub8 *chainrhops;
+  ub8 *chainrphops;
 
   ub4 *tid2rtid;   // [chaincnt]
   ub4 *rrid2rid;   // [hirrid+1]
@@ -383,6 +406,8 @@ struct trip {
   ub4 tid[Nxleg];
   ub4 dur[Nxleg];
   ub4 info[Nxleg];
+  ub4 srdep[Nxleg];
+  ub4 srarr[Nxleg];
 
   char desc[256];
 
@@ -398,7 +423,7 @@ extern int mknet(ub4 maxstop);
 extern struct network *getnet(ub4 part);
 extern struct gnetwork *getgnet(void);
 extern int triptoports_fln(ub4 fln,struct network *net,ub4 *trip,ub4 triplen,ub4 *ports,ub4 *gports);
-extern int gtriptoports(struct gnetwork *net,struct trip *ptrip,char *buf,ub4 buflen,ub4 *ppos,ub4 utcofs);
+extern int gtriptoports(struct gnetwork *net,ub4 dep,ub4 arr,ub4 srdep,ub4 srarr,struct trip *ptrip,char *buf,ub4 buflen,ub4 *ppos,ub4 utcofs);
 
 #define checktrip(net,legs,nleg,dep,arr,dist) checktrip_fln((net),(legs),(nleg),(dep),(arr),(dist),FLN)
 #define checktrip3(net,legs,nleg,dep,arr,via,dist) checktrip3_fln((net),(legs),(nleg),(dep),(arr),(via),(dist),FLN)

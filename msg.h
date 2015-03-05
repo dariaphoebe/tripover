@@ -96,6 +96,7 @@ extern int setmsglog(const char *dir,const char *logname);
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
 // when failing, both names and values are shown
 #define error_eq(a,b) error_eq_fln((a),(b),#a,#b,FLN)
+#define error_ep(a,b) error_ep_fln((a),(b),#a,#b,FLN)
 #define error_ne(a,b) error_ne_fln((a),(b),#a,#b,FLN)
 #define error_z(a,b) error_z_fln((a),(b),#a,#b,FLN)
 #define error_nz(a,b) error_nz_fln((a),(b),#a,#b,FLN)
@@ -146,11 +147,18 @@ extern void error_gt_cc_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 
 extern void enter(ub4 fln);
 extern void leave(ub4 fln);
 
-static void error_eq_fln(ub4 a,ub4 b,const char *sa,const char *sb,ub4 line)
+static void error_eq_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
 {
   if (a != b) { msg_doexit |= 1; return; }
 
-  assertfln(line,Exit,"%s:\ah%u == %s:\ah%u", sa,a,sb,b);
+  assertfln(line,Exit,"%s:\ah%lu == %s:\ah%lu", sa,a,sb,b);
+}
+
+static void error_ep_fln(const void *a,const void *b,const char *sa,const char *sb,ub4 line)
+{
+  if (a != b) { msg_doexit |= 1; return; }
+
+  assertfln(line,Exit,"%s:%p == %s:%p", sa,a,sb,b);
 }
 
 static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)
@@ -248,11 +256,12 @@ static void iniassert(void)
   error_gt(1,1,0);
   error_ge(1,2);
   error_eq(1,2);
+  error_ep((void*)1,(void*)2);
   error_ne(1,1);
   error_z(1,0);
   error_nz(0,2);
   error_zz(1,1);
-  error_zp("",0);
+  error_zp((void*)1,0);
 
   error_gt2(1,0,1);
 

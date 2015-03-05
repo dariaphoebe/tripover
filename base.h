@@ -21,7 +21,7 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 24
+#define Version_min 25
 #define Version_phase "pre-alpha"
 #define Program_name "tripover"
 #define Program_desc "broad-search journey planner"
@@ -55,13 +55,30 @@ typedef int sb4;
  #define sassert(expr,msg) _Static_assert(expr,msg);
 
  #define aclear(p) { _Static_assert(sizeof(p) > 8,"need array, not pointer"); do_clear((p),sizeof(p)); }
- #define strcopy(dst,src) { _Static_assert(sizeof(dst) > 8,"need array, not pointer"); strncpy((dst),(src),sizeof(dst)-1); }
+ #define strcopy(dst,src) { _Static_assert(sizeof(dst) > 8,"need array, not pointer"); strncpyfln((dst),(src),(ub4)sizeof(dst)-1,#dst,#src,FLN); }
 
 #else
  #define sassert(expr,msg)
  #define aclear(p) do_clear((p),sizeof(p));
  #define strcopy(dst,src) strncpy((dst),(src),sizeof(dst)-1 );
 #endif
+
+#define memcopy(d,s,n) { sassert(sizeof(d) == sizeof(s),"pointer size mismatch") memcopyfln((d),(s),(n),FLN); }
+extern void memcopyfln(void *dst,const void *src,size_t len,ub4 fln);
+
+#define strcomp(a,b) strcompfln((a),(b),#a,#b,FLN)
+extern int strcompfln(const char *a,const char *b,const char *sa,const char *sb,ub4 fln);
+
+extern int strncpyfln(char *dst,const char *src,ub4 len,const char *sdst,const char *ssrcb,ub4 fln);
+
+extern ub4 str2ub4(const char *s, ub4 *pv);
+extern int hex2ub4(const char *s, ub4 *pv);
+extern int str2dbl(const char *s,ub4 len,double *pv);
+
+#define oclear(p) do_clear(&(p),sizeof(p))
+extern void do_clear(void *p,size_t len);
+
+extern int inibase(void);
 
 enum Runlvl { Runread,Runbaseprep,Runprep,Runcompound,Runpart,Runmknet,Runnet0,Runnetn,Runserver,Runend,Runcnt };
 

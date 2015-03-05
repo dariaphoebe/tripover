@@ -68,13 +68,19 @@ struct portbase {
 
 struct subportbase {
   ub4 id;      // index in net.ports
+  ub4 pid;
   ub4 subid;
   ub4 cid;     // constant at net changes
+  ub4 parent;
 
   char name[128];
   ub4 namelen;
 
+  ub4 ndep,narr;
+  bool air,rail,bus,ferry;
+
   ub4 lat,lon;
+  double rlat,rlon;
 
   ub4 seq;
 };
@@ -131,7 +137,7 @@ struct hopbase {
 
   enum txkind kind;
 
-  ub4 dep,arr;
+  ub4 dep,arr;   // parent
 
   ub4 rrid,rid;
   ub4 rhop;  // relative within rid
@@ -244,6 +250,7 @@ struct networkbase {
   ub8 *chainidxs;    // seq,ndx
   struct chainhopbase *chainhops;
   ub8 *chainrhops;
+  ub8 *chainrphops;
 
   ub4 *routechains;
   ub4 *timesbase;
@@ -288,6 +295,8 @@ struct networkbase {
   sb2 *faremaps;
 };
 typedef struct networkbase netbase;
+
+enum Tentry { Tesid,Tetid,Tetdep,Tetarr,Teseq,Tesdep,Tesarr,Tentries };
 
 extern netbase *getnetbase(void);
 extern int mkrandnet(ub4 portcnt,ub4 hopcnt);
