@@ -142,6 +142,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
     if (tt < utcofs) { tday++; continue; }
     tt = lmin2min(tt,utcofs);
     if ( (xp[tt] & hi32) == hi32) {
+      dayid &= 0xff; // todo
       xp[tt] = (ub8)tid | ((ub8)dayid << 24);
       tlo = min(tlo,tt);
       thi = max(thi,tt);
@@ -460,6 +461,9 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
       bound(evmem,gndx + 1,ub8);
       dursub = x >> 32;
       dur = dursub & hi16;
+
+      error_gt_cc(dur,1440 * 14,"hop %u dur \ax%u",hop,(ub4)dur);
+
       evs[gndx++] = (ub8)t | (dur << 32);
       evs[gndx++] = x;  // srarr-srdep-dur-dayid-tid
       day = (t - t0) / daymin;

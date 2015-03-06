@@ -710,7 +710,7 @@ sub readagency($)
 
     if (length($tzstr)) {
       ($utchh,$utcmm) = tz2ofs($tzstr);
-      info("$utchh $utcmm");
+      vrb("$utchh $utcmm");
     }
 
     $agencytz{$id} = $tzstr;
@@ -1460,6 +1460,7 @@ sub readtrips($)
 
     if (exists($norouteids{$route_id})) {
       $filtercnt++;
+      next;
     } elsif (exists($noserviceids{$service_id})) {
       $filtercnt++;
       next;
@@ -1479,6 +1480,8 @@ sub readtrips($)
     $triproutes{$tripid} = $routeid;
 
     $sid = $serviceids{$service_id};
+    error_exit("undefined sid for $service_id") unless defined $sid;
+
     warning("no agency for route $routeid $route_id") unless exists $routeagency{$routeid};
     $agency_id = $routeagency{$routeid};
     if (exists $agencyutcofs{$agency_id}) {;
@@ -1541,7 +1544,7 @@ sub readcalendar($)
     $linno++;
     next if $line eq $headline;  # support catenated files if same col layout
 
-    $fln = "calendar.txt:$linno";
+    $fln = "calendar.tab:$linno";
 
     ($service_id,$dow[6],$dow[5],$dow[4],$dow[3],$dow[2],$dow[1],$dow[0],$t0,$t1) = split "\t",$line;
 
@@ -1826,7 +1829,7 @@ sub do_conn()
   info("stops with $concnt + arrivals   : $arrcnt") if $arrcnt;
 
   while (($service_id,$sid) = each %serviceids) {
-    warning("service id $service_id not referenced") unless exists $sidrefs{$sid};
+    info("service id $service_id not referenced") unless exists $sidrefs{$sid};
   }
 
   return 1;
@@ -1897,7 +1900,7 @@ sub readstoptimes($)
 #     info("$linno $trip_id,$rstop_id,$seq,$arr_time,$dep_time");
 
     unless (exists($tripids{$trip_id})) {
-      vrb("line $linno: undefined trip id $trip_id");
+#      vrb("line $linno: undefined or filtered trip id $trip_id");
       next;
     }
     $prvtrip = $tripid;
@@ -1912,7 +1915,7 @@ sub readstoptimes($)
     $routeid = $triproutes{$tripid};
     $route_id = $routebyids{$routeid};
     if (exists $norouteids{$route_id}) { # filtered
-#     info("filter $stop_id on route $route_id");
+     info("filter $stop_id on route $route_id");
       next;
     }
 
@@ -1935,7 +1938,9 @@ sub readstoptimes($)
 
     if ($prvtrip != $tripid) {
       $service_id = $tripservice{$trip_id};
+      error_exit("undefined sid for $trip_id") unless defined $service_id;
       $sid = $serviceids{$service_id};
+      error_exit("undefined $service_id") unless defined $sid;
       $sidrefs{$sid} = 1 unless exists $sidrefs{$sid};
       $tripsids{$tripid} = $sid;
     }
@@ -1949,7 +1954,7 @@ sub readstoptimes($)
 #    }
 #    $ridsidtimes{$ridsidtime} = 1;
 
-    push(@stop_times, join("\t",$tripid,$stopid,$seq,$arr_time,$dep_time)) if $canonout;
+    push(@stop_times, join("\t",$tripid,$rstopid,$seq,$arr_time,$dep_time)) if $canonout;
 
 #    if (exists($parentbyid{$stopid})) {
 #      $parent = $parentbyid{$stopid};
@@ -2348,7 +2353,7 @@ sub writext($$)
     $hopid = $hopno;
 
     $timecnt = scalar @times;
-    info("$timecnt time entries");
+    vrb("$timecnt time entries");
 
     $depname = $stopnames{$dep};
     $arrname = $stopnames{$arr};
@@ -2572,7 +2577,7 @@ sub writegtfs()
   foreach $line (@stop_times) {
     ($tripid,$stopid,$seq,$arr_time,$dep_time) = split("\t",$line);
     $trip_id = $idprefix . $trip_ids{$tripid};
-    $stop_id = $idprefix . $stop_ids{$stopid};
+    $stop_id = $idprefix . $rstopbyid{$stopid};
     print($stoptimfile "$trip_id\t$stop_id\t$seq\t$arr_time\t$dep_time\n");
   }
   close($stoptimfile);
@@ -2587,11 +2592,20 @@ sub merge($$$)
   my ($name,$infile,$outfile,$infname,$outfname,$headline,$line,$openmode);
   my @lines;
 
-  info("merge $indir into $outdir");
+  info("merge $indir into $outdir " . ($first ? " " : " append"));
   for $name (qw/agency.tab stops.tab calendar.tab calendar_dates.tab routes.tab trips.tab stop_times.tab/) {
     $outfname = "$outdir/$name";
+
+    if ($first) {
+      $openmode = '>';
+      unlink $outfname;
+    } else {
+      $openmode = '>>';
+    }
+
     $infname = "$indir/$name";
     next unless -f $infname;
+
     open($infile,'<:encoding(UTF-8)',$infname) or return error("cannot open $infname:$!");
     $headline = readline($infile);
     next unless length $headline;
@@ -2599,7 +2613,6 @@ sub merge($$$)
     close($infile);
     next unless (@lines > 0);
 
-    $openmode = ($first ? '>' : '>>');
     open($outfile,$openmode . ':encoding(UTF-8)',$outfname) or return error("cannot open $outfname:$!");
     print($outfile $headline) unless -s $outfname;
     for $line (@lines) { print($outfile $line); }

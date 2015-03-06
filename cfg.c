@@ -351,7 +351,7 @@ static void setval(struct cfgvar *vp,ub4 *puval,ub4 newval)
 static void eng_opt(const char *val,ub4 len)
 {
   if (len == 9 && memeq(val,"no-msgsum",len)) globs.nomsgsum = 1;
-  if (len == 11 && memeq(val,"no-mergeroute",len)) globs.nomergeroute = 1;
+  if (len == 13 && memeq(val,"no-mergeroute",len)) globs.nomergeroute = 1;
   else if (len) warn(0,"line %u: ignoring unknown option %s",linno,val);
 }
 

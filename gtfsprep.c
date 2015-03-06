@@ -1308,6 +1308,7 @@ static int rdstops(gtfsnet *net,const char *dir)
       stop2 = sp->nears[s2ndx];
       if (stop2 == hi32) continue;
       sp2 = cstops + stop2;
+      error_ne(sp2->group,hi32);
       sp2->group = id;
       enearcnt++;
 
@@ -1329,6 +1330,7 @@ static int rdstops(gtfsnet *net,const char *dir)
       }
     }
 
+    error_ne(sp->group,hi32);
     sp->group = id;
     sp->iparent = iparent;
     enearcnt++;  // include hicnt self
@@ -1340,6 +1342,7 @@ static int rdstops(gtfsnet *net,const char *dir)
     hicnt = 0;
     for (stop = 0; stop < cstopcnt; stop++) {
       sp = cstops + stop;
+      if (sp->group != hi32) continue;
       cnt = 0;
       for (s2ndx = 0; s2ndx < sp->nearcnt; s2ndx++) {
         stop2 = sp->nears[s2ndx];

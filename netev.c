@@ -197,9 +197,19 @@ int mksubevs(lnet *net)
       for (r = 0; r < subsamples; r++) {
         rr = rndset[r];
         error_ge(rr+e,evcnt);
-        rtdur = ev[e+rr];
+        rtdur = ev[(e+rr) * 2];
         t = (ub4)(rtdur & hi32) + gt0;
         dur = (ub4)(rtdur >> 32);
+
+      if (dur > 6000) {
+        dep = portsbyhop[hop * 2];
+        arr = portsbyhop[hop * 2 + 1];
+        pdep = ports + dep;
+        parr = ports + arr;
+        info(Notty,"hop %u dur \ax%u %s to %s t \ad%u",hop,dur,pdep->name,parr->name,t);
+      }
+
+        dur &= hi16; // todo
         sev[r] = ((ub8)t << 32) | dur;
         sumdur += dur;
         dtbins[min(dur,dthibin)]++;
@@ -283,12 +293,12 @@ int mksubevs(lnet *net)
       }
       dur = tarr2 - tdep1;
 
-      if (dur > 600) {
+      if (dur > 6000) {
         dep = portsbyhop[hop * 2];
         arr = portsbyhop[hop * 2 + 1];
         pdep = ports + dep;
         parr = ports + arr;
-        vrb0(0,"chop %u-%u %s to %s td %u ta %u",h1,h2,pdep->name,parr->name,tdep1,tarr2);
+        info(Notty,"chop %u-%u %s to %s td %u ta %u",h1,h2,pdep->name,parr->name,tdep1,tarr2);
       }
 
       cev[scnt] = ((ub8)t << 32) | dur;
@@ -336,11 +346,11 @@ int mksubevs(lnet *net)
 
     if (scnt == 0) noevcnt++;
 
-#if 0
+#if 1
     for (s = 0; s < scnt; s++) {
       rtdur = sev[s];
       dur = rtdur & hi32;
-      if (dur > 600) {
+      if (dur > 6000) {
         t = (ub4)(rtdur >> 32);
         dep = portsbyhop[hop * 2];
         arr = portsbyhop[hop * 2 + 1];
@@ -407,12 +417,12 @@ static ub4 stat_nocnt;
   t2 = (ub4)(tdur2 >> 32);
   for (e1 = 0; e1 < scnt1; e1++) {
     tdur1 = sev1[e1];
-    t1 = (ub4)(tdur1 >> 32);
     dur1 = tdur1 & hi32;
+    t1 = (ub4)(tdur1 >> 32);
 
 //    warncc(t1 == hi32,0,"hop %u-%u ev %u t hi",hop1,hop2,e1);
 //    warncc(dur1 == hi32,0,"hop %u-%u ev %u dur hi",hop1,hop2,e1);
-//    warncc(dur1 > 600,0,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e1,scnt1,dur1);
+    warncc(dur1 > 6000,Notty,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e1,scnt1,dur1);
 
     while (e2 < scnt2 && t2 < t1 + dur1 + ttmin) {
       tdur2 = sev2[e2++];
@@ -423,7 +433,10 @@ static ub4 stat_nocnt;
     else if (t2 - t1 + dur1 > ttmax) continue;
     dur2 = tdur2 & hi32;
 //    warncc(dur2 == hi32,0,"hop %u-%u ev %u t hi",hop1,hop2,e2);
-//    warncc(dur2 > 600,0,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e2,scnt2,dur2);
+
+    warncc(dur2 > 6000,Notty,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e2,scnt2,dur2);
+    dur2 &= hi16; // todo
+
     dt = (t2 - t1) + dur2;
 //    warncc(dt > 600,0,"hop %u-%u ev %u/%u dur %u t1 %u t2 %u",hop1,hop2,e2,scnt2,dur2,t2,t1);
     dtsum += dt;
@@ -446,7 +459,7 @@ static ub4 stat_nocnt;
     if (e1 == scnt1 || t1 + dur1 + ttmax > t2) break;
     else if (t2 - t1 + dur1 > ttmax) continue;
     dur2 = tdur2 & hi32;
-//    warncc(dur2 > 600,0,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e2,scnt2,dur2);
+    warncc(dur2 > 6000,Exit,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e2,scnt2,dur2);
     dt = t2 - t1 + dur2;
 //    warncc(dt > 600,0,"hop %u-%u ev %u/%u dur %u t1 %u t2 %u",hop1,hop2,e2,scnt2,dur2,t2,t1);
     dtbsum += dt;

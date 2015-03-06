@@ -1107,7 +1107,7 @@ static int rdexttimes(netbase *net,const char *dir)
       t1hi = max(t1hi,t1);
 
       rsidlog(rsid,"rsid \ax%u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daycnt,dow,t0_cd,t1_cd,t0,t1);
-      vrb0(0,"rsid \ax%u start %u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,daybox0,daycnt,dow,t0_cd,t1_cd,t0,t1);
+      vrb0(0,"rsid \ax%u %s start %u %u days in dow %x %u..%u \ad%u-\ad%u",rsid,name,daybox0,daycnt,dow,t0_cd,t1_cd,t0,t1);
 
       error_le(t1,t0);
 
@@ -1397,6 +1397,7 @@ static int rdexthops(netbase *net,const char *dir)
   ub4 cumhoprefs = 0;
   chaincnt = 0;
   ub4 duptndx = 0;
+  ub4 nosidcnt;
 
   do {
 
@@ -1537,8 +1538,9 @@ static int rdexthops(netbase *net,const char *dir)
       }
       hoplog(hop,1,"at %u %u-%u %s to %s",linno,dep,arr,dname,aname);
 
-      info(0,"%u time entries, %u vals",timecnt,valndx);
-      while (vndx + 4 <= valndx && tndx < timecnt) {
+      nosidcnt = 0;
+      vrb0(0,"%u time entries, %u vals",timecnt,valndx);
+      while (vndx <= valndx && tndx < timecnt) {
         prvsid = rsid; prvtid = rtid; prvtdep = tdepsec; prvtarr = tarrsec;
         prvsdep = sdepid; prvsarr = sarrid;
 
@@ -1546,16 +1548,19 @@ static int rdexthops(netbase *net,const char *dir)
         fmt = vals[vndx++];
 
         if (fmt & Fmt_prvdep) sdepid = prvsdep;
-        else sdepid = vals[vndx++];
+        else { if (vndx > valndx) break; sdepid = vals[vndx++]; }
         if (fmt & Fmt_prvarr) sarrid = prvsarr;
-        else sarrid = vals[vndx++];
+        else { if (vndx > valndx) break; sarrid = vals[vndx++]; }
         if (fmt & Fmt_prvsid) rsid = prvsid;
-        else rsid = vals[vndx++];
+        else { if (vndx > valndx) break; rsid = vals[vndx++]; }
+
+        if (vndx + 3 > valndx) break; 
         rtid = vals[vndx];
         tdepsec = vals[vndx+1];
         tarrsec = vals[vndx+2];
         tripseq = vals[vndx+3];
         vndx += 4;
+
         if (fmt & Fmt_diftid) rtid += prvtid;
 
         srdep = srarr = hi32;
@@ -1611,7 +1616,7 @@ static int rdexthops(netbase *net,const char *dir)
 
         error_ge(sid,sidcnt);
         sp = sids + sid;
-        if (sp->valid == 0) continue;
+        if (sp->valid == 0) { nosidcnt++; vrb0(0,"sid %u skipped %s",sid,sp->name); continue; }
 
         sp->refcnt++;
 
@@ -1651,7 +1656,7 @@ static int rdexthops(netbase *net,const char *dir)
         tbp += Tentries;
         tndx++;
       }
-      if (tndx != timecnt) info(0,"%u from %u time entries",tndx,timecnt);
+      if (tndx != timecnt) infovrb(tndx + nosidcnt != timecnt,0,"%u from %u time entries",tndx,timecnt);
       timecnt = tndx;
       if (tndx) {
         hp->t0 = ht0;

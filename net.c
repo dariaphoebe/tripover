@@ -157,7 +157,7 @@ static int mkwalks(struct network *net)
   }
   info(0,"walklimit \ag%u",walklimit);
   sumcnt = 0;
-  for (iv = 0; iv < ivcnt; iv++) {
+  for (iv = 0; iv < iv2cnt; iv++) {
     cnt = geohist2[iv];
     if (cnt == 0) continue;
     sumcnt += cnt;

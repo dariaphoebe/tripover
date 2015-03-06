@@ -328,7 +328,7 @@ int prepbasenet(void)
     error_ge(rid,ridcnt);
     rp = routes + rid;
     cnt = rp->hopcnt;
-    infocc(cnt == 0,0,"rid %u cnt %u",rid,cnt);
+    vrb0(0,"rid %u cnt %u",rid,cnt);
     cp->rhopcnt = cnt;
     cp->rhopofs = ofs;
     ofs += cnt;
@@ -817,7 +817,7 @@ int prepbasenet(void)
 
   eventmem = &basenet.eventmem;
   evmapmem = &basenet.evmapmem;
-  basenet.events = mkblock(eventmem,cumzevcnt * 2,ub8,Init0,"time events");
+  basenet.events = mkblock(eventmem,cumzevcnt * 2,ub8,Noinit,"time events");
 
   basenet.evmaps = mkblock(evmapmem,cumtdays * 5,ub2,Init0,"time eventmaps");
   

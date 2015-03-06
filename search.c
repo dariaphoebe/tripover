@@ -215,7 +215,6 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
       srda = (ub4)(x1 >> 48);
 
     } else { // compound: get dur and srarr from chain
-      x1 = ev[gndx * 2 + 1];
       tid = x1 & hi24;
       srda = (ub4)(x1 >> 48);
       srdep = srda >> 8;
@@ -249,7 +248,7 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur)
 
     devp = dev + dcnt * fldcnt;
     devp[timefld] = t + gt0;
-    devp[tidfld] = (ub4)x & hi24; // tid+dayid
+    devp[tidfld] = (ub4)x1 & hi24;
     devp[dtfld] = dur;
     devp[durfld] = dur;
     devp[costfld] = dur;
@@ -782,6 +781,7 @@ static ub4 getevs(search *src,gnet *gnet,ub4 nleg)
       infocc(vrbena && hop1 < chopcnt,Notty,"hop %u part %u ev %u of %u leg %u t \ad%u dt %u no tid",hop1,part,lodev,dcnt,l,t,dt);
     } else {
       if (hop1 >= chopcnt) return errorfln(FLN,Ret0,fln,"walk link %u with tid %u leg %u pos %u at \aD%u p %p",hop1,tid,l,lodev,t,devp);
+      if (tid >= tidcnt) errorfln(FLN,0,fln,"leg %u",l);
       error_ge(tid,tidcnt);
       rtid = tid2rtid[tid];
       vrb0(0,"hop %u-%u part %u ev %u of %u leg %u t \ad%u tid %u rtid %u dt %u",hop1,hop2,part,lodev,dcnt,l,t,tid,rtid,dt);
@@ -982,6 +982,8 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
               stp->trip[l * 2] = part;
               stp->tid[l] = hi32;
               stp->t[l] = 0;
+              stp->srdep[leg] = hi32;
+              stp->srarr[leg] = hi32;
             }
             stp->cnt = havedist = 1;
             stp->len = nleg;
@@ -1228,6 +1230,8 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
                 stp->trip[l * 2] = part;
                 stp->t[l] = 0;
                 stp->tid[l] = hi32;
+                stp->srdep[leg] = hi32;
+                stp->srarr[leg] = hi32;
               }
               stp->cnt = havedist = 1;
               stp->len = nleg;
@@ -1421,6 +1425,8 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
         stp->trip[leg * 2] = part;
         stp->t[leg] = 0;
         stp->tid[leg] = hi32;
+        stp->srdep[leg] = hi32;
+        stp->srarr[leg] = hi32;
       }
       stp->cnt = havedist = 1;
       stp->len = nleg;

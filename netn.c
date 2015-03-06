@@ -1199,16 +1199,21 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 
               if (durcnt == 0) {
                 midurs[0] = midur;
+                warncc(midur != hi32 && midur > 65534,Exit,"durlim %u at 0 of %u exceeds 64k",midur,cntlimdur);
                 durcnt = 1;
               } else if (durcnt < cntlimdur) {
+//                infocc(durcnt == 50,Notty,"midur %u at 50",midur);
+                warncc(midur != hi32 && midur > 65534,Exit,"durlim %u at %u of %u exceeds 64k",midur,durcnt,cntlimdur);
                 midurs[durcnt++] = midur;
               } else {
                 hidur = hindx = 0;
                 for (durndx = 0; durndx < cntlimdur; durndx++) {
                   if (midurs[durndx] > hidur) { hidur = midurs[durndx]; hindx = durndx; }
+                  warncc(midurs[durndx] != hi32 && midurs[durndx] > 65534,Exit,"durlim %u at %u of %u exceeds 64k",midurs[durndx],durndx,cntlimdur);
                 }
                 if (midur < hidur) midurs[hindx] = midur;
                 durlim = hidur;
+                warncc(durlim != hi32 && durlim > 65534,Exit,"durlim %u at %u exceeds 64k",durlim,cntlimdur);
                 error_eq(durlim,hi32);
               }
 
@@ -1220,7 +1225,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
         if (distcnt < cntlimdist) stat_partlimdist++;
         if (durcnt < cntlimdur) stat_partlimdur++;
         stat_cntlim++;
-        warncc(durlim != hi32 && durlim > 65534,0,"durlim %u exceeds 64k",durlim);
+        warncc(durlim != hi32 && durlim > 65534,Exit,"durlim %u exceeds 64k",durlim);
       } else {   // not cnt limited
         distlim = hi32;
         durlim = hi32;
@@ -1460,7 +1465,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
       // if none found for any dep-Mid-arr, but mid exists, use first one
       if (cnt > walklimcnt && gen == 0 && firstmid != hi32) {
         stat_nocon++;
-        info(0,"dep %u arr %u no conn for mid %u cnt %u distlim %u",dep,arr,firstmid,cnt,distlim);
+        info(0,"no conn for %u-%u-%u cnt %u distlim %u durlim %u",dep,firstmid,arr,cnt - walklimcnt,distlim,durlim);
         depmid = dep * portcnt + firstmid;
         midarr = firstmid * portcnt + arr;
 
@@ -1487,7 +1492,6 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
       }
 
       error_gt(gen,cnt,arr);
-      warncc(cnt && gen == 0,Iter,"dep %u arr %u no conn distlim %u durlim %u",dep,arr,distlim,durlim);
 
       ofs += gen;
       cnts[deparr] = (ub2)gen;
