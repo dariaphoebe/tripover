@@ -34,7 +34,7 @@ static const ub4 daymin = 60 * 24;   // convenience
 static netbase basenet;
 
 static const ub4 hop2watch = hi32; // tmp debug provision
-static const ub4 tid2watch = hi32;
+static const ub4 tid2watch = 87971;
 static const ub4 rrid2watch = hi32;
 
 netbase *getnetbase(void) { return &basenet; }
@@ -273,6 +273,7 @@ int prepbasenet(void)
   ub4 evhops = 0;
   ub4 dur,lodur,hidur,midur,prvdur,duracc,sumdur,eqdur = 0,accdur = 0;
   ub4 sumtimes = 0;
+  ub4 x;
 
   info(0,"preparing %u base hops",hopcnt);
 
@@ -283,8 +284,9 @@ int prepbasenet(void)
   // workspace to expand single time 
   ub4 xtimelen = gdt + 3 * daymin;
   ub8 *xp = alloc(xtimelen,ub8,0xff,"time",gdt);
-  ub8 *xp2 = alloc(xtimelen * 2,ub8,0,"time",gdt);
-  ub1 *xpacc = alloc((xtimelen >> 4) + 2,ub1,0,"time",gdt);
+  ub1 *xpacc = alloc((xtimelen >> Accshift) + 2,ub1,0,"time",gdt);
+
+//  ub8 *xp2 = alloc(xtimelen * 2,ub8,0,"time",gdt);
 
   // store events here
   block *eventmem,*evmapmem;
@@ -328,7 +330,7 @@ int prepbasenet(void)
     error_ge(rid,ridcnt);
     rp = routes + rid;
     cnt = rp->hopcnt;
-    vrb0(0,"rid %u cnt %u",rid,cnt);
+    infovrb(chain == 87971,0,"rid %u cnt %u",rid,cnt);
     cp->rhopcnt = cnt;
     cp->rhopofs = ofs;
     ofs += cnt;
@@ -354,6 +356,19 @@ int prepbasenet(void)
   for (rid = 0; rid < ridcnt; rid++) {
     rp = routes + rid;
     infocc(rp->hopndx != rp->hopcnt,0,"index %u cnt %u",rp->hopndx,rp->hopcnt);
+  }
+  for (chain = 0; chain < rawchaincnt; chain++) {
+    cp = chains + chain;
+    rid = cp->rid;
+    rp = routes + rid;
+    error_ne(rp->hopcnt,cp->rhopcnt);
+  }
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    rhop = hp->rhop;
+    rid = hp->rid;
+    rp = routes + rid;
+    error_ge(rhop,rp->hopcnt);
   }
 
   // pass 1: expand time entries, determine memuse and assign chains
@@ -410,9 +425,12 @@ int prepbasenet(void)
     error_le(hp->t1,hp->t0);
     hdt = hp->t1 - gt0 + 1 * daymin;
     error_ge(hdt,xtimelen);
-    memset(xp,0xff,hdt * sizeof(*xp));
-    memset(xp2,0,hdt * 2 * sizeof(*xp2));
-    memset(xpacc,0,(hdt >> 4) + 1);
+
+//    memset(xp,0xff,hdt * sizeof(*xp));
+//    memset(xpacc,0,(hdt >> 4) + 1);
+
+//    memset(xp2,0,hdt * 2 * sizeof(*xp2));
+
     ht0 = hi32; ht1 = 0;
     tp = &hp->tp;
     tp->hop = hop;
@@ -421,6 +439,10 @@ int prepbasenet(void)
 
     if (timecnt == 0) continue;
 
+    for (i = 0; i < xtimelen; i++) {
+      x = xp[i] & hi32;
+      warncc(x != hi32,0,"hop %u i %u x %x",hop,i,x);
+    }
     tp->t0 = hi32;
     lodur = hi32; hidur = sumdur = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
@@ -475,7 +497,11 @@ int prepbasenet(void)
         continue;
       }
 
-      if (rawchaincnt == 0) { info(0,"hop %u no chains",hop); continue; }
+      if (rawchaincnt == 0) {
+        info(0,"hop %u no chains",hop);
+        clearxtime(tp,xp,xpacc,xtimelen,gt0);
+        continue;
+      }
 
       // create chains: list of hops per trip, sort on tripseq later
       if (tid != hi32 && rid != hi32) {
@@ -518,12 +544,13 @@ int prepbasenet(void)
           chrp[rhop] = ((ub8)tdep << 32) + tarr;
           chrpp[rhop] = srda;
           cumhoprefs2++;
+          if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u rhop %u at 0 sub %x %s to %s",rrid,rid,tid,hop,rhop,srda,pdep->name,parr->name);
         } else {
           if (cp->rrid != rrid) warning(0,"hop %u tid %x on route %u vs %u",hop,tid,rrid,cp->rrid);
           chp2 = chainhops + ofs;
           for (i = 0; i < chcnt; i++) {
             if (chp2[i].hop == hop) { // todo investigate
-              vrb0(0,"rrid %u r.tid %u.%u equal hop %u td %u vs %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,tdep,chp2[i].tdep,i,pdep->name,parr->name,pp->name,hp->name);
+              info(0,"rrid %u r.tid %u.%u equal hop %u td %u vs %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,tdep,chp2[i].tdep,i,pdep->name,parr->name,pp->name,hp->name);
               break;
             } else if ( (chip[i] >> 32) == tripseq) {
               warn(0,"rrid %x tid %u skip equal seq %u at %u %s to %s start %s",rrid,tid,tripseq,i,pdep->name,parr->name,pp->name);
@@ -545,7 +572,7 @@ int prepbasenet(void)
             chrp[rhop] = ((ub8)tdep << 32) + tarr;
             chrpp[rhop] = srda;
             cumhoprefs2++;
-            if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u at %u %s to %s",rrid,rid,tid,hop,i,pdep->name,parr->name);
+            if (tid == tid2watch) info(0,"rrid %x rid %u tid %u hop %u rhop %u at %u sub %x %s to %s",rrid,rid,tid,hop,rhop,i,srda,pdep->name,parr->name);
           }
         }
       } else info(0,"rid %u no tid",rid);
@@ -569,6 +596,8 @@ int prepbasenet(void)
     }
     evhops++;
     infovrb(dbg,0,"final date range \ad%u-\ad%u",tp->t0 + gt0,tp->t1 + gt0);
+
+    clearxtime(tp,xp,xpacc,xtimelen,gt0);
 
     lodur = min(lodur,hidur);
     tp->lodur = lodur;
@@ -620,7 +649,11 @@ int prepbasenet(void)
     tp->tdays = tdays;
     cumtdays += tdays;
 
+#if 0
     zevcnt = findtrep(tp,xp,xpacc,xp2,xtimelen,evcnt);
+#else
+    zevcnt = tp->genevcnt = evcnt;
+#endif
 
     if (cumevcnt + zevcnt > maxzev) {
       warning(0,"hop %u: exceeding total event max %u %s",hop,maxzev,hp->name);
@@ -702,7 +735,7 @@ int prepbasenet(void)
         hp = hops + hop;
         tdep = chp->tdep;
         warncc(tdep < prvtdep,0,"hop %u %s",hop,hp->name);
-        error_lt(tdep,prvtdep);
+        noexit error_lt(tdep,prvtdep); // todo
         prvtdep = tdep;
         hp = hops + hop;
         dist += hp->dist;
@@ -836,7 +869,7 @@ int prepbasenet(void)
 
   // pass 2: fill from time entries
   info(0,"preparing \ah%lu events in %u base hops pass 2",cumevcnt,hopcnt);
-
+  
   ub8 cumevcnt2 = 0,cumzevcnt2 = 0;
   for (hop = 0; hop < hopcnt; hop++) {
 
@@ -856,8 +889,10 @@ int prepbasenet(void)
     error_ge(hdt,xtimelen);
     tp = &hp->tp;
     tp->evcnt = 0;
-    memset(xp,0xff,hdt * sizeof(*xp));
-    memset(xpacc,0,(hdt >> 4) + 1);
+
+//    memset(xp,0xff,hdt * sizeof(*xp));
+//    memset(xpacc,0,(hdt >> 4) + 1);
+
     vndx = 0;
     for (tndx = 0; tndx < timecnt; tndx++) {
       sid = tbp[Tesid];
@@ -887,7 +922,7 @@ int prepbasenet(void)
 
       cnt = fillxtime2(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid,dur,srdep,srarr);
       hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events seq %u",tid,sp->rsid,t0,t1,tdep,tarr,cnt,tripseq);
-      error_z(cnt,hop);
+      noexit error_z(cnt,hop); // todo
       evcnt += cnt;
       if (evcnt > maxev4hop) {
         warning(0,"hop %u exceeds event max %u %s",hop,maxev4hop,hp->name);
@@ -903,12 +938,15 @@ int prepbasenet(void)
       info(0,"no events for %u time entries",timecnt);
       continue;
     }
-    error_ne(evcnt,hp->evcnt);
+    noexit error_gt(evcnt,hp->evcnt,hop);
+    noexit error_ne(evcnt,hp->evcnt);
 
     zevcnt = filltrep(eventmem,evmapmem,tp,xp,xpacc,xtimelen);
     hoplog(hop,0,"evtcnt %u zevcnt %u and %u",evcnt,zevcnt,hp->zevcnt);
     noexit error_ne_cc(zevcnt,hp->zevcnt,"hop %u",hop);
     if (zevcnt != hp->zevcnt) warning(Iter,"hop %u zevcnt %u != hp->zevcnt %u",hop,zevcnt,hp->zevcnt);
+
+    clearxtime(tp,xp,xpacc,xtimelen,gt0);
 
     if (cumevcnt2 + zevcnt > maxzev) {
       warning(0,"hop %u: exceeding total event max %u %s",hop,maxzev,hp->name);
@@ -922,7 +960,7 @@ int prepbasenet(void)
   msgprefix(0,NULL);
   info(0,"\ah%lu org time events to \ah%lu",cumevcnt,cumzevcnt2);
   error_ne(cumevcnt,cumevcnt2);
-  error_ne(cumzevcnt,cumzevcnt2);
+  noexit error_ne(cumzevcnt,cumzevcnt2);
 
   info(0,"done preparing %u base hops",hopcnt);
 

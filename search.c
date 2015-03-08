@@ -310,7 +310,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   ub4 *hopdist = net->hopdist;
   ub4 *choporg = net->choporg;
   ub8 *events = net->events;
-  ub4 hop1,hop2,rh1,rh2,gid,rid;
+  ub4 hop1,hop2,rh1,rh2,gid,rid,rid2;
   ub4 costperstop = src->costperstop;
   ub4 fare,afare;
   ub2 *farepos,*fareposbase = net->fareposbase;
@@ -324,6 +324,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
 
   if (hop < hopcnt) {
     hop1 = hop; hop2 = hi32;
+    hp2 = NULL;
     rh2 = 0;
   } else if (hop < chopcnt) {
     hop1 = choporg[hop * 2];
@@ -340,6 +341,15 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
   gid = hp1->gid;
   rid = hp1->rid;
   rh1 = hp1->rhop;
+
+  warncc(rh1 >= Chainlen,0,"hop %u -> %u rhop %u",hop,hop1,rh1);
+  warncc(hop >= hopcnt && rh2 >= Chainlen,0,"hop %u -> %u-%u rhop %u",hop,hop1,hop2,rh2);
+
+  if (hp2) {
+    rid2 = hp2->rid;
+    warncc(rid2 != rid,0,"hop %u -> %u-%u rid %u vs %u",hop,hop1,hop2,rid,rid2);
+  }
+
   if (rh1 >= Chainlen || rh2 >= Chainlen) return 0;
 
   gencnt = tp->genevcnt;
@@ -435,7 +445,6 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
         if (fare == hi16) continue;
       } else fare = 0; // todo: use nonreserved fare rules
 
-
       if (hop < hopcnt) {
         dur = (ub4)(x >> 32); // from event
         srda = (ub4)(x1 >> 48);
@@ -443,6 +452,9 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
       } else { // compound: get dur from chain
         error_ge(tid,chaincnt);
         cp = chains + tid;
+
+        warncc(cp->rid != rid,0,"hop %u -> %u-%u tid %u rid %u vs %u",hop,hop1,hop2,tid,rid,cp->rid);
+
         if (cp->hopcnt < 2) continue;
 
         srda = (ub4)(x1 >> 48);
@@ -456,7 +468,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
           continue;
         }
         if (rh2 >= cp->rhopcnt) {
-          warn(0,"chop %u rh1 %u rhopcnt %u tid %u",hop,rh2,cp->rhopcnt,tid);
+          warn(0,"chop %u rh2 %u rhopcnt %u tid %u",hop,rh2,cp->rhopcnt,tid);
           continue;
         }
         error_ge(rh1,cp->rhopcnt); // todo fails ?
@@ -982,8 +994,8 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
               stp->trip[l * 2] = part;
               stp->tid[l] = hi32;
               stp->t[l] = 0;
-              stp->srdep[leg] = hi32;
-              stp->srarr[leg] = hi32;
+              stp->srdep[l] = hi32;
+              stp->srarr[l] = hi32;
             }
             stp->cnt = havedist = 1;
             stp->len = nleg;
@@ -1230,8 +1242,8 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
                 stp->trip[l * 2] = part;
                 stp->t[l] = 0;
                 stp->tid[l] = hi32;
-                stp->srdep[leg] = hi32;
-                stp->srarr[leg] = hi32;
+                stp->srdep[l] = hi32;
+                stp->srarr[l] = hi32;
               }
               stp->cnt = havedist = 1;
               stp->len = nleg;

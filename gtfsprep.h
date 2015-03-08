@@ -9,7 +9,7 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-#define Nearstop 256
+#define Nearstop 4096
 
 struct gtstop {
   ub4 id;
@@ -24,6 +24,28 @@ struct gtstop {
   ub4 group,iparent;
   char parentname[64];
 };
+
+struct bucket {
+  ub4 sofs;
+  ub4 slen;
+  ub4 code;
+  ub4 data;
+};
+
+struct hashtab {
+  ub4 len;
+  ub4 eqlen;
+  ub4 maxeq;
+  ub4 itemcnt;
+  char *strpool;
+  ub4 spoollen,sofs;
+  struct bucket *bkts;
+  block bktmem;
+  block strmem;
+  const char *desc;
+
+};
+typedef struct hashtab hash;
 
 struct gtfsnet {
   ub4 agencycnt;
@@ -54,5 +76,9 @@ struct gtfsnet {
   ub4 stoplinepos;
   ub4 triplinepos;
   ub4 stoptimeslinepos;
+
+  hash *routes;
+  hash *trips;
+  hash *stops;
 };
 typedef struct gtfsnet gtfsnet;

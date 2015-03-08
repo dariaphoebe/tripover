@@ -9,8 +9,8 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-#include <stddef.h>
-#include <stdarg.h>
+#include <string.h>
+//#include <stdarg.h>
 
 #include "base.h"
 #include "cfg.h"
@@ -28,9 +28,9 @@ static ub4 msgfile;
 
 static const ub4 daymin = 60 * 24;   // convenience
 
-static const ub4 evlimit = 40000;
+static const ub4 evlimit = 80000;
 
-#include "watch.h"
+//#include "watch.h"
 
 void inievent(int pass)
 {
@@ -41,9 +41,9 @@ void inievent(int pass)
     iniassert();
     passed = 1;
   } else if (pass == 1 && passed == 1) {
-    hop2logcnt = getwatchitems("hop",hops2log,Elemcnt(hops2log));
-    hoplog(hi32,1,"%c",0);
-    rsidlog(hi32,"%c",0);
+//    hop2logcnt = getwatchitems("hop",hops2log,Elemcnt(hops2log));
+//    hoplog(hi32,1,"%c",0);
+//    rsidlog(hi32,"%c",0);
     passed = 2;
   }
 }
@@ -90,7 +90,6 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
   ub4 t,n = 0,ndup = 0;
   ub4 t00,t01,t0,t1,tt,tlo,thi,dayid,tday,t1day,mday;
   ub4 hop = tp->hop;
-  ub4 mapofs = sp->mapofs;
   ub4 rsid = sp->rsid;
   ub4 sid = sp->sid;
   ub4 utcofs = sp->utcofs;
@@ -132,7 +131,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 
     t = tday * daymin;
 
-    warncc(t + tdep >= t1 + daymin,0,"t \ad%u + tdep %u >= \ad%u",t,tdep,t1);
+//    warncc(t + tdep >= t1 + daymin,0,"t \ad%u + tdep %u >= \ad%u",t,tdep,t1);
     error_ge(t + tdep,t1 + daymin);
     tt = t - gt0 + tdep;
     if (tt >= xlen) {
@@ -147,8 +146,8 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
       tlo = min(tlo,tt);
       thi = max(thi,tt);
       n++;
-      xpacc[tt >> 4] = 1;
-      infocc(dbg,0,"day at t %u \ad%u map %u rsid %u",t,t,mapofs + tday,rsid);
+      xpacc[tt >> Accshift] = 1;
+//      infocc(dbg,0,"day at t %u \ad%u map %u rsid %u",t,t,mapofs + tday,rsid);
     } else { ndup++; infocc(dbg,0,"dup at t %u \ad%u rsid %u",t,t,rsid); } // duplicate/overlap
     tday++;
   }
@@ -156,7 +155,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
   if (n) {
     if (n + tp->evcnt == evlimit) warning(0,"hop %u exceeding event limit %u",hop,evlimit);
     tp->t0 = tlo; tp->t1 = thi;   // keep track of first and last actual departure
-    hoplog(hop,0,"%u event\as tlo %u thi %u",n,tlo,thi);
+//    hoplog(hop,0,"%u event\as tlo %u thi %u",n,tlo,thi);
   } else if (ndup) vrb0(0,"duplicate events for rsid %u range %u-%u",rsid,tlo,thi);
   else vrb0(0,"no events for r.sid %u.%u range %u-%u",rsid,sid,t0,t1);
   return n;
@@ -207,7 +206,7 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
         x |= (dursub << 32);
         xp[tt] = x;
         n++;
-        xpacc[tt >> 4] = 1;
+        xpacc[tt >> Accshift] = 1;
       }
     }
     tday++;
@@ -216,6 +215,30 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
   return n;
 }
 
+void clearxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlim,ub4 gt0)
+{
+  ub4 t,tt,t0,t1;
+
+  t0 = tp->t0; t1 = tp->t1;
+
+  t = t0;
+
+  error_ge(t1,xlim);
+  error_ge(t0,xlim);
+
+  ub4 acc = 1 << Accshift;
+  tt = t >> Accshift;
+  t = tt << Accshift;
+  while (t <= t1) {
+    if (xpacc[tt]) {
+      memset(xp + t,0xff,acc * sizeof(*xp));
+      xpacc[tt] = 0;
+    }
+    t += acc; tt++;
+  }
+}
+
+// not used at the moment
 // find day-repeatable patterns. returns number of compressed departures
 // result is 4 times a repeat pattern + leftover
 // times are relative to hop origin
@@ -239,7 +262,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
 
   // pass 1: mark candidates on repeat count and time span
   while (t < t1) {
-    if (xpacc[t >> 4] == 0) { t += 16; continue; }
+    if (xpacc[t >> Accshift] == 0) { t += (1 << Accshift); continue; }
     x = xp[t];
     if ( (x & hi32) == hi32) { t++; continue; }
 
@@ -278,7 +301,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
 
   if (evcnt2 != evcnt) warning(0,"hop %u t0 %u t1 %u",hop,t0,t1);
 
-  hoplog(hop,0,"hirep %u at %u for %u events range %u tlo %u thi %u lim %u",hirep,hit,evcnt,t1 - t0,tlo,thi,t1 - t0);
+//  hoplog(hop,0,"hirep %u at %u for %u events range %u tlo %u thi %u lim %u",hirep,hit,evcnt,t1 - t0,tlo,thi,t1 - t0);
   error_ne(evcnt2,evcnt);
 
   if (hirep == 0) {
@@ -302,7 +325,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
   evcnt2 = 0;
   t = t0;
   while (t < t1 /* && evcnt2 < evcnt */) {
-    if (xpacc[t >> 4] == 0) { t += 16; continue; }
+    if (xpacc[t >> Accshift] == 0) { t += (1 << Accshift); continue; }
     if ( (xp[t] & hi32) == hi32) { t++; continue; }
 
     rep = (ub4)xp2[t * 2];   // from above
@@ -324,7 +347,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
         hi0sum = prvsum;
         hi0t0 = spant;
         hi0t1 = prvt;
-        hoplog(hop,0,"hi0 t %u span %u rep %u tot %u sum %lx",t,span,spanrep,evcnt2,prvsum);
+//        hoplog(hop,0,"hi0 t %u span %u rep %u tot %u sum %lx",t,span,spanrep,evcnt2,prvsum);
       } else if (hix > hi1 && hix > hi2 && hix > hi3 && prvsum != hi0sum) {
         evcnt2 = evcnt2 - hi1 + hix;
         hi1 = hix;
@@ -333,7 +356,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
         hi1sum = prvsum;
         hi1t0 = spant;
         hi1t1 = prvt;
-        hoplog(hop,0,"hi1 t %u span %u rep %u tot %u sum %lx",t,span,spanrep,evcnt2,prvsum);
+//        hoplog(hop,0,"hi1 t %u span %u rep %u tot %u sum %lx",t,span,spanrep,evcnt2,prvsum);
       } else if (hix > hi2 && hix > hi3 && prvsum != hi0sum && prvsum != hi1sum) {
         evcnt2 = evcnt2 - hi2 + hix;
         hi2 = hix;
@@ -342,7 +365,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
         hi2sum = prvsum;
         hi2t0 = spant;
         hi2t1 = prvt;
-        hoplog(hop,0,"hi2 t %u span %u rep %u tot %u sum %lx",t,span,spanrep,evcnt2,prvsum);
+//        hoplog(hop,0,"hi2 t %u span %u rep %u tot %u sum %lx",t,span,spanrep,evcnt2,prvsum);
       } else if (hix > hi3 && prvsum != hi0sum && prvsum != hi1sum && prvsum != hi2sum) {
         evcnt2 = evcnt2 - hi3 + hix;
         hi3 = hix;
@@ -351,7 +374,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
         hi3sum = prvsum;
         hi3t0 = spant;
         hi3t1 = prvt;
-        hoplog(hop,0,"hi3 t %u span %u rep %u tot %u sum %lx",t,span,spanrep,evcnt2,prvsum);
+//        hoplog(hop,0,"hi3 t %u span %u rep %u tot %u sum %lx",t,span,spanrep,evcnt2,prvsum);
       }
       spanrep = rep;
       span = 1;
@@ -367,12 +390,12 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
   }
 
   zevcnt = evcnt - evcnt2;   // leftover non-repeating ones
-  hoplog(hop,0,"his %u %u %u %u span %u rep %u cnt %u left %u of %u",hi0,hi1,hi2,hi3,hi0span,hirep,zevcnt,evcnt - hi0 - hi1 - hi2 - hi3,evcnt);
+//  hoplog(hop,0,"his %u %u %u %u span %u rep %u cnt %u left %u of %u",hi0,hi1,hi2,hi3,hi0span,hirep,zevcnt,evcnt - hi0 - hi1 - hi2 - hi3,evcnt);
 
   tp->genevcnt = zevcnt;
 
   zevcnt += hi0span + hi1span + hi2span + hi3span;  // repeat pattern itself
-  hoplog(hop,0,"span %u,%u,%u,%u = %u",hi0span,hi1span,hi2span,hi3span,zevcnt);
+//  hoplog(hop,0,"span %u,%u,%u,%u = %u",hi0span,hi1span,hi2span,hi3span,zevcnt);
 
   // store for next pass
   tp->hispans[0] = hi0span;
@@ -444,16 +467,17 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
   // and a day mask array with count for each day
   genday = tdays * 4;
 
-  hoplog(hop,0,"span %u,%u,%u,%u",hi0span,hi1span,hi2span,hi3span);
+//  hoplog(hop,0,"span %u,%u,%u,%u",hi0span,hi1span,hi2span,hi3span);
 
   gen = (hi0span + hi1span + hi2span + hi3span) * 2;
   bound(evmem,gen,ub8);
 
   vrb0(0,"evcnt %u t \ad%u - \ad%u",tp->genevcnt,t0+gt0,t1+gt0);
 
+  t >>= Accshift; t <<= Accshift;
   if (gen == 0) { // no repetition
-    while (t < t1) {
-      if (xpacc[t >> 4] == 0) { t += 16; continue; }
+    while (t <= t1 && gndx < tp->genevcnt * 2) { // todo <= ?
+      if (xpacc[t >> Accshift] == 0) { t += (1 << Accshift); continue; }
       x = xp[t];
       if ( (x & hi32) == hi32) { t++; continue; }
 
@@ -503,72 +527,72 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
       if (t < hi0t0) {
         day = (t - t0) / daymin;
         error_ge_cc(day,tdays,"hop %u day %u t %u hit0 %u",hop,day,t,hi0t0);
-        hoplog(hop,0,"t %u hi0 day %u on dayid %x",t,day,dayid);
+//        hoplog(hop,0,"t %u hi0 day %u on dayid %x",t,day,dayid);
         days[hi0day + day]++;
       } else if (t <= hi0t1) {
         if (hi0ndx < hi0span * 2) {
           evs[hi0pat + hi0ndx++] = t;
           evs[hi0pat + hi0ndx++] = x;
-        } else hoplog(hop,0,"skip hisum0 on t %u hit %u",t,hi0t0);
+        }
       } else {
         day = (t - hi0t0) / daymin;
         error_ge_cc(day,tdays,"hop %u day %u t %u hit0 %u",hop,day,t,hi0t0);
-        hoplog(hop,0,"t %u hi0 day %u on dayid %x",t,day,dayid);
+//        hoplog(hop,0,"t %u hi0 day %u on dayid %x",t,day,dayid);
         days[hi0day + day]++;
       } 
     } else if (sum == hi1sum) {
       if (t < hi1t0) {
         day = (t - t0) / daymin;
         error_ge_cc(day,tdays,"hop %u day %u t %u hit0 %u",hop,day,t,hi1t0);
-        hoplog(hop,0,"t %u hi1 day %u on dayid %x",t,day,dayid);
+//        hoplog(hop,0,"t %u hi1 day %u on dayid %x",t,day,dayid);
         days[hi1day + day]++;
       } else if (t <= hi1t1) {
         if (hi1ndx < hi1span * 2) {
           evs[hi1pat + hi1ndx++] = t;
           evs[hi1pat + hi1ndx++] = x;
-        } else hoplog(hop,0,"skip hisum1 on t %u hit %u",t,hi1t0);
+        }
       } else {
         day = (t - hi1t0) / daymin;
         error_ge_cc(day,tdays,"hop %u day %u t %u hi1t0 %u",hop,day,t,hi1t0);
-        hoplog(hop,0,"t %u hi1 day %u on dayid %x",t,day,dayid);
+//        hoplog(hop,0,"t %u hi1 day %u on dayid %x",t,day,dayid);
         days[hi1day + day]++;
       }
     } else if (sum == hi2sum) {
       if (t < hi2t0) {
         day = (t - t0) / daymin;
         error_ge_cc(day,tdays,"hop %u day %u t %u hit0 %u",hop,day,t,hi2t0);
-        hoplog(hop,0,"t %u hi2 day %u on dayid %x",t,day,dayid);
+//        hoplog(hop,0,"t %u hi2 day %u on dayid %x",t,day,dayid);
         days[hi2day + day]++;
       } else if (t <= hi2t1) {
         if (hi2ndx < hi2span * 2) {
           evs[hi2pat + hi2ndx++] = t;
           evs[hi2pat + hi2ndx++] = x;
-        } else hoplog(hop,0,"skip hisum2 on t %u hit %u",t,hi2t0);
+        }
       } else {
         day = (t - hi2t0) / daymin;
         error_ge_cc(day,tdays,"hop %u day %u t %u hi1t0 %u",hop,day,t,hi2t0);
-        hoplog(hop,0,"t %u hi2 day %u on dayid %x",t,day,dayid);
+//        hoplog(hop,0,"t %u hi2 day %u on dayid %x",t,day,dayid);
         days[hi2day + day]++;
       }
     } else if (sum == hi3sum) {
       if (t < hi3t0) {
         day = (t - t0) / daymin;
         error_ge_cc(day,tdays,"hop %u day %u t %u hit0 %u",hop,day,t,hi3t0);
-        hoplog(hop,0,"t %u hi3 day %u on dayid %x",t,day,dayid);
+//        hoplog(hop,0,"t %u hi3 day %u on dayid %x",t,day,dayid);
         days[hi3day + day]++;
       } else if (t <= hi3t1) {
         if (hi3ndx < hi3span * 2) {
           evs[hi3pat + hi3ndx++] = t;
           evs[hi3pat + hi3ndx++] = x;
-        } else hoplog(hop,0,"skip hisum3 on t %u hit %u",t,hi3t0);
+        }
       } else {
         day = (t - hi3t0) / daymin;
         error_ge_cc(day,tdays,"hop %u day %u t %u hi1t0 %u",hop,day,t,hi3t0);
-        hoplog(hop,0,"t %u hi3 day %u on dayid %x",t,day,dayid);
+//        hoplog(hop,0,"t %u hi3 day %u on dayid %x",t,day,dayid);
         days[hi3day + day]++;
       }
     } else { // nonrepeating leftovers
-      hoplog(hop,0,"t %u t0 %u gndx %u",t,t0,gndx);
+//      hoplog(hop,0,"t %u t0 %u gndx %u",t,t0,gndx);
       if (gndx < 2 * tp->genevcnt) {
         error_ge(gndx,2 * tp->genevcnt);
         bound(evmem,gen + gndx + 2,ub4);
@@ -581,7 +605,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
     }
     t++;
   }
-  hoplog(hop,0,"gen %u hi %u,%u,%u,%u",gndx,hi0ndx,hi1ndx,hi2ndx,hi3ndx);
+//  hoplog(hop,0,"gen %u hi %u,%u,%u,%u",gndx,hi0ndx,hi1ndx,hi2ndx,hi3ndx);
 
   zevcnt = (gndx + hi0ndx + hi1ndx + hi2ndx + hi3ndx) / 2;
 

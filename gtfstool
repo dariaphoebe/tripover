@@ -47,7 +47,7 @@ my $idprefix = '';
 
 my $merge_dup = 0;  # merge if lat,lon,name almost identical: nl
 my $dup_limit = 0.2; # todo in feedcfg
-my $showmerge = 1;
+my $showmerge = 2;
 
 my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
 my $infer_parent = 0;   # infer parent when seemingly missing : seq
@@ -699,11 +699,13 @@ sub readagency($)
     chop $line;
     $linno++;
     next if $line eq $headline;  # support catenated files if same col layout
-
+    next unless length $line;
+    next if substr($line,0,1) eq '#';
+ 
     ($id,$name,$tzstr,$url) = split "\t",$line;
 
     $id = 'agency_id-' . $linno unless defined $id and length $id;
-
+    $name = '' unless defined $name;
     # take first one to identify overall feed if feed_info missing
     $agencyname = $name unless defined $agencyname;
     $agencyid = $id unless defined $agencyid;
@@ -926,6 +928,8 @@ sub readstops($)
     $c = chop $line;
     $linno++;
     next if $line eq $headline;  # support catenated files if same col layout
+    next unless length $line;
+    next if substr($line,0,1) eq '#';
 
     ($id,$code,$loctype,$parent,$name,$lat,$lon,$desc) = split "\t",$line;
     $desc = '' unless defined $desc;
@@ -1004,6 +1008,8 @@ sub readstops($)
     }
 
     $rstops{$rstopid} = join("\t",$name,$lat,$lon,$ilat,$ilon,$parent,$loctype,$code,$desc);
+    $stopdeps[$rstopid] = 0;
+    $stoparrs[$rstopid] = 0;
 
   } # each line / stop in pass 1
 
@@ -1341,6 +1347,8 @@ sub readroutes($)
     $linno++;
 
     next if $line eq $headline;  # support catenated files if same col layout
+    next unless length $line;
+    next if substr($line,0,1) eq '#';
 
     ($route_id,$agency_id,$rtype,$sname,$lname,$desc) = split "\t",$line;
 
@@ -1438,6 +1446,8 @@ sub readtrips($)
 
     $linno++;
     next if $line eq $headline;  # support catenated files if same col layout
+    next unless length $line;
+    next if substr($line,0,1) eq '#';
 
     ($route_id,$service_id,$trip_id,$headsign) = split "\t",$line;
 
@@ -1543,6 +1553,8 @@ sub readcalendar($)
 
     $linno++;
     next if $line eq $headline;  # support catenated files if same col layout
+    next unless length $line;
+    next if substr($line,0,1) eq '#';
 
     $fln = "calendar.tab:$linno";
 
@@ -1660,6 +1672,8 @@ sub readcaldates($)
 
     $linno++;
     next if $line eq $headline;  # support catenated files if same col layout
+    next unless length $line;
+    next if substr($line,0,1) eq '#';
 
     ($service_id,$extype,$date) = split "\t",$line;
 
@@ -1746,8 +1760,8 @@ sub haveconns($)
 
   $stopid = toparent($stopid);
 
-  return 0 if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
-  return 1;
+  return 1 if ($stopdeps[$stopid] > 0 or $stoparrs[$stopid] > 0);
+  return 0;
 }
 
 # handle connectivity
@@ -1892,6 +1906,8 @@ sub readstoptimes($)
     $linno++;
     vrb("last line") if $lastline;
     next if $line eq $headline;  # support catenated files if same col layout
+    next unless length $line;
+    next if substr($line,0,1) eq '#';
 
     ($trip_id,$rstop_id,$seq,$arr_time,$dep_time) = split("\t",$line);
     $dep_time = '' unless defined $dep_time;
@@ -2078,6 +2094,7 @@ sub readstoptimes($)
         } else {
           $tripseq{$uniqid} = [ join('_',$prvid,$id,$xtripid,$htdep,$htarr,$seq) ];
           push @uniqids,$uniqid;
+          info("$prvid $id $prvpid $pid") if $id == 32 or $prvid == 32;
           $stopdeps[$prvid]++;
           $stoparrs[$id]++;
           $stopdeps[$prvpid]++ if $prvid != $prvpid;
@@ -2206,18 +2223,26 @@ sub writext($$)
   my ($parent,$parentid,$stopstr);
   my $portcnt = $parentcnt;
   my $unconcnt = 0;
+  my @cstops;
 
-  foreach $stopid (sort { $a <=> $b } keys %stops) {
+  foreach $stopid (keys %stops) {
+    $stopstr = $stops{$stopid};
+
+    ($stop_name,$ilat,$ilon,$stop_code,$desc,$opts) = split("\t",$stopstr);
+    $stop_id = $stop_ids{$stopid};
+    if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
+      $unconcnt++;
+      next;
+    }
+    push @cstops,$stopid;
+  }
+
+  foreach $stopid (sort { $a <=> $b } @cstops) {
     $stopstr = $stops{$stopid};
 
     ($stop_name,$ilat,$ilon,$stop_code,$desc,$opts) = split("\t",$stopstr);
 
     $stop_id = $stop_ids{$stopid};  # gtfs-view : stop_id.parent = stopid@tripover
-
-    if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
-      $unconcnt++;
-      next;
-    }
 
     $stop_code = '' unless defined $stop_code;
     $opts = 0 unless defined $opts;
@@ -2607,15 +2632,25 @@ sub merge($$$)
     next unless -f $infname;
 
     open($infile,'<:encoding(UTF-8)',$infname) or return error("cannot open $infname:$!");
-    $headline = readline($infile);
-    next unless length $headline;
+
+    open($outfile,$openmode . ':encoding(UTF-8)',$outfname) or return error("cannot open $outfname:$!");
+
+    $headline = '';
+    while (length($headline) < 2) {
+      $line = readline($infile);
+      if (length($line) > 1 and substr($line,0,1) ne '#') { $headline = $line; }
+      else { print($outfile $line); }
+    }
+    vrb("headline $headline");
+
     @lines = readline($infile);
     close($infile);
     next unless (@lines > 0);
 
-    open($outfile,$openmode . ':encoding(UTF-8)',$outfname) or return error("cannot open $outfname:$!");
     print($outfile $headline) unless -s $outfname;
-    for $line (@lines) { print($outfile $line); }
+    for $line (@lines) {
+      print($outfile $line) unless $line eq $headline;
+    }
     close($outfile);
   }
   return 1;

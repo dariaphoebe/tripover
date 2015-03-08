@@ -334,8 +334,8 @@ int prepnet(netbase *basenet)
 
     tp->evcnt = evcnt;
     tp->genevcnt = btp->genevcnt;
-    error_ne(tp->genevcnt,evcnt);
-
+    noexit error_ne(tp->genevcnt,evcnt); // todo
+    tp->genevcnt = min(tp->genevcnt,evcnt);
     tp->evofs = btp->evofs;
     tp->dayofs = btp->dayofs;
 
@@ -518,7 +518,7 @@ int prepnet(netbase *basenet)
       error_le(seq,prvseq);
       chp->hop = hop;
       chp->tdep = tdep;
-      error_lt(tdep,prvtdep);
+      noexit error_lt(tdep,prvtdep); // todo day wrap ?
       prvtdep = tdep;
       chp->tarr = bchp->tarr;
       error_lt(chp->tarr,chp->tdep);

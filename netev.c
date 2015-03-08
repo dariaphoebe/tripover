@@ -25,6 +25,7 @@ static ub4 msgfile;
 #include "netev.h"
 
 static const ub4 subsamples = 64;
+static const ub4 maxscnt = 1024 * 32;
 
 static int vrbena;
 
@@ -83,6 +84,8 @@ int mksubevs(lnet *net)
 
   aclear(dtbins);
 
+  error_ovf(maxscnt,ub2);
+
   nt0 = net->t0; nt1 = net->t1;
   if (nt0 == 0 || nt1 == 0) return error0(0,"no overall time period");
   else if (nt1 <= nt0)  return error(0,"no overall time period at \ad%u",nt0);
@@ -136,22 +139,29 @@ int mksubevs(lnet *net)
       if (t < st0) continue;
       else if (t >= st1) break;
       scnt++;
+      if (scnt >= maxscnt) break;
     }
     tp->sevcnt = scnt;
     sumsevcnt += scnt;
     hiscnt = max(hiscnt,scnt);
   }
   if (hiscnt < 2) return error(0,"no events to sample from \ah%lu",sumevcnt);
+  else if (hiscnt == maxscnt) warn(0,"limiting event samples to \ah%u",hiscnt);
 
-  info(0,"sampling \ah%lu events from \ah%lu",sumsevcnt,sumevcnt);
+  info(0,"sampling \ah%lu events from \ah%lu in %u box",sumsevcnt,sumevcnt,hiscnt);
 
   ub4 hiscnt1 = hiscnt + 1;
   ub4 *rndset,*rndsets = alloc(hiscnt1 * hiscnt1,ub4,0,"time randoms",hiscnt);
   ub8 *cev = alloc(hiscnt,ub8,0xff,"time cevs",hiscnt);
   ub4 *rnduniq = alloc(hiscnt,ub4,0,"time rndtmp",hiscnt);
 
+//  error_ge(subsamples,hiscnt);
+
   // determine random subsample patterns once per #events
+  if (progress(&eta,"pass 1 %u of %u %u",0,hiscnt,0)) return 1;
   for (i = subsamples; i < hiscnt; i++) {
+    if (progress(&eta,"pass 1 %u of %u %u",i,hiscnt,0)) return 1;
+
     rndset = rndsets + hiscnt * i;
     r = 0;
     nclear(rnduniq,hiscnt);
@@ -159,6 +169,7 @@ int mksubevs(lnet *net)
       rr = rnd(i);
       if (rnduniq[rr]) continue;
       rnduniq[rr] = 1;
+      error_ge(r + hiscnt * i,hiscnt1 * hiscnt1);
       rndset[r++] = rr;
     }
   }
@@ -280,7 +291,9 @@ int mksubevs(lnet *net)
       tid = ev[e * 2 + 1] & hi24;
       cp = chains + tid;
       if (cp->hopcnt < 3) { e++; continue; }
+
       error_ne(cp->rid,rid);
+
       crp = chainrhops + cp->rhopofs;
       tdep1 = (ub4)(crp[rh1] >> 32);
       tarr2 = crp[rh2] & hi32;
@@ -305,6 +318,7 @@ int mksubevs(lnet *net)
       sumdur += dur;
       dtbins[min(dur,dthibin)]++;
       scnt++;
+      if (scnt >= tp1->sevcnt) break; // todo
       error_gt(scnt,tp1->sevcnt,hop);
       e++;
     }

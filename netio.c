@@ -728,7 +728,7 @@ static int rdextports(netbase *net,const char *dir)
     error_eq(pid,extport);
     pep = extports + pid;
     cnt = pep->subcnt;
-    error_ge(cnt,255);
+    error_ge(cnt,4096);
     pep->subcnt = cnt + 1;
     ep->seq = cnt;
     vrb(0,"port %u has parent %u %s %s",subid,id,ep->name,pep->name);
@@ -1057,6 +1057,8 @@ static int rdexttimes(netbase *net,const char *dir)
           continue;
         }
         tday = cd2day(t_cd);
+        error_lt(tday,daybox0);
+        error_ge(tday,daybox1);
         vrb0(0,"rsid %x add %u - %u = %u at %u %p",rsid,t_cd,tbox0,tday - daybox0,mapofs + tday - daybox0,map + tday - daybox0);
         map[tday - daybox0] = 1;
       }
@@ -1682,7 +1684,7 @@ static int rdexthops(netbase *net,const char *dir)
       tx = rt2tx(rtype);
       hp->kind = tx; kinds[tx]++;
       switch(tx) {
-      case Unknown: case Kindcnt: break;
+      case Unknown: case Kindcnt: vrb0(0,"unknown route type %u",rtype); break;
       case Airint: case Airdom: pdep->air = parr->air = 1; if (psdep) psdep->air = 1; if (psarr) psarr->air = 1; break;
       case Rail: pdep->rail = parr->rail = 1; if (psdep) psdep->rail = 1; if (psarr) psarr->rail = 1; break;
       case Ferry: pdep->ferry = parr->ferry = 1; if (psdep) psdep->ferry = 1; if (psarr) psarr->ferry = 1; break;

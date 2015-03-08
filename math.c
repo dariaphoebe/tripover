@@ -171,8 +171,9 @@ static ub4 rndmask(ub4 mask) { return (ub4)xorshift1024star() & mask; }
 ub4 rnd(ub4 range)
 {
   ub4 r;
-  if (range) r = (ub4)((xorshift1024star() % range));
-  else r = 1;
+  if (range == 0) r = 1;
+  else r = (ub4)xorshift1024star();
+  if (range && range != hi32) r %= range;
   return r;
 }
 

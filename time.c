@@ -37,6 +37,7 @@ static ub4 daysinmon2[12] = {31,29,31,30,31,30,31,31,30,31,30,31};
 static ub4 *yymm2daytab;
 static ub4 *day2cdtab;
 static ub4 day2cdmax;
+static ub4 yymmtablen;
 
 void initime(int iter)
 {
@@ -52,6 +53,7 @@ void initime(int iter)
   if (iter == 0) {
     years = Erayear - Epochyear;
     months = years * 12;
+    yymmtablen = months;
     days = 0;
     yymm2daytab = alloc(months,ub4,0,"misc",0);
     day2cdtab = alloc(months * 31,ub4,0,"misc",0);
@@ -141,28 +143,36 @@ ub4 day2cd(ub4 day)
 // coded decimal day to day, tz-agnostic
 ub4 cd2day(ub4 cd)
 {
-  ub4 d,m,y,mm,yy,dm,day;
+  ub4 d,m,y,mm,yy,dm,day,ndx;
+  ub4 pos;
+  char buf[1024];
 
   d = cd % 100;
-  if (d == 0) { warning(0,"day in %u zero",cd); d = 1; }
-  else if (d > 31) { warning(0,"day %u above 31",d); d = 31; }
+  if (d == 0) { pos = fmtstring(buf,"W day in %u zero\n",cd); msg_write(buf,pos); d = 1; }
+  else if (d > 31) { pos = fmtstring(buf,"W day %u above 31\n",d); msg_write(buf,pos); d = 31; }
   cd /= 100;
   m = cd % 100;
-  if (m == 0) { warning(0,"month in %u zero",cd); m = 1; }
-  else if (m > 12) { warning(0,"month %u above 12",m); m = 12; }
+  if (m == 0) { pos = fmtstring(buf,"W month in %u zero\n",cd); msg_write(buf,pos); m = 1; }
+  else if (m > 12) { pos = fmtstring(buf,"W month %u above 12\n",m); msg_write(buf,pos); m = 12; }
   dm = daysinmon2[m-1];
-  if (d > dm) { warning(0,"invalid day %u in month %u",d,m); d = dm; }
+  if (d > dm) { pos = fmtstring(buf,"W invalid day %u in month %u\n",d,m); msg_write(buf,pos); d = dm; }
 
   y = cd / 100;
-  if (y < Epochyear) { warning(0,"year %u before lowest supported %u",y,Epochyear); y = Epochyear; }
-  else if (y >= Erayear) {
-    warning(0,"year %u after highest supported %u",y,Erayear);
+  if (y < Epochyear) {
+    pos = fmtstring(buf,"W year %u before lowest supported %u\n",y,Epochyear);
+    msg_write(buf,pos);
+    y = Epochyear;
+  } else if (y >= Erayear) {
+    pos = fmtstring(buf,"W year %u after highest supported %u\n",y,Erayear);
+    msg_write(buf,pos);
     y = Erayear - 1; m = 12; d = 31;
   }
 
   yy = y - Epochyear;
   mm = m - 1;
-  day = yymm2daytab[yy * 12 + mm] + (d - 1);
+  ndx = yy * 12 + mm;
+  error_ge_cc(ndx,yymmtablen,"year %u mon %u",y,m);
+  day = yymm2daytab[ndx] + (d - 1);
   return day;
 }
 

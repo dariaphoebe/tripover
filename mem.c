@@ -159,7 +159,7 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   }
   if (Maxmem_mb && totalMB + nm >= Maxmem_mb) {
     showmemsums();
-    errorfln(fln,Exit,FLN,"exceeding %u MB limit by %u MB for %s-%u",Maxmem_mb,nm + totalMB,desc,arg);
+    errorfln(fln,Exit,FLN,"exceeding %u MB limit by %u+%u=%u MB for %s-%u",Maxmem_mb,totalMB,nm,nm + totalMB,desc,arg);
   }
 
   if (nm >= mmap_from_mb) {

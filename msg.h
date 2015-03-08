@@ -80,6 +80,8 @@ extern ub4 mysnprintf(char *dst, ub4 pos, ub4 len, const char *fmt, ...) __attri
 #define fmtstring(dst,fmt,...) mysnprintf((dst),0,sizeof (dst),(fmt),__VA_ARGS__)
 #define fmtstring0(dst,s) mysnprintf((dst),0,sizeof (dst),"%s",(s))
 
+extern ub4 myutoa(char *dst,ub4 x);
+
 int msgprefix(int rv,const char *fmt, ...) __attribute__ ((format (printf,2,3)));
 
 extern ub4 setmsgfile(const char *filename);
@@ -165,9 +167,9 @@ static void error_ne_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 lin
 {
   if (a == b) { msg_doexit |= 1; return; }
 
-  long d = a - b;
+  size_t d = (a > b ? a - b : b - a);
 
-  if (d > -10000 && d< 10000) assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu dif %ld", sa,a,sb,b,d);
+  if (d < 10000) assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu dif %lu", sa,a,sb,b,d);
   else assertfln(line,Exit,"%s:\ah%lu != %s:\ah%lu", sa,a,sb,b);
 }
 
@@ -175,7 +177,8 @@ static void error_gt_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 x,c
 {
   if (a <= b) { msg_doexit |= 1; return; }
 
-  assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu %s %u", sa,a,sb,b,sx,x);
+  infofln(line,0,"%lu > %lu",a,b);
+  assertfln(line,Exit,"%s:\ah%lu > %s:\ah%lu %s dif %lu %u", sa,a,sb,b,sx,a - b,x);
 }
 
 static void error_ge_fln(size_t a,size_t b,const char *sa,const char *sb,ub4 line)

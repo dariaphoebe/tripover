@@ -124,7 +124,7 @@ static struct cfgvar {
   {"net.ext",Bool,Net2ext,0,0,1,0,"write network to ext"},
 
   {"engineering",Bool,Section,0,0,0,0,"engineering settings"},
-  {"eng.periodlim",Uint,Eng_gen,Eng_periodlim,0,365*2,365,"schedule period limit"},
+  {"eng.periodlim",Uint,Eng_gen,Eng_periodlim,0,365 * 20,365 * 10,"schedule period limit"},
   {"eng.options",String,Eng_opt,0,0,0,0,"engineering options"},
   {NULL,0,0,0,0,0,0,NULL}
 };

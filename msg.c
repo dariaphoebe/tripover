@@ -179,12 +179,14 @@ static ub4 ucnv(char *dst, ub4 x,ub4 wid,char pad)
   return nn;
 }
 
+ub4 myutoa(char *dst,ub4 x) { return ucnv(dst,x,0,' '); }
+
 // human-readable %u, 12.3G 
 static ub4 Ucnv(char *dst, ub4 x1,ub4 x2,char c)
 {
   ub4 n;
 
-  while (x2 >= 1024 - 5) { x1++; x2 >>= 10; }
+//  while (x2 >= 1024 - 5) { x1++; x2 >>= 10; }
 
   if (x1 < 10) n = 1;
   else if (x1 < 100) n = 2;
@@ -516,7 +518,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   if (do_U && uval >= 1024U * 10) {
                     x = uval;
                     if (x == hi32) n += Ucnv(dst + n,4,0,'G');
-                    else if (x >= 1024U * 1024) n += Ucnv(dst + n,x >> 20,(x >> 10) & 0x3ff,'M');
+                    else if (x >= 1024U * 1024 * 2) n += Ucnv(dst + n,x >> 20,(x >> 10) & 0x3ff,'M');
                     else n += Ucnv(dst + n,x >> 10,x & 0x3ff,'K');
                   } else if (uval == hi32) {
                     memcpy(dst + n,"hi32",4); n += 4;

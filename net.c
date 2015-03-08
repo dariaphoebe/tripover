@@ -141,10 +141,15 @@ static int mkwalks(struct network *net)
       pdep = ports + dep;
       parr = ports + arr;
       if (dist == 1) info(0,"port dist %u %u-%u %s to %s",dist,dep,arr,pdep->name,parr->name);
-      iv = ((dist - lodist) * ivcnt) / range;
-      geohist[min(iv,ivcnt-1)]++;
-      iv = ((dist - lodist) * iv2cnt) / range2;
-      geohist2[min(iv,iv2cnt-1)]++;
+      else if (dist == hi32) {
+        geohist[ivcnt-1]++;
+        geohist2[iv2cnt-1]++;
+      } else {
+        iv = ((dist - lodist) * ivcnt) / range;
+        geohist[min(iv,ivcnt-1)]++;
+        iv = ((dist - lodist) * iv2cnt) / range2;
+        geohist2[min(iv,iv2cnt-1)]++;
+      }
     }
   }
   info(0,"geodist range %u - %u",lodist,hidist);

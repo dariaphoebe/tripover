@@ -420,12 +420,13 @@ int compound(gnet *net)
           dirdist = fgeodist(pdep,parr);
           hopdist[chop] = max(dist,dirdist);
 
-          error_lt(tarr2,tdep1);
+          noexit error_lt(tarr2,tdep1); // todo: day wrap ?
 
           error_ne(crp[rhop1] >> 32,tdep1);
           error_ne(crp[rhop2] & hi32,tarr2);
 
-          midur = tarr2 - tdep1;
+          if (tarr2 >= tdep1) midur = tarr2 - tdep1;
+          else midur = hi32;
           hopdur[chop] = midur;
 
           rhopcdur[deparr] = midur;

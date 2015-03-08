@@ -191,6 +191,7 @@ int partition(gnet *gnet)
   if (aimcnt > 1 && dorun(FLN,Runpart,1)) info(0,"partitioning %u ports from %u routes into estimated %u parts",portcnt,ridcnt,aimcnt);
   else {
     info(0,"skip partitioning %u ports %u routes net",portcnt,ridcnt);
+    error_ovf(portcnt,ub2);
 
     part = 0; partcnt = 1;
 
@@ -1165,6 +1166,7 @@ int partition(gnet *gnet)
       warning(0,"partition %u has no hops",part);
       continue;
     }
+    error_ovf(pportcnt,ub2);
 
     msgprefix(0,"s%u ",part);
 
