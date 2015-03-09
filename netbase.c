@@ -394,9 +394,11 @@ int prepbasenet(void)
     dname = pdep->name;
     aname = parr->name;
 
-    if (pdep->lat == parr->lat && pdep->lon == parr->lon) {
+    if (pdep->lat && pdep->lat == parr->lat && pdep->lon && pdep->lon == parr->lon) {
       info(0,"ports %u-%u coloc %u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,dname,aname);
       dist = 1;
+    } else if (pdep->lat == 0 || pdep->lon == 0 || parr->lat == 0 || parr->lon == 0) {
+      dist = 50000;
     } else {
       fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
       if (fdist < 1) warning(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
@@ -707,8 +709,8 @@ int prepbasenet(void)
       error_z_cc(cp->rhopcnt,"cnt %u rid %u",cnt,rid);
 
       hidur = cp->hitarr - cp->lotdep;
-      infocc(hidur > 240,0,"chain %u rrid %u hidur %u",chain,rrid,hidur);
-      if (hidur > 240) {
+      infocc(hidur > 480,0,"chain %u rrid %u hidur %u",chain,rrid,hidur);
+      if (hidur > 480) {
         hp1 = hops + cp->lotdhop;
         hp2 = hops + cp->hitahop;
         dep = hp1->dep; arr = hp1->arr;
@@ -733,11 +735,11 @@ int prepbasenet(void)
         hop = chp->hop;
         error_ge(hop,hopcnt);
         hp = hops + hop;
+        error_ne(hp->rid,rid);
         tdep = chp->tdep;
         warncc(tdep < prvtdep,0,"hop %u %s",hop,hp->name);
         noexit error_lt(tdep,prvtdep); // todo
         prvtdep = tdep;
-        hp = hops + hop;
         dist += hp->dist;
         if (hp->tp.midur == hi32) { prvdur = midur; midur = hi32; }
         else midur += hp->tp.midur;
@@ -889,6 +891,7 @@ int prepbasenet(void)
     error_ge(hdt,xtimelen);
     tp = &hp->tp;
     tp->evcnt = 0;
+    rid = hp->rid;
 
 //    memset(xp,0xff,hdt * sizeof(*xp));
 //    memset(xpacc,0,(hdt >> 4) + 1);
@@ -941,7 +944,7 @@ int prepbasenet(void)
     noexit error_gt(evcnt,hp->evcnt,hop);
     noexit error_ne(evcnt,hp->evcnt);
 
-    zevcnt = filltrep(eventmem,evmapmem,tp,xp,xpacc,xtimelen);
+    zevcnt = filltrep(chains,rawchaincnt,rid,eventmem,evmapmem,tp,xp,xpacc,xtimelen);
     hoplog(hop,0,"evtcnt %u zevcnt %u and %u",evcnt,zevcnt,hp->zevcnt);
     noexit error_ne_cc(zevcnt,hp->zevcnt,"hop %u",hop);
     if (zevcnt != hp->zevcnt) warning(Iter,"hop %u zevcnt %u != hp->zevcnt %u",hop,zevcnt,hp->zevcnt);

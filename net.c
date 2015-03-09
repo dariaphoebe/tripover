@@ -96,7 +96,7 @@ static int mkwalks(struct network *net)
   for (dep = 0; dep < portcnt; dep++) {
     pdep = ports + dep;
     if (pdep->valid == 0) continue;
-    error_zz(pdep->lat,pdep->lon);
+//    error_zz(pdep->lat,pdep->lon);
   }
   for (dep = 0; dep < portcnt; dep++) {
     if (progress(&eta,"port %u of %u for \ah%u distance pairs",dep,portcnt,port2)) return 1;
@@ -110,7 +110,7 @@ static int mkwalks(struct network *net)
       aname = parr->name;
       error_eq_cc(pdep->gid,parr->gid,"%s %s",dname,aname);
       deparr = dep * portcnt + arr;
-      if (pdep->lat == parr->lat && pdep->lon == parr->lon) {
+      if (pdep->lat && pdep->lat == parr->lat && pdep->lon && pdep->lon == parr->lon) {
         info(Iter,"ports %u-%u coloc %u,%u-%u,%u %s to %s",dep,arr,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
         dist = 0;
       } else {
@@ -405,7 +405,7 @@ static int mknet0(struct network *net)
     if (dep == hi32 || arr == hi32 || dep == arr) continue;
     pdep = ports + dep;
     parr = ports + arr;
-    if (dep == arr || pdep->valid == 0 || parr->valid == 0) continue;
+    if (pdep->valid == 0 || parr->valid == 0) continue;
 
     da = dep * portcnt + arr;
     gen = con0cnt[da];
@@ -865,12 +865,16 @@ static int showgconn(ub4 callee,struct gnetwork *gnet)
 {
   struct network *tnet,*danet;
   struct port *gpdep,*gparr,*gports = gnet->ports;
+  struct hop *hp,*hops = gnet->hops;
   char *dname,*aname;
   ub1 *portparts = gnet->portparts;
   ub4 partcnt = gnet->partcnt;
   ub4 daportcnt,gportcnt = gnet->portcnt;
+  ub4 hopcnt = gnet->hopcnt;
+  ub4 ridcnt = gnet->ridcnt;
   ub4 gdep,garr,dep,arr,tdep,tarr,tdmid,tamid,gdmid,gamid;
   ub4 part;
+  ub4 rid,hop;
 
   ub4 xconn;
   ub4 tpart;
@@ -884,11 +888,18 @@ static int showgconn(ub4 callee,struct gnetwork *gnet)
 
   struct eta eta;
 
-
   ub2 *xmap,*xamap,*xmapdbase,*xmapabase,xm,xam;
   ub1 *tmap;
   block *xpartdmap = &gnet->xpartdmap;
   block *xpartamap = &gnet->xpartamap;
+
+  for (hop = 0; hop < hopcnt; hop++) {
+    hp = hops + hop;
+    rid = hp->rid;
+    if (rid == hi32) continue;
+    error_ge(rid,ridcnt);
+    infocc(rid == 0,0,"hop %u rid 0",hop);
+  }
 
   if (gportcnt < 2) return info(0,"skip global conn for %u ports net",gportcnt);
 
@@ -1502,6 +1513,8 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
 ub4 fgeodist(struct port *pdep,struct port *parr)
 {
   double dlat = pdep->rlat,dlon = pdep->rlon,alat = parr->rlat,alon = parr->rlon;
+
+  if (pdep->lat == 0 || pdep->lon == 0 || parr->lat == 0 || parr->lon == 0) return 50000;
 
   double fdist = geodist(dlat,dlon,alat,alon);
   if (fdist > 2) return (ub4)fdist;

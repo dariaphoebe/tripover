@@ -181,7 +181,7 @@ int prepnet(netbase *basenet)
       pp->namelen = nlen;
     } else info(0,"port %u has no name", port);
     pp->lat = bpp->lat;
-    error_z(pp->lat,port);
+    // error_z(pp->lat,port);
     pp->lon = bpp->lon;
     pp->rlat = bpp->rlat;
     pp->rlon = bpp->rlon;
@@ -472,6 +472,7 @@ int prepnet(netbase *basenet)
   for (chain = 0; chain < bchaincnt; chain++) {
     bcp = bchains + chain;
     cp = chains + chain;
+    cp->rid = bcp->rid;
     cnt = bcp->hopcnt;
     if (cnt < 3) { vrb(0,"skip dummy chain %u with %u hop\as",chain,cnt); continue; }
     cp->hopcnt = cnt;

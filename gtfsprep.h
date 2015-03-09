@@ -22,6 +22,7 @@ struct gtstop {
   ub4 nearcnt,enearcnt;
   ub4 nears[Nearstop];
   ub4 group,iparent;
+  char name[64];
   char parentname[64];
 };
 

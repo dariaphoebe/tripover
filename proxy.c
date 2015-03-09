@@ -102,15 +102,19 @@ Access-Control-Allow-Origin: *\r\n\
 Content-Type: text/plain; charset=UTF-8\r\n\
 Content-Length: ";
 
+static char replybody[4096];
+static char reply[4096];
+
 static int putrep(int fd,struct toreq *treq,struct torep *trep)
 {
-  char reply[4096];
-  ub4 pos,len,nw;
+  ub4 pos,len,nw,bodylen;
   long rx;
 
   if (treq->id != trep->id) return error(0,"req id %u rep %u",treq->id,trep->id);
 
-  len = fmtstring(reply,"%s%u\r\n\r\n%s\n%u.",rspline,trep->len + 5,trep->txt,treq->id);
+  bodylen = fmtstring(replybody,"%s\n%u.\n",trep->txt,treq->id);
+
+  len = fmtstring(reply,"%s%u\r\n\r\n%s",rspline,bodylen,replybody);
   info(Notty,"write %s",reply);
   nw = 0; pos = 0;
   while (pos < len) {

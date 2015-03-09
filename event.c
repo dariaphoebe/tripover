@@ -426,7 +426,7 @@ ub4 findtrep(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub8 *xp2,ub4 xlim,ub4 evc
 }
 
 // comparable to above, fill pass using info above
-ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlim)
+ub4 filltrep(struct chainbase *chbase,ub4 chaincnt,ub4 rid,block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlim)
 {
   ub4 hop = tp->hop;
   ub4 t0,t1,t,gt0,tdays,tdays5,day;
@@ -443,6 +443,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
   ub2 *days;
   ub4 hi0pat,hi1pat,hi2pat,hi3pat,gen,hi0day,hi1day,hi2day,hi3day,genday;
   ub4 gndx = 0;
+  struct chainbase *chp;
 
   evs = blkdata(evmem,tp->evofs,ub8);
   days = blkdata(evmapmem,tp->dayofs,ub2);
@@ -475,7 +476,7 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
   vrb0(0,"evcnt %u t \ad%u - \ad%u",tp->genevcnt,t0+gt0,t1+gt0);
 
   t >>= Accshift; t <<= Accshift;
-  if (gen == 0) { // no repetition
+  if (gen == 0) { // no repetition: currently only supported case
     while (t <= t1 && gndx < tp->genevcnt * 2) { // todo <= ?
       if (xpacc[t >> Accshift] == 0) { t += (1 << Accshift); continue; }
       x = xp[t];
@@ -487,6 +488,11 @@ ub4 filltrep(block *evmem,block *evmapmem,struct timepatbase *tp,ub8 *xp,ub1 *xp
       dur = dursub & hi16;
 
       error_gt_cc(dur,1440 * 14,"hop %u dur \ax%u",hop,(ub4)dur);
+
+      tid = x & hi24;
+      error_ge(tid,chaincnt);
+      chp = chbase + tid;
+      error_ne(chp->rid,rid);
 
       evs[gndx++] = (ub8)t | (dur << 32);
       evs[gndx++] = x;  // srarr-srdep-dur-dayid-tid

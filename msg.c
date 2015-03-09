@@ -700,6 +700,9 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   ub4 iter,iterndx,itercnt,file,line;
   static ub4 himsgcnt[Maxmsgline * Maxmsgfile];
 
+  if (fmt == NULL) { fmt = "(nil fmt)"; lvl = Error; }
+  else if ((size_t)fmt < 4096) { fmt = "(int fmt)"; lvl = Error; }
+
   if (code & User) {
     code &= ~User;
     opts = 0;

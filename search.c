@@ -453,8 +453,11 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 hop,ub4 midur,ub4 dthi)
         error_ge(tid,chaincnt);
         cp = chains + tid;
 
-        warncc(cp->rid != rid,0,"hop %u -> %u-%u tid %u rid %u vs %u",hop,hop1,hop2,tid,rid,cp->rid);
-
+        if (cp->rid != rid) {
+          info(Notty,"hop %u -> %u-%u %s tid %u rid %u vs %u",hop,hop1,hop2,hp1->name,tid,rid,cp->rid); // todo
+          info(Notty,"rrid %u cnt %u",cp->rrid,cp->hopcnt); // todo
+          continue;
+        }
         if (cp->hopcnt < 2) continue;
 
         srda = (ub4)(x1 >> 48);
@@ -1044,7 +1047,7 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
           if (dist < src->lodist) src->lodist = dist;
           src->lodt = lodt;
           src->querytlim = min(src->querytlim,src->queryt0 + 1000 * 200);
-          src->timestop = stop;
+          src->timestop = min(src->timestop,stop);
         } // each v2
       } // each v1
     } // each mid
@@ -1292,7 +1295,7 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
             if (dist < src->lodist) src->lodist = dist;
             info(0,"found %u-stop trip %s",nleg-1,stp->desc);
             src->querytlim = min(src->querytlim,src->queryt0 + 1000 * 500);
-            src->timestop = nleg - 1;
+            src->timestop = min(src->timestop,nleg - 1);
           } // each v3
         } // each v2
       } // each v1
@@ -1380,7 +1383,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
     info(0,"nleg %u nethileg %u nethistop %u",nleg,nethileg,nethistop);
     if (stop > src->histop) return info(Notty,"%s: stop limit %u reached",desc,src->histop);
     else if (nleg > nethileg * 2) {
-      if (src->timestop < 2) return info(Notty,"%s: time connection found at 0-stop, skip %u",desc,stop);
+      if (src->timestop < 2) return info(Notty,"%s: time connection found at %u-stop, skip %u",desc,src->timestop,stop);
       return srcdyn2(gnet,net,src,dep,arr,stop,havedist,desc);
     } else {
       rv = srcdyn(gnet,net,src,dep,arr,stop,havedist,desc);
@@ -1450,7 +1453,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
     // time
     dtcur = hi32;
     evcnt = addevs(caller,src,net,vp,nleg,0,lodt,&dtcur);
-    info(Notty,"%u event\as dtcur %u lodt %u",evcnt,dtcur,lodt);
+    infocc(evcnt,Notty,"%u event\as dtcur %u lodt %u",evcnt,dtcur,lodt);
 
     stp = src->trips;
     if (evcnt == 0 || (lodt < dtcur && stp->cnt)) {
@@ -1500,7 +1503,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
 
   if (havetime) {
     src->locsrccnt++;
-    src->timestop = stop;
+    src->timestop = min(src->timestop,stop);
     info(0,"%s: found %u-stop conn %u-%u",desc,stop,dep,arr);
     src->querytlim = min(src->querytlim,src->queryt0 + 1000 * 100);
     return 1;
@@ -2398,6 +2401,8 @@ static ub4 dosrc(struct gnetwork *gnet,ub4 nstoplo,ub4 nstophi,search *src,char 
     net = getnet(0);
     nethistop = min(net->histop,src->nethistop);
     for (stop = nstoplo; stop <= nstophi; stop++) {
+      if (src->timestop == 0 && stop > 1) break;
+      else if (src->timestop == 1 && stop > 2) break;
       info(Notty,"search %u stops",stop);
       conn = srcglocal(gnet,0,gdep,garr,stop,src);
       if (conn) {
@@ -2405,6 +2410,7 @@ static ub4 dosrc(struct gnetwork *gnet,ub4 nstoplo,ub4 nstophi,search *src,char 
         info(Notty,"found trip at %u stops",stop);
         if (stop > nethistop + 1) return conn;
       }
+      vrb0(0,"timestop %u",src->timestop);
     }
     return allconn;
   }

@@ -48,13 +48,13 @@ static ub4 dateshift = 0;
 static char *prefix = "";
 static ub4 prefixlen1,prefixlen = 0;
 
-static ub4 rndtab[256];
+static ub4 hidate = 20000101;
+static ub4 lodate = 20201231;
 
 static int init0(char *progname)
 {
   char mtimestr[64];
   char *p;
-  ub4 i;
 
   setsigs();
 
@@ -82,10 +82,6 @@ static int init0(char *progname)
   globs.maxvm = 12;
   initime(1);
 
-  for (i = 0; i < Elemcnt(rndtab); i++) {
-    rndtab[i] = rnd(hi32);
-  }
-
   return 0;
 }
 
@@ -94,16 +90,19 @@ const char *runlvlnames(enum Runlvl lvl) { return lvl ? "n/a" : "N/A"; }
 
 static int streq(const char *s,const char *q) { return !strcmp(s,q); }
 
+// Bob Jenkin one-at-a-time, from Wikipedia
 static ub4 hashcode(const char *str,ub4 slen,ub4 len)
 {
-  ub4 i,x,c;
-  ub8 h = slen;
+  ub4 h = 0, i;
+
   for (i = 0; i < slen; i++) {
-    c = str[i] & 0xff;
-    x = rndtab[c];
-    h += x ^ i;
-//    info(0,"h %u x %u",h,x);
+    h += str[i];
+    h += (h << 10);
+    h ^= (h >> 6);
   }
+  h += (h << 3);
+  h ^= (h >> 11);
+  h += (h << 15);
   return h % len;
 }
 
@@ -133,9 +132,14 @@ static ub4 gethash(hash *ht,const char *str,ub4 slen,ub4 ucode)
   char *spool = ht->strpool;
   ub4 eq = 0;
 
+//  info(0,"get code %u %s len %u",code,str,slen);
+
   bkt = bkts + code * eqlen;
-  while (bkt->slen && bkt->slen == slen && eq++ < eqlen) {
-    if (memcmp(spool + bkt->sofs,str,slen) == 0) return bkt->data;
+  while (bkt->slen && eq++ < eqlen) {
+    if (bkt->slen == slen && memcmp(spool + bkt->sofs,str,slen) == 0) {
+//      info(0,"found %s in %s pos %u",str,ht->desc,eq);
+      return bkt->data;
+    }
     bkt++;
   }
   return hi32;
@@ -150,26 +154,31 @@ static ub4 addhash(hash *ht,const char *str,ub4 slen,ub4 ucode,ub4 data)
   char *spool = ht->strpool;
   ub4 eq = 0;
   ub4 sofs = ht->sofs;
+  ub4 cnt = ht->itemcnt;
 
   error_z(slen,data);
   if (sofs + slen >= ht->spoollen) {
-    error(0,"hash table %s full",ht->desc);
+    error(0,"hash table %s full, %u items",ht->desc,cnt);
     return hi32;
   }
   bkt = bkts + code * eqlen;
   while (bkt->slen && eq < eqlen) { bkt++; eq++; }
   if (eq == eqlen) {
-    error(0,"hash %s entry at %u %u for %.*s exceeds %u entry limit",ht->desc,code,ucode,slen,str,eqlen);
+    error(0,"hash %s entry %u at %u %u for %.*s exceeds %u entry limit",ht->desc,cnt,code,ucode,slen,str,eqlen);
     return hi32;
   }
-//  info(0,"code %u pos %u %.*s",code,eq,slen,str);
+//  info(0,"add code %u pos %u %.*s",code,eq,slen,str);
   memcpy(spool + sofs,str,slen);
   bkt->slen = slen;
   bkt->sofs = sofs;
   bkt->data = data;
 
   ht->sofs = sofs + slen;
-  if (eq > ht->maxeq) { ht->maxeq = eq; info(0,"hash %s has load %u",ht->desc,eq); }
+  if (eq > ht->maxeq) {
+    ht->maxeq = eq;
+    infocc(eq > eqlen / 2,0,"hash %s has load %u at %u entries for %s",ht->desc,eq,cnt,str);
+  }
+  ht->itemcnt = cnt + 1;
 
   return code * eqlen + eq;
 }
@@ -339,7 +348,7 @@ static enum extresult nextchar_csv(struct extfmt *ef)
       valndx = 0; uval = hi32;
       switch (c) {
         case ',': vallens[0] = 0; uvals[0] = uval; valndx = 1; state = Val1; break;
-        case '\r': break;
+        case '\r': case ' ': break;
         case '\n': parsewarn(FLN,fname,linno,colno,"skipping empty line"); break;
         case '"': vallens[0] = 0; state = Val2q; break;
         case '\t': c = ' '; // cascade
@@ -369,7 +378,7 @@ static enum extresult nextchar_csv(struct extfmt *ef)
     case Val2:
       switch (c) {
         case ',': uvals[valndx++] = uval; vallens[valndx] = 0; break;
-        case '\r': break;
+        case '\r': case ' ': break;
         case '\n': newitem = 1; state = Val0; break;
         case '"': state = Val2q; uval = 0; break;
         case '\t': c = ' '; // cascade
@@ -429,6 +438,7 @@ static enum extresult nextchar_csv(struct extfmt *ef)
     for (valno = 0; valno <= valndx; valno++) {
       val = vals + valno * Collen;
       vallen = vallens[valno];
+      if (vallen && val[vallen-1] == ' ') vallens[valno] = --vallen;
       val[vallen] = 0;
       uval = uvals[valno];
       if (uval == hi32 && valtypes[valno]) {
@@ -549,7 +559,7 @@ static enum extresult nextchar_canon(struct extfmt *ef)
         default:
           val = vals + valndx * Collen;
           vallen = vallens[valndx]; val[vallen] = c; vallens[valndx] = vallen + 1;
-          if (uval != hi32 && c >= '0' && c <= '9') uval = uval * 10 + (c - '0');
+          if (uval != hi32 && c >= '0' && c <= '9' && uval < (hi32 / 10)) uval = uval * 10 + (c - '0');
           else uvals[valndx] = hi32;
       }
       break;
@@ -618,8 +628,8 @@ static ub4 addcol(char *lines,ub4 pos,char *col,ub4 collen,char c,bool addpfx)
   return pos;
 }
 
-enum Txmode { Tram,Metro,Rail,Bus,Ferry,Cabcar,Gondola,Plane_int,Plane_dom, Modecnt };
-static const char *modenames[] = { "tram","metro","rail","bus","ferry","cable car","gondola","air-dom","air-int","unknown" };
+enum Txmode { Tram,Metro,Rail,Bus,Ferry,Cabcar,Gondola,Funicular,Plane_int,Plane_dom, Modecnt };
+static const char *modenames[] = { "tram","metro","rail","bus","ferry","cable car","gondola","funicular","air-dom","air-int","unknown" };
 static ub4 rmodecnts[Modecnt + 1];
 static ub4 modecnts[Modecnt + 1];
 
@@ -833,10 +843,12 @@ static int rdcalendar(gtfsnet *net,const char *dir)
   ub4 service_idpos = hi32,startpos = hi32,endpos = hi32;
   ub4 dowpos[7] = {hi32,hi32,hi32,hi32,hi32,hi32,hi32};
 
+  vals = eft.vals;
+  ub4 *uvals = eft.uvals;
+
   do {
 
     res = nextchar(&eft);
-    vals = eft.vals;
 
     switch(res) {
 
@@ -897,26 +909,34 @@ static int rdcalendar(gtfsnet *net,const char *dir)
 // start
       val = vals + startpos * Collen;
       vlen = vallens[startpos];
+      date_cd = uvals[startpos];
 
-      if (dateshift && str2ub4(val,&date_cd)) {
+      if (dateshift && date_cd != hi32) {
         date = cd2day(date_cd);
         date += dateshift;
-        vlen = fmtstring(datestr,"%u",day2cd(date));
+        date_cd = day2cd(date);
+        vlen = fmtstring(datestr,"%u",date_cd);
         val = datestr;
       }
+      lodate = min(lodate,date_cd);
+      hidate = max(hidate,date_cd);
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab,0);
 
 // end
       val = vals + endpos * Collen;
       vlen = vallens[endpos];
+      date_cd = uvals[endpos];
 
-      if (dateshift && str2ub4(val,&date_cd)) {
+      if (dateshift && date_cd != hi32) {
         date = cd2day(date_cd);
         date += dateshift;
-        vlen = fmtstring(datestr,"%u",day2cd(date));
+        date_cd = day2cd(date);
+        vlen = fmtstring(datestr,"%u",date_cd);
         val = datestr;
       }
+      lodate = min(lodate,date_cd);
+      hidate = max(hidate,date_cd);
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,'\n',0);
 
@@ -976,10 +996,12 @@ static int rdcaldates(gtfsnet *net,const char *dir)
   const char tab = '\t';
   ub4 service_idpos = hi32,extype_pos = hi32,datepos = hi32;
 
+  ub4 *uvals = eft.uvals;
+  vals = eft.vals;
+
   do {
 
     res = nextchar(&eft);
-    vals = eft.vals;
 
     switch(res) {
 
@@ -1029,13 +1051,17 @@ static int rdcaldates(gtfsnet *net,const char *dir)
 // date
       val = vals + datepos * Collen;
       vlen = vallens[datepos];
+      date_cd = uvals[datepos];
 
-      if (dateshift && str2ub4(val,&date_cd)) {
+      if (dateshift && date_cd != hi32) {
         date = cd2day(date_cd);
         date += dateshift;
-        vlen = fmtstring(datestr,"%u",day2cd(date));
+        date_cd = day2cd(date);
+        vlen = fmtstring(datestr,"%u",date_cd);
         val = datestr;
       }
+      lodate = min(lodate,date_cd);
+      hidate = max(hidate,date_cd);
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,'\n',0);
 
@@ -1049,7 +1075,7 @@ static int rdcaldates(gtfsnet *net,const char *dir)
 
   } while (res < Eof);  // each input char
 
-  info(0,"%u from %u entries",cnt,rawcnt);
+  info(0,"%u from %u entries  timebox %u - %u",cnt,rawcnt,lodate,hidate);
   net->caldatescnt = cnt;
   net->caldateslinepos = linepos;
 
@@ -1093,7 +1119,7 @@ static int rdroutes(gtfsnet *net,const char *dir)
 
   hash *routes;
   if (canonin) routes = NULL;
-  else routes = net->routes = mkhash(rawcnt * 21,10,rawcnt * 64,"routes");
+  else routes = net->routes = mkhash(1024 * 1024,10,rawcnt * 64,"routes");
 
   linelen = len + 4 * rawcnt + (2 * rawcnt) * prefixlen1 + rawcnt * defagencylen; // optional agency_id
   char *lines = net->routelines = mkblock(mem,linelen,char,Noinit,"gtfs %u routes, len %u",rawcnt-1,linelen);
@@ -1189,6 +1215,8 @@ static int rdroutes(gtfsnet *net,const char *dir)
           break;
         }
         if (addhash(routes,idval,idvlen,rrid,linno) == hi32) return 1;
+        rid = gethash(routes,idval,idvlen,rrid);
+        if (rid == hi32) return error(0,"stored %s not found",idval);
       }
 
 // sname
@@ -1407,6 +1435,7 @@ static int rdstops(gtfsnet *net,const char *dir)
 
       sp->nameofs = linepos;
       sp->namelen = vlen;
+      memcpy(sp->name,val,min(vlen,sizeof(sp->name)-1));
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab,0);
 
@@ -1419,7 +1448,7 @@ static int rdstops(gtfsnet *net,const char *dir)
       if (vlen) {
         if (str2dbl(val,vlen,&sp->lat)) parsewarn(FLN,fname,linno,colno,"cannot convert coord '%.*s'",vlen,val);
         else sp->latlen = vlen;
-      }
+      } else vrb0(0,"stop %s has no lat",sp->name);
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab,0);
 
@@ -1536,10 +1565,12 @@ static int rdstops(gtfsnet *net,const char *dir)
     for (stop2 = 0; stop2 < cstopcnt; stop2++) {
       if (stop2 == stop) continue;
       sp2 = cstops + stop2;
+      if (sp2->latlen == 0 || sp2->lonlen == 0) continue;
       a2 = sp2->rlat; o2 = sp2->rlon;
       if (a1 - a2 > axislim || a1 - a2 < -axislim) continue;
       if (o1 - o2 > axislim || o1 - o2 < -axislim) continue;
       dist = geodist(a1,o1,a2,o2);
+//      if (dist < 1e-5) error(Exit,"dist 0 for %s to %s",sp->name,sp2->name);
       if (dist > grouplimit) continue;
       sp->nears[cnt++] = stop2;
       if (cnt >= Nearstop) break;
@@ -1630,6 +1661,7 @@ static int rdstops(gtfsnet *net,const char *dir)
 
   for (stop = 0; stop < cstopcnt; stop++) {
     sp = cstops + stop;
+    if (sp->latlen == 0 || sp->lonlen == 0) continue;
     len = sp->gidlen + sp->codelen + sp->namelen + sp->desclen;
     len += geopreclen * 2;
     if (sp->group != hi32) len += iparentlen;
@@ -1644,6 +1676,7 @@ static int rdstops(gtfsnet *net,const char *dir)
   pos = 0;
   for (stop = 0; stop < cstopcnt; stop++) {
     sp = cstops + stop;
+    if (sp->latlen == 0 || sp->lonlen == 0) continue;
 
     // id,code,loctype
     pos += mysnprintf(elines,pos,elinelen,"%.*s\t%.*s\t0\t",sp->gidlen,lines + sp->gidofs,sp->codelen,lines + sp->codeofs);
@@ -1662,7 +1695,10 @@ static int rdstops(gtfsnet *net,const char *dir)
     pos += mysnprintf(elines,pos,elinelen,"%.*s\t",sp->namelen,lines + sp->nameofs);
 
     // lat,lon
-    pos += mysnprintf(elines,pos,elinelen,"%f\t%f\t",sp->lat,sp->lon);
+    if (sp->latlen) pos += mysnprintf(elines,pos,elinelen,"%f\t",sp->lat);
+    else elines[pos++] = '\t';
+    if (sp->lonlen) pos += mysnprintf(elines,pos,elinelen,"%f\t",sp->lon);
+    else elines[pos++] = '\t';
 
     // desc
     pos += mysnprintf(elines,pos,elinelen,"%.*s\n",sp->desclen,lines + sp->descofs);
@@ -1702,7 +1738,7 @@ static int rdtrips(gtfsnet *net,const char *dir)
   char *val,*vals;
   ub4 vlen,*vallens;
   ub4 *uvals;
-  ub4 rrid,rtid;
+  ub4 rrid,rtid,tid;
   ub4 valcnt,valno;
   ub4 linepos = 0,linelen;
   block *mem = &net->tripmem;
@@ -1723,7 +1759,7 @@ static int rdtrips(gtfsnet *net,const char *dir)
 
   hash *trips;
   if (canonin) trips = NULL;
-  else trips = net->trips = mkhash(rawcnt * 30,20,rawcnt * 64,"trips");
+  else trips = net->trips = mkhash(1024 * 1024,10,rawcnt * 64,"trips");
 
   hash *routes = net->routes;
   ub4 rid;
@@ -1780,8 +1816,8 @@ static int rdtrips(gtfsnet *net,const char *dir)
       rrid = uvals[route_idpos];
 
       if (canonin == 0) {
-        rid = gethash(routes,val,vlen,rrid);
-        if (rid == hi32) continue;
+        rid = gethash(routes,val,vlen,rrid); // filtered ?
+        if (rid == hi32) break;
       }
 
       bound(mem,linepos + vlen + 1,char);
@@ -1800,7 +1836,15 @@ static int rdtrips(gtfsnet *net,const char *dir)
       rtid = uvals[trip_idpos];
 
       if (canonin == 0) {
+
+        tid = gethash(trips,val,vlen,rtid);
+        if (tid != hi32) {
+          parsewarn(FLN,fname,linno,colno,"trip %s previously defined on line %u",val,tid);
+          break;
+        }
         if (addhash(trips,val,vlen,rtid,linno) == hi32) return 1;
+        tid = gethash(trips,val,vlen,rtid);
+        if (tid == hi32) return error(0,"stored trip %s not present",val);
       }
 
       bound(mem,linepos + vlen + 1,char);
@@ -1882,7 +1926,7 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
 
   hash *stops;
   if (canonin) stops = NULL;
-  else stops = net->stops = mkhash(4096 * 1024 - 1,10,1000 * 1000 * 64,"stops");
+  else stops = net->stops = mkhash(1024 * 1024,10,1000 * 1000 * 64,"stops");
 
   linelen = len + rawcnt * 12 + 2 * rawcnt * prefixlen1;
   char *lines = net->stoptimeslines = mkblock(mem,linelen,char,Noinit,"gtfs %u stoptimes, len %u",rawcnt-1,linelen);
@@ -1939,12 +1983,11 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
 // tripid
       val = vals + trip_idpos * Collen;
       vlen = vallens[trip_idpos];
-
       rtid = uvals[trip_idpos];
 
       if (canonin == 0) {
         tid = gethash(trips,val,vlen,rtid);
-        if (tid == hi32) continue;
+        if (tid == hi32) break;
       }
 
       bound(mem,linepos + vlen + 1,char);
@@ -1959,6 +2002,7 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
       if (canonin == 0) {
         stopid = gethash(stops,val,vlen,rstopid);
         if (stopid == hi32) {
+          vrb0(0,"adding new stop %u:%s",vlen,val);
           if (addhash(stops,val,vlen,rstopid,stopcnt++) == hi32) return 1;
         }
       }
@@ -2345,6 +2389,12 @@ int main(int argc, char *argv[])
 
   if (globs.argc) {
     dir = globs.args[0];
+
+    oclear(mf);
+    if (osfileinfo(&mf,dir)) return oserror(0,"cannot access net directory %s",dir);
+    else if (mf.isdir == 0) return error(0,"net arg %s is not a directory",dir);
+    if (setmsglog(dir,"gtfsprep.log")) return 1;
+
     if (canonin == 0) {
       if (globs.argc > 1) prefix = globs.args[1];
       else prefix = dir;

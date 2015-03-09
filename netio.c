@@ -1041,7 +1041,7 @@ static int rdexttimes(netbase *net,const char *dir)
       if (dow) {
         t0days = max(cd2day(t0_cd),daybox0);
         t1days = cd2day(t1_cd) + 1; // make exclusive
-        expandsid(rsid,map,dtbox,daybox0,t0days,t1days,dow,t0wday);
+        if (t1days > t0days) expandsid(rsid,map,dtbox,daybox0,t0days,t1days,dow,t0wday);
       }
 
       // add and remove individual items
@@ -1058,7 +1058,8 @@ static int rdexttimes(netbase *net,const char *dir)
         }
         tday = cd2day(t_cd);
         error_lt(tday,daybox0);
-        error_ge(tday,daybox1);
+        if (tday >= daybox1) continue;
+        error_ge(tday,daybox1); // todo
         vrb0(0,"rsid %x add %u - %u = %u at %u %p",rsid,t_cd,tbox0,tday - daybox0,mapofs + tday - daybox0,map + tday - daybox0);
         map[tday - daybox0] = 1;
       }

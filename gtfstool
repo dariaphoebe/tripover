@@ -952,10 +952,18 @@ sub readstops($)
     $rstopids{$id} = $rstopid;
     $rstopbyid{$rstopid} = $id;
 
-    if (length($lon) < 1) { warning("$id has empty lon"); $lon = 0; }
-    if (length($lat) < 1) { warning("$id has empty lat"); $lat = 0; }
-    $ilat = str2lat($lat,$linno);
-    $ilon = str2lon($lon,$linno);
+    if (length($lon) < 1) {
+      vrb("$id has empty lon");
+      $lon = 0; $ilon = 0;
+    } else { 
+      $ilat = str2lat($lat,$linno);
+    }
+    if (length($lat) < 1) {
+      vrb("$id has empty lat");
+      $lat = 0; $ilat = 0;
+    } else {
+      $ilon = str2lon($lon,$linno);
+    }
 
     $isparent = 0;
     if (length($loctype)) {
@@ -1596,7 +1604,7 @@ sub readcalendar($)
     }
 
     if ($dow == 0) {
-      info("$fln: empty service id $service_id");
+      vrb("$fln: empty service id $service_id");
     }
 
     warning("$fln: end time $t1 before start time $t0") if $t1 < $t0;
@@ -1843,7 +1851,7 @@ sub do_conn()
   info("stops with $concnt + arrivals   : $arrcnt") if $arrcnt;
 
   while (($service_id,$sid) = each %serviceids) {
-    info("service id $service_id not referenced") unless exists $sidrefs{$sid};
+    vrb("service id $service_id not referenced") unless exists $sidrefs{$sid};
   }
 
   return 1;
@@ -1935,8 +1943,17 @@ sub readstoptimes($)
       next;
     }
 
+    if ($prvtrip != $tripid) {
+      $service_id = $tripservice{$trip_id};
+      error_exit("undefined sid for $trip_id") unless defined $service_id;
+      $sid = $serviceids{$service_id};
+      error_exit("undefined $service_id") unless defined $sid;
+      $sidrefs{$sid} = 1 unless exists $sidrefs{$sid};
+      $tripsids{$tripid} = $sid;
+    }
+
     unless (exists $rstopids{$rstop_id}) {
-      warning("line $linno: unknown stop ID $rstop_id");
+#      warning("line $linno: unknown stop ID $rstop_id");
       next;
     }
     $rstopid = $rstopids{$rstop_id};
@@ -1950,15 +1967,6 @@ sub readstoptimes($)
     unless (defined $stop_id) {
       warning("undefined stop ID for $stopid from $rstop_id $rstopid line $linno");
       next;
-    }
-
-    if ($prvtrip != $tripid) {
-      $service_id = $tripservice{$trip_id};
-      error_exit("undefined sid for $trip_id") unless defined $service_id;
-      $sid = $serviceids{$service_id};
-      error_exit("undefined $service_id") unless defined $sid;
-      $sidrefs{$sid} = 1 unless exists $sidrefs{$sid};
-      $tripsids{$tripid} = $sid;
     }
 
 # todo check if valid
@@ -1989,7 +1997,7 @@ sub readstoptimes($)
         push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
       }
       next if @newtrip == 0;
-      warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1; # todo
+#      warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1; # todo
       @newstrip = sort { substr($a,0,3) <=> substr($b,0,3) } @newtrip;
       @newstrip1 = ();
       foreach $tripline (@newstrip) { push @newstrip1,$tripline; }
@@ -2094,7 +2102,7 @@ sub readstoptimes($)
         } else {
           $tripseq{$uniqid} = [ join('_',$prvid,$id,$xtripid,$htdep,$htarr,$seq) ];
           push @uniqids,$uniqid;
-          info("$prvid $id $prvpid $pid") if $id == 32 or $prvid == 32;
+#          info("$prvid $id $prvpid $pid") if $id == 32 or $prvid == 32;
           $stopdeps[$prvid]++;
           $stoparrs[$id]++;
           $stopdeps[$prvpid]++ if $prvid != $prvpid;
@@ -2328,7 +2336,7 @@ sub writext($$)
       $name = join(' ',$agency_id,$shortname,$longname);
     }
     $srtype = extrtype($rtype);
-    printf($routefile "%s\t%u\t%u\t%u\t%u # %u\n",$name,$rid,$srtype,$reserve,$utcofs12,$rtype);
+    printf($routefile "%s\t%u\t%u\t%u\t%u # %u %s\n",$name,$rid,$srtype,$reserve,$utcofs12,$rtype,$route_id);
   }
   close($routefile);
   info("wrote to_routes.txt");
@@ -2395,7 +2403,13 @@ sub writext($$)
     $xinfo = "\t# '$depname' to '$arrname'" if ($verbose_hops > 0);
 
     ($sdep,$sarr,$tid,$tdep,$tarr,$seq) = split('_',shift @times);
+
+    next unless exists $tripsids{$tid};
+
     $sid = $tripsids{$tid};
+
+    next unless defined $sid;
+
     $fmt = 0;
     $timestr = sprintf("%x\t%x\t%x\t%x\t%x\t%x\t%x\t%x",$fmt,$sdep,$sarr,$sid,$tid,$tdep,$tarr,$seq);
 
