@@ -43,13 +43,14 @@ The planner is targeted to run on a server, accessed by local and web clients.
 [small]#aim at higher system requirements#
 
 == Status
-Developing
+Pre-alpha - initial testing on larger networks
 
 * GTFS reader and external readable network file format
 * Timezone support
 * Combine multiple datasets
 * Static connectivity matrix aka graph builing
 * simple local commandline client / server interface
+* CGI / web interface
 * time and route search - promising results and query times. Some results need work
 * handling of reserved transport and real-time fare updates
 
@@ -149,8 +150,6 @@ Results are promising, search times are good and most search criteria are honour
 Yet not all results are as expected, and you will likely hit issues when trying new data.
 
 * The commandline tools can be pretty verbose and disabling does not work properly.
-
-* Nearby stops are silently merged, yet the reported results do not take this into account.
 
 * Larger networks that require partitioning can give surprising results.
 
