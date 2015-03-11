@@ -51,6 +51,8 @@ static ub4 prefixlen1,prefixlen = 0;
 static ub4 hidate = 20000101;
 static ub4 lodate = 20201231;
 
+static bool show_omitstop = 0;
+
 static int init0(char *progname)
 {
   char mtimestr[64];
@@ -198,7 +200,10 @@ static ub4 linecnt(const char *name,const char *buf, ub4 len)
       while (pos < len && buf[pos] != nl) pos++;
     }
   }
-  if (len && buf[len-1] != nl) warning(0,"%s has unterminated last line",name);
+  if (len && buf[len-1] != nl) {
+    warning(0,"%s has unterminated last line",name);
+    error_nz(canonin,cnt);
+  }
   info(0,"%s: %u data lines", name,cnt);
   return cnt;
 }
@@ -272,6 +277,7 @@ static enum extresult nextchar_csv(struct extfmt *ef)
 
   len = (ub4)ef->mf.len;
   pos = ef->pos;
+
   if (pos >= len) return Eof;
 
   // state
@@ -295,6 +301,8 @@ static enum extresult nextchar_csv(struct extfmt *ef)
 
 //    info(0,"state %u c %c",state,c);
 
+  int neweof = 0;
+
     switch(state) {
 
     case Init:
@@ -312,6 +320,7 @@ static enum extresult nextchar_csv(struct extfmt *ef)
       switch (c) {
         case ',': return parserr(FLN,fname,linno,colno,"empty column name");
         case '\n': return parserr(FLN,fname,linno,colno,"unexpected newline");
+        case ' ': break; // ignore leading ws
         default:
           if (c != '_' && !(c >= 'a' && c <= 'z')) return parserr(FLN,fname,linno,colno,"headline has unexpected char '%c'",c);
           valndx = 0;
@@ -329,6 +338,7 @@ static enum extresult nextchar_csv(struct extfmt *ef)
         default:
           val = vals + valndx * Collen;
           vallen = vallens[valndx]; val[vallen] = c; vallens[valndx] = vallen + 1;
+          neweof = 1;
       }
       break;
 
@@ -337,19 +347,21 @@ static enum extresult nextchar_csv(struct extfmt *ef)
         case ',': return parserr(FLN,fname,linno,colno,"empty column name");
         case '\r': break;
         case '\n': newitem = iscmd = 1; state = Val0; break;
+        case ' ': break;
         default:
           val = vals + valndx * Collen;
           vallen = vallens[valndx]; val[vallen] = c; vallens[valndx] = vallen + 1;
           state = Cmd1;
+          neweof = 1;
       }
       break;
 
     case Val0:
       valndx = 0; uval = hi32;
       switch (c) {
-        case ',': vallens[0] = 0; uvals[0] = uval; valndx = 1; state = Val1; break;
+        case ',': vallens[0] = 0; uvals[0] = uval; valndx = 1;  vallens[1] = 0; state = Val1; break;
         case '\r': case ' ': break;
-        case '\n': parsewarn(FLN,fname,linno,colno,"skipping empty line"); break;
+        case '\n': vrb0(0,"skipping empty line at %u",linno); break;
         case '"': vallens[0] = 0; state = Val2q; break;
         case '\t': c = ' '; // cascade
         default:
@@ -372,6 +384,7 @@ static enum extresult nextchar_csv(struct extfmt *ef)
           vallen = vallens[valndx]; val[vallen] = c; vallens[valndx] = vallen + 1;
           if (uval != hi32 && c >= '0' && c <= '9') uval = uval * 10 + (c - '0');
           else uval = hi32;
+          neweof = 1;
       }
       break;
 
@@ -388,6 +401,7 @@ static enum extresult nextchar_csv(struct extfmt *ef)
           state = Val1;
           if (c >= '0' && c <= '9') uval = c - '0';
           else uval = hi32;
+          neweof = 1;
       }
       break;
 
@@ -434,11 +448,13 @@ static enum extresult nextchar_csv(struct extfmt *ef)
   ef->colno = colno;
   uvals[valndx] = uval;
 
+  if (pos >= len && neweof) newitem = 1;
+
   if (newitem) {
     for (valno = 0; valno <= valndx; valno++) {
       val = vals + valno * Collen;
       vallen = vallens[valno];
-      if (vallen && val[vallen-1] == ' ') vallens[valno] = --vallen;
+      if (vallen && val[vallen-1] == ' ') vallens[valno] = --vallen; // strip trailing ws
       val[vallen] = 0;
       uval = uvals[valno];
       if (uval == hi32 && valtypes[valno]) {
@@ -541,7 +557,7 @@ static enum extresult nextchar_canon(struct extfmt *ef)
       valndx = 0; uval = hi32;
       switch (c) {
         case '#': state = Fls; break;
-        case '\t': vallens[0] = 0; uvals[0] = uval; valndx = 1; state = Val1; break;
+        case '\t': vallens[0] = 0; uvals[0] = uval; valndx = 1; vallens[1] = 0; uvals[1] = 0; state = Val1; break;
         case '\n': break;
         default:
           val = vals;
@@ -554,7 +570,7 @@ static enum extresult nextchar_canon(struct extfmt *ef)
 
     case Val1:
       switch(c) {
-        case '\t': uvals[valndx++] = uval; vallens[valndx] = 0; state = Val2; break;
+        case '\t': uvals[valndx++] = uval; vallens[valndx] = 0; state = Val2; uvals[valndx] = 0; break;
         case '\n': newitem = 1; state = Val0; break;
         default:
           val = vals + valndx * Collen;
@@ -566,7 +582,7 @@ static enum extresult nextchar_canon(struct extfmt *ef)
 
     case Val2:
       switch (c) {
-        case '\t': uvals[valndx++] = uval; vallens[valndx] = 0; break;
+        case '\t': uvals[valndx++] = uval; vallens[valndx] = 0; uvals[valndx] = 0; break;
         case '\n': newitem = 1; state = Val0; break;
         default:
           val = vals + valndx * Collen;
@@ -636,6 +652,7 @@ static ub4 modecnts[Modecnt + 1];
 // extended types from support.google.com/transitpartners/answer/3520902
 static ub4 xrtype2rtype(ub4 x)
 {
+  error_eq(x,hi32);
   if (x >= 100 && x < 118) return Rail;
   if (x >= 200 && x < 210) return Bus;
   if (x >= 700 && x < 717) return Bus;
@@ -649,7 +666,17 @@ static ub4 xrtype2rtype(ub4 x)
   case 1103: case 1106: case 1107: case 1112: case 1114: return Plane_int;
   case 1104: case 1105: case 1108: case 1109: case 1110: case 1111: case 1113: return Plane_dom;
   case 1200: return Ferry;
-  default: return x;
+
+  case 0: return Tram;
+  case 1: return Metro;
+  case 2: return Rail;
+  case 3: return Bus;
+  case 4: return Ferry;
+  case 5: return Cabcar;
+  case 6: return Gondola;
+  case 7: return Funicular;
+
+  default: info(0,"unknown route type %u",x); return x;
   }
 }
 
@@ -682,10 +709,10 @@ static int rdagency(gtfsnet *net,const char *dir)
   int rv;
   char *buf;
   ub4 len,linno,colno;
-  char *val,*vals;
-  ub4 vlen,*vallens;
+  char *val,*vals,*idval;
+  ub4 idvlen,vlen,*vallens;
   ub4 valcnt,valno;
-  ub4 linepos = 0,linelen,orgpos;
+  ub4 linepos = 0,linelen;
   block *mem = &net->agencymem;
 
   oclear(eft);
@@ -702,7 +729,7 @@ static int rdagency(gtfsnet *net,const char *dir)
 
   if (rawcnt == 0) return warning(0,"%s is empty",fname);
 
-  linelen = len + (rawcnt + 1) * prefixlen1;
+  linelen = len + (rawcnt + 2) * prefixlen1;
   char *lines = net->agencylines = mkblock(mem,linelen,char,Noinit,"gtfs %u agency, len %u",rawcnt-1,linelen);
 
   const char tab = '\t';
@@ -749,27 +776,33 @@ static int rdagency(gtfsnet *net,const char *dir)
 
 // id
       if (agency_idpos != hi32) {
-        val = vals + agency_idpos * Collen;
-        vlen = vallens[agency_idpos];
+        idval = vals + agency_idpos * Collen;
+        idvlen = vallens[agency_idpos];
 
-        bound(mem,linepos + vlen + 1,char);
-        orgpos = linepos;
-        linepos = addcol(lines,linepos,val,vlen,tab,1);
-        defagencylen = min(sizeof(defagency)-1,linepos - orgpos);
-        memcpy(defagency,lines + orgpos,defagencylen);
-      }  else lines[linepos++] = tab;
+        bound(mem,linepos + idvlen + 1,char);
+
+        if (idvlen && defagencylen == 0) {
+          defagencylen = min(sizeof(defagency)-1,idvlen);
+          memcpy(defagency,idval,idvlen);
+        }
+      } else { idvlen = 0; idval = NULL; }
 
 // name
       val = vals + agency_namepos * Collen;
       vlen = vallens[agency_namepos];
 
       bound(mem,linepos + vlen + 1,char);
-        orgpos = linepos;
-      linepos = addcol(lines,linepos,val,vlen,tab,0);
-      if (defagencylen == 0) {
-        defagencylen = min(sizeof(defagency)-1,linepos - orgpos);
-        memcpy(defagency,lines + orgpos,defagencylen);
+
+      if (vlen && defagencylen == 0) {
+        defagencylen = min(sizeof(defagency)-1,vlen);
+        memcpy(defagency,val,vlen);
       }
+
+      if (idvlen) linepos = addcol(lines,linepos,idval,idvlen,tab,1);
+      else if (defagencylen) linepos = addcol(lines,linepos,defagency,defagencylen,tab,1);
+      else return error(0,"line %u: no agency id or name",linno);
+
+      linepos = addcol(lines,linepos,val,vlen,tab,0);
 
 // tz
       val = vals + agency_tzpos * Collen;
@@ -1088,7 +1121,7 @@ static int rdroutes(gtfsnet *net,const char *dir)
   struct extfmt eft;
   const char *fname;
 
-  ub4 rawcnt,cnt = 0;
+  ub4 rawcnt,tcnt,cnt = 0;
   int rv;
   char *buf;
   ub4 len,linno,colno;
@@ -1188,6 +1221,7 @@ static int rdroutes(gtfsnet *net,const char *dir)
       vlen = vallens[rtypepos];
 
       xrtype = uvals[rtypepos];
+      infocc(xrtype == hi32,0,"line %u no rtype for '%s'",linno,val);
       rtype = xrtype2rtype(xrtype);
       rmodecnts[min(rtype,Modecnt)]++;
       vrb0(0,"route id '%s' %u type '%s' %u",idval,rrid,val,rtype);
@@ -1259,14 +1293,14 @@ static int rdroutes(gtfsnet *net,const char *dir)
   info(0,"%u from %u entries",cnt,rawcnt);
 
   for (rtype = 0; rtype <= Modecnt; rtype++) {
-    cnt = rmodecnts[rtype];
-    infocc(cnt,0,"%u from %u %s routes",modecnts[rtype],cnt,modenames[rtype]);
+    tcnt = rmodecnts[rtype];
+    infocc(tcnt || cnt == 0,0,"%u from %u %s routes",modecnts[rtype],tcnt,modenames[rtype]);
   }
 
   net->routecnt = cnt;
   net->routelinepos = linepos;
 
-  return 0;
+  return errorcc(cnt == 0,0,"no routes from %u",rawcnt);
 }
 
 static int rdstops(gtfsnet *net,const char *dir)
@@ -1284,7 +1318,7 @@ static int rdstops(gtfsnet *net,const char *dir)
   char *val,*vals;
   ub4 vlen,*vallens;
   ub4 *uvals;
-  ub4 valcnt,valno;
+  ub4 valcnt,colcnt,valno;
   ub4 stopid,rstopid;
   ub4 linepos = 0,linelen;
   block *mem = &net->stopmem;
@@ -1323,13 +1357,15 @@ static int rdstops(gtfsnet *net,const char *dir)
   vals = eft.vals;
   uvals = eft.uvals;
 
+  colcnt = 0;
+
   do {
 
     res = nextchar(&eft);
 
     switch(res) {
     case Newcmd:
-      valcnt = eft.valcnt;
+      valcnt = colcnt = eft.valcnt;
       linno = eft.linno;
       colno = eft.colno;
       if (valcnt < 3) return parserr(FLN,fname,linno,colno,"missing columns, only %u",valcnt);
@@ -1343,7 +1379,7 @@ static int rdstops(gtfsnet *net,const char *dir)
         else if (streq(val,"stop_lon")) stop_lonpos = valno;
         else if (streq(val,"location_type")) stop_locpos = valno;
         else if (streq(val,"parent_station")) parent_stapos = valno;
-        else info(0,"skipping column %s",val);
+        else info(0,"skipping column '%s'",val);
       }
       if (stop_idpos == hi32) return error(0,"%s: missing required column stopid",fname);
       if (stop_namepos == hi32) return error(0,"%s: missing required column stop_name",fname);
@@ -1363,9 +1399,10 @@ static int rdstops(gtfsnet *net,const char *dir)
       vallens = eft.vallens;
       for (valno = 0; valno < valcnt; valno++) {
         val = vals + valno * Collen;
-        vrb0(0,"col %u val '%s'",valno,val);
+        vrb0(0,"line %u col %u val '%s'",linno,valno,val);
       }
-      if (valcnt < 4) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
+      if (valcnt < 4 || valcnt < colcnt) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
+      else if (valcnt != colcnt) return parserr(FLN,fname,linno,colno,"row has %u cols, header %u",valcnt,colcnt);
 
       sp->id = stop;
 // id
@@ -1376,7 +1413,10 @@ static int rdstops(gtfsnet *net,const char *dir)
 
       if (hstops) {
         stopid = gethash(hstops,val,vlen,rstopid);
-        if (stopid == hi32) break;
+        if (stopid == hi32) {
+          infocc(show_omitstop,0,"omitting unreferenced stop %s",val);
+          break;
+        }
       }
 
       sp->gidofs = linepos;
@@ -1902,7 +1942,7 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
   char *val,*taval,*tdval,*vals;
   ub4 rtid,*uvals;
   ub4 vlen,clen,tavlen,tdvlen,*vallens;
-  ub4 valcnt,valno;
+  ub4 valcnt,colcnt,valno;
   ub4 stopid,rstopid;
   ub4 linepos = 0,linelen;
   block *mem = &net->stoptimesmem;
@@ -1943,13 +1983,15 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
   vals = eft.vals;
   uvals = eft.uvals;
 
+  colcnt = 0;
+
   do {
 
     res = nextchar(&eft);
 
     switch(res) {
     case Newcmd:
-      valcnt = eft.valcnt;
+      valcnt = colcnt = eft.valcnt;
       linno = eft.linno;
       colno = eft.colno;
       if (valcnt < 3) return parserr(FLN,fname,linno,colno,"missing columns, only %u",valcnt);
@@ -1978,7 +2020,8 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
       colno = eft.colno;
       vallens = eft.vallens;
       error_ge(cnt,rawcnt);
-      if (valcnt < 4) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
+      if (valcnt < 4 || valcnt < colcnt) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
+      else if (valcnt != colcnt) return parserr(FLN,fname,linno,colno,"row has %u columns, header %u",valcnt,colcnt);
 
 // tripid
       val = vals + trip_idpos * Collen;
