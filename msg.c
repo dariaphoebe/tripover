@@ -929,6 +929,23 @@ int __attribute__ ((format (printf,4,5))) errorfln(ub4 fln,ub4 code,ub4 fln2,con
   return 1;
 }
 
+int __attribute__ ((format (printf,5,6))) errorccfln(ub4 fln,int cc,ub4 code,ub4 fln2,const char *fmt, ...)
+{
+  va_list ap;
+
+  if (cc == 0) return 0;
+
+  errcnt++;
+
+  if (fln2) msg(Info,0,fln2,0,"",NULL);
+  va_start(ap, fmt);
+  msg(Error, 0, fln, code, fmt, ap);
+  va_end(ap);
+  if (code & Exit) ccexit(0);
+  else if (code & Ret0) return 0;
+  return 1;
+}
+
 int __attribute__ ((format (printf,3,4))) assertfln(ub4 line, ub4 code, const char *fmt, ...)
 {
   va_list ap;

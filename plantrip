@@ -21,10 +21,11 @@ use utf8;
 use POSIX ();
 use POSIX qw(strftime);
 use Fcntl ':mode';
+use Time::HiRes qw(gettimeofday);
 
 my $version_maj = 0;
-my $version_min = 23;
-my $lastchanged = "28 feb 2015";
+my $version_min = 24;
+my $lastchanged = "6 mar 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -38,6 +39,8 @@ my $dryrun = 0;
 my $currentconfig = 'tripover.cfg.cur';
 my $querydirvar = 'querydir';
 my $querydir;
+
+my $iscgi = 0;
 
 my $repdir = 'rep';
 my $repfile = $repdir . '/plantrip.rep';
@@ -242,6 +245,7 @@ sub addtorep($$)
   my $mode = ($append ? '>>' : '>');
   open($fh,$mode . ':encoding(UTF-8)',$repfile) or error_exit("cannot open $repfile: $!");
   print($fh "$txt\n");
+  print("$txt\n") if $iscgi;
   close $fh;
 }
 
@@ -338,7 +342,7 @@ sub portbyname($)
   foreach $subid (@plist) {
     printf("%2u %s\n",$seq++,$portids{$subid});
   }
-  unless (-t STDIN) {
+  unless ($iscgi == 0 and -t STDIN) {
     print("noninteractive mode: first match chosen\n");
     return $plist[0];
   }
@@ -400,9 +404,10 @@ sub portbygeo($$)
   } else {
     info("$lat,$lon $fmtdist from $clat,$clon ID $loid > $pid $name > $pname");
   }
+  # if id >= portcnt, id - portcnt = subid; subid->parent
   info("mode $modes");
   addtorep("# reqid\tdist\tlat\tlon\tid\tpid\tmodes\tname\tpname",0);
-  addtorep("$reqid\t$mdist\t$clat\t$clon\t$loid\t$pid\t$modes\t$name\t$pname",1);
+  addtorep(".geo\t$reqid\t$mdist\t$clat\t$clon\t$loid\t$pid\t$modes\t$name\t$pname",1);
 
   return $loid;
 }
@@ -520,11 +525,13 @@ sub plan($$)
   $do_lcname = 1;
 
   unless (defined $depname and length($depname)) {
+    return 0 if $iscgi;
     print('depart from: ');
     $depname=<STDIN>;
   }
   return unless defined $depname and length($depname);
   unless (defined $arrname and length($arrname)) {
+    return 0 if $iscgi;
     print('arrive at: ');
     $arrname=<STDIN>;
   }
@@ -585,11 +592,13 @@ sub setvar($$)
   my ($hh,$mm,$col);
 
   unless (defined $var and length($var)) {
+    return 0 if $iscgi;
     print('variable: ');
     $var=<STDIN>;
   }
   return 0 unless defined $var and length($var);
   unless (defined $var and length($var)) {
+    return 0 if $iscgi;
     print('value: ');
     $var=<STDIN>;
   }
@@ -635,6 +644,13 @@ sub setvar($$)
     info("new utcofs $hh:$mm");
     $tz = ofs2tz($val);
     info("new tz $tz");
+  } elsif (index($var,'utcofs12') >= 0) {
+    $utcofs12 = $val;
+    $hh = int( ($val / 100) - 12);
+    $mm = int($val % 100);
+    $utcofsmin = $hh * 60 + $mm;
+    $utcofs = sprintf("%+02d:%02d",$hh,$mm);
+    $tz = ofs2tz($utcofs);
   } else {
     return error("unknown variable $var: check online help");
   }
@@ -709,7 +725,7 @@ sub query($$$)
   print($qfile $str . "\n");
   close($qfile);
 
-  vrb("submit '$cmd' '$str'");
+  info("submit '$cmd' '$str'");
 
 # rename to submit: server will pick up from here. reply has serverid appended
   vrb("rename to $qname_sub");
@@ -735,7 +751,7 @@ sub query($$$)
   my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks);
 
   my $reply;
-  open($reply,'<',$qname_rep) or return error("cannot open $qname_rep:$!");
+  open($reply,'<:encoding(UTF-8)',$qname_rep) or return error("cannot open $qname_rep:$!");
 
   stat $reply or return ret_close_err($reply,"cannot access $qname_rep: $!");
   ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks) = stat _;
@@ -755,7 +771,7 @@ sub query($$$)
     elsif (index($result,'error code') >= 0) { $stats_error++; }
     else { $stats_trip++; }
   }
-  addtorep("result\t$result",0);
+  addtorep(".planres\tresult\t$result",0);
 
   my ($item,$time,$dist,$fare,$stops,$ref);
   my ($tdep,$tarr,$txtime,$xtra,$dist0,$name,$rname);
@@ -772,7 +788,7 @@ sub query($$$)
     else { ($item,$time,$dist,$stops,$fare,$ref) = split("\t",$line); }
     if ($item eq 'sum') {
       $legno = 1;
-      addtorep($line,1);
+      addtorep(".planres\t$line",1);
       printf("%s %s %u stops %s  ref %s",$time,$dist,$stops,$fare == 0 ? '-' : $fare,$ref);
     } elsif ($item eq 'trip') {
 
@@ -781,7 +797,7 @@ sub query($$$)
         print "\n";
         ($item,$tdep,$name,$txtime,$xtra) = split("\t",$line);
         $txtime = '' unless defined $txtime;
-        $rline = join("\t",$item,$tdep,$name,$txtime);
+        $rline = join("\t",'.planres',$item,$tdep,$name,$txtime);
         addtorep($rline,1);
         print "$legno. ";
         if ($legno > 1) { print join(' ',$tdep,'continue with',$txtime,'transfer time'); }
@@ -791,21 +807,21 @@ sub query($$$)
 # mode,route,dist
       } elsif ($triprow == 1) {
         ($item,$mode,$rname,$dist,$xtra) = split("\t",$line);
-        $rline = join("\t",$item,$mode,$rname,$dist);
+        $rline = join("\t",'.planres',$item,$mode,$rname,$dist);
         $xtra = '' unless defined $xtra;
         addtorep($rline,1);
         print join(' ','                ',$mode,$rname,$dist,$xtra);
         $triprow++;
       } elsif ($triprow == 2) {
         ($item,$tarr,$name) = split("\t",$line);
-        $rline = join("\t",$item,$tarr,$name);
+        $rline = join("\t",'.planres',$item,$tarr,$name);
         addtorep($rline,1);
         print join(' ','  ',$tarr,$name);
         $triprow = 0;
         $legno++;
       }
     } elsif ($item eq 'stat') {
-      addtorep($line,1);
+      addtorep(".planres\t$line",1);
       @cols = split("\t",$line);
       splice(@cols,0,1);
       print join("\t",@cols);
@@ -1103,6 +1119,93 @@ sub init()
   info("localtime $ltsec utc $utcsec ofs $sysutcofs");
 }
 
+my ($Aver,$Ver,$Id,$Cmd,$Deplat,$Deplon,$Arrlat,$Arrlon,$Dep,$Arr,$Date,$Time,$Utcofs,$Delay,$Walklim);
+
+sub initcgi()
+{
+  return 0 unless exists $ENV{'GATEWAY_INTERFACE'};
+  return 0 if index($ENV{'GATEWAY_INTERFACE'},'CGI/') < 0;
+  return 1;
+}
+
+sub runcgi()
+{
+  my $clntip = $ENV{'REMOTE_ADDR'};
+
+  my ($sec, $usec) = gettimeofday;
+
+  print "Access-Control-Allow-Origin: *\r\n";
+
+  print "Content-type: text/plain\r\n\r\n";
+  print "test\n\n$0\n";
+
+  my ($dev,$ino,$mode) = lstat($0);
+  my $progpath = $0;
+  if (S_ISLNK($mode)) {
+    $progpath = readlink($0);
+    print " xx progpath $progpath\n";
+  }
+  print "progpath $progpath\n";
+
+  my $progdir = rindex $progpath,'/';
+  my $cwd;
+  if ($progdir > 0) {
+    $cwd = substr($progpath,0,$progdir);
+    chdir $cwd;
+  }
+
+  my $url = $ENV{'PATH_INFO'};
+  $url = substr($url,1) if index($url,'/') == 0;
+
+  my @rargs =  split('/',$url);
+  my @args;
+  for my $arg (@rargs) {
+    print "$arg\n";
+    $arg = 0 if $arg =~ qr'[^0-9]';
+    push(@args,$arg) 
+  }
+  while (@args < 15) { push @args,0; }
+  ($Aver,$Ver,$Id,$Cmd,$Deplat,$Deplon,$Arrlat,$Arrlon,$Dep,$Arr,$Date,$Time,$Utcofs,$Delay,$Walklim) = @args;
+
+  print("aver $Aver\n") if defined $Aver;
+  print("ver $Ver\n") if defined $Ver;
+
+  print("dep $Dep\n") if defined $Dep;
+  print("arr $Arr\n") if defined $Arr;
+
+  $repfile = "$repdir/plantrip-$clntip-$$-$Cmd-$Deplat-$Deplon-$Dep-$Arr-$sec.$usec";
+  $reqid = $Id;
+
+  print("reqfile $repfile");
+
+  init();
+
+  if ($Delay) { sleep($Delay); }
+
+  my ($rlat,$rlon);
+  my $geoscale = 1000000; # match with .js
+
+  if ($Cmd == 0) { # plan
+    set_var("date=$Date.$Time");
+    set_var("utcofs12=$Utcofs");
+    iplan($Dep,$Arr);
+    agedir($querydir,time() - $agelimit);
+  } elsif ($Cmd == 1) { #geocode
+    $rlat = ($Deplat / $geoscale) - 90;
+    $rlon = ($Deplon / $geoscale) - 180;
+    info("lat $rlat lon $rlon");
+    geocode($rlat,$rlon);
+  }
+
+  return 1;
+}
+
+if (initcgi()) {
+  $iscgi = 1;
+  runcgi();
+  exit 0;
+}
+
 my ($arg,$xargs,$opt,$optarg,$eqpos,$inopt,$cmd,$line,$prvline);
 my ($dep,$arr,$rid,$d0,$t0);
 my @args;
@@ -1188,6 +1291,8 @@ if (@ARGV > 0) {
 }
 
 init();
+
+if ($iscgi) { usage(); exit 0; }
 
 if (-t STDIN) {
   info("entering command loop. commands:\n");

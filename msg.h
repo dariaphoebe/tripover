@@ -61,6 +61,7 @@ struct eta {
 #define vrbcc(cc,code,fmt,...) { sassert(sizeof(fmt) >= sizeof(void*),"fmt arg is not a string"); if ((cc)) vrbfln(FLN,(code),(fmt),__VA_ARGS__); }
 #define infocc(cc,code,fmt,...) { sassert(sizeof(fmt) >= sizeof(void*),"fmt arg is not a string"); if ((cc)) infofln(FLN,(code),(fmt),__VA_ARGS__); }
 #define warncc(cc,code,fmt,...) { sassert(sizeof(fmt) >= sizeof(void*),"fmt arg is not a string"); if ((cc)) warnfln(FLN,(code),(fmt),__VA_ARGS__); }
+#define errorcc(cc,code,fmt,...) errorccfln(FLN,(cc),(code),0,(fmt),__VA_ARGS__)
 
 #define infovrb(cc,code,fmt,...) genmsgfln(FLN,(cc) ? Info : Vrb,(code),(fmt),__VA_ARGS__)
 #define warninfo(cc,code,fmt,...) genmsgfln(FLN,(cc) ? Warn : Info,(code),(fmt),__VA_ARGS__)
@@ -135,6 +136,8 @@ extern int oserrorfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((for
 extern int oswarningfln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int osinfofln(ub4 fln,ub4 code,const char *fmt, ...) __attribute__ ((format (printf,3,4)));
 extern int assertfln(ub4 fln, ub4 code, const char *fmt, ...) __attribute__ ((format (printf,3,4)));
+
+extern int errorccfln(ub4 fln,int cc,ub4 code,ub4 fln2,const char *fmt, ...) __attribute__ ((format (printf,5,6)));
 
 extern int info0fln(ub4 fln, ub4 code, const char *s);
 extern int infofln2(ub4 fln,ub4 code,ub4 fln2,const char *fmt,...) __attribute__ ((format (printf,4,5)));

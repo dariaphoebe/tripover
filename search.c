@@ -40,6 +40,8 @@ static ub4 msgfile;
 // time limit in sec for searches
 static const ub4 Timelimit = 3;
 
+static const ub4 altlimit = 1024;
+
 // emulate walk links as frequency-based
 static const ub4 walkiv_min = 10;
 
@@ -917,6 +919,8 @@ static int srcdyn(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int 
     if (cnts1 == NULL) return warn(0,"ending %u-stop search on %u-stop precomputed net",stop,nethistop);
     if (cnts2 == NULL) return warn(0,"ending %u-stop search on %u-stop precomputed net",stop,nethistop);
 
+    src->hisrcstop = max(src->hisrcstop,nleg - 1);
+
     lstblk1 = net->conlst + midstop1;
     lstblk2 = net->conlst + midstop2;
 
@@ -1096,6 +1100,7 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
   ub4 lodt = src->lodt;
   int havetime = src->trips[0].cnt;
   ub4 fare = 0;
+  ub4 altcnt;
 
   error_z(nleg1,dep);
   error_z(nleg2,dep);
@@ -1121,6 +1126,8 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
   cnts3 = net->concnt[stop3];
 
   if (cnts1 == NULL || cnts2 == NULL || cnts3 == NULL) return 0;
+
+  src->hisrcstop = max(src->hisrcstop,nleg - 1);
 
   lstblk1 = net->conlst + stop1;
   lstblk2 = net->conlst + stop2;
@@ -1160,8 +1167,6 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
       pmid2 = ports + mid2;
       if (pmid2->oneroute) continue;
 
-      if (gettime_usec() > src->queryt0 + src->querytlim) return havetime | havedist;
-
 //      info(Notty,"mid %u-%u cnt %u %u %u",mid1,mid2,n1,n2,n3);
 
       ofs1 = conofs1[depmid1];
@@ -1172,8 +1177,13 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
       lst2 = conlst2 + ofs2 * nleg2;
       lst3 = conlst3 + ofs3 * nleg3;
 
+      altcnt = 0;
+
       for (v1 = 0; v1 < n1; v1++) {
+        if (altcnt > altlimit) break;
         lst11 = lst1 + v1 * nleg1;
+
+        if (gettime_usec() > src->queryt0 + src->querytlim) return havetime | havedist;
 
         dist1 = walkdist1 = sumwalkdist1 = 0;
         for (leg1 = 0; leg1 < nleg1; leg1++) {
@@ -1192,6 +1202,7 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
         if (lodist != hi32 && dist1 > 10 * lodist) continue;
 
         for (v2 = 0; v2 < n2; v2++) {
+          if (altcnt > altlimit) break;
 
           lst22 = lst2 + v2 * nleg2;
 
@@ -1214,6 +1225,7 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
           if (lodist != hi32 && dist1 + dist2 > 10 * lodist) continue;
 
           for (v3 = 0; v3 < n3; v3++) {
+            if (altcnt++ > altlimit) break;
 
             lst33 = lst3 + v3 * nleg3;
 
@@ -1333,8 +1345,8 @@ static int srcdyn2(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 stop,int
   if (nleg > netleg) return info(0,"ending %u-stop search on %u-stop precomputed net",stop,netleg - 1);
 
   for (mid1step = 0; mid1step <= nethistop; mid1step++) {
-    for (mid2step = 0; mid2step + mid1step <= nethistop; mid2step++) {
-      for (mid3step = 0; mid3step + mid1step + mid2step <= nethistop; mid3step++) {
+    for (mid2step = 0; mid2step <= nethistop; mid2step++) {
+      for (mid3step = 0; mid3step <= nethistop; mid3step++) {
         nleg1 = mid1step + 1; nleg2 = mid2step + 1; nleg3 = mid3step + 1;
         nleg = nleg1 + nleg2 + nleg3;
         if (nleg != stop + 1) continue;
@@ -1392,6 +1404,8 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
     }
   }
   if (stop >= Nstop) return 0;
+
+  src->hisrcstop = max(src->hisrcstop,stop);
 
   deptmin = src->deptmin;
   deptmax = src->deptmax;
@@ -2647,7 +2661,7 @@ int plantrip(search *src,char *ref,ub4 xdep,ub4 xarr,ub4 nstoplo,ub4 nstophi)
   else fmtstring(dtstr,"%u micro",(ub4)dt);
 
   if (conn == 0) {
-    src->reslen += mysnprintf(src->resbuf,src->reslen,resmax,"no trip found\n\nsearched \ah%lu combinations with \ah%lu departures in %sseconds\n",src->combicnt,src->totevcnt,dtstr);
+    src->reslen += mysnprintf(src->resbuf,src->reslen,resmax,"no trip found in %u stops\n\nsearched \ah%lu combinations with \ah%lu departures in %sseconds\n",src->hisrcstop,src->combicnt,src->totevcnt,dtstr);
     info(0,"%s",src->resbuf);
     if (src->avarxcnt) return info(0,"no time found for %u stop\as",nstophi);
     else return info(0,"no route found for %u stop\as",nstophi);

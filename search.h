@@ -22,6 +22,7 @@ struct srcctx {
   ub4 reslen;
   ub8 querytlim,queryt0;
   struct trip trips[2];
+  ub4 hisrcstop;
 
   // main search args
   ub4 dep,arr;

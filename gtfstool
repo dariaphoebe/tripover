@@ -49,6 +49,8 @@ my $merge_dup = 0;  # merge if lat,lon,name almost identical: nl
 my $dup_limit = 0.2; # todo in feedcfg
 my $showmerge = 2;
 
+my $show_unconnect = 1;
+
 my $merge_dup_parent = 0;  # merge if lat,lon,name identical: nl
 my $infer_parent = 0;   # infer parent when seemingly missing : seq
 my $infer_limit = 0.1;
@@ -1502,10 +1504,10 @@ sub readtrips($)
 
     warning("no agency for route $routeid $route_id") unless exists $routeagency{$routeid};
     $agency_id = $routeagency{$routeid};
-    if (exists $agencyutcofs{$agency_id}) {;
+    if (exists $agencyutcofs{$agency_id}) {
       $utcofs = $agencyutcofs{$agency_id};
     } else {
-      warning("no timezone for agency $agency_id");
+      warning("$linno: no timezone for agency $agency_id");
       $utcofs = $defutcofs12;
     }
     $sidutcofs{$sid} = $utcofs;
@@ -2240,6 +2242,7 @@ sub writext($$)
     $stop_id = $stop_ids{$stopid};
     if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
       $unconcnt++;
+      info("omitting unconnected port $stop_name") if $show_unconnect;
       next;
     }
     push @cstops,$stopid;
