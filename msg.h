@@ -94,7 +94,7 @@ extern void eximsg(void);
 
 extern void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert);
 extern enum Msglvl getmsglvl(void);
-extern int setmsglog(const char *dir,const char *logname);
+extern int setmsglog(const char *dir,const char *logname,bool newonly);
 
 // assertions: error_eq(a,b) to be read as 'error if a equals b'
 // when failing, both names and values are shown

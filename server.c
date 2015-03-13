@@ -29,7 +29,9 @@
   a separate network proxy can provide http-style interface, forwarding to a local client
  */
 
+#include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "base.h"
 #include "cfg.h"
@@ -80,6 +82,7 @@ static void mkbitmask(void)
 
 enum Cmds { Cmd_nil,Cmd_plan,Cmd_upd,Cmd_stop,Cmd_cnt };
 
+// parse parameters and invoke actual planning. Runs in separate process
 // to be elaborated: temporary simple interface
 static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
 {
@@ -95,6 +98,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   ub4 walklimit = globs.walklimit;
   ub4 sumwalklimit = globs.sumwalklimit;
   ub4 nethistop = hi32;
+  ub4 delay = 0;
 
   int rv;
   enum Vars {
@@ -112,7 +116,8 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     Cwalklimit,
     Csumwalklimit,
     Cnethistop,
-    Cutcofs
+    Cutcofs,
+    Cdelay
   } var;
 
   ub4 *evpool;
@@ -144,7 +149,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
 
     if (type == 'i') {
       n = str2ub4(lp + valstart,&ival);
-      if (n == 0) return error(0,"expected integer for %s",lp + valstart);
+      if (n == 0) return error(0,"expected integer for %s, found '%.*s'",lp + varstart,valend - valstart,lp + valstart);
     }
     vp = lp + varstart;
     if (varlen == 3 && memeq(vp,"dep",3)) var = Cdep;
@@ -161,6 +166,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     else if (varlen == 12 && memeq(vp,"sumwalklimit",12)) var = Csumwalklimit;
     else if (varlen == 9 && memeq(vp,"nethistop",9)) var = Cnethistop;
     else if (varlen == 6 && memeq(vp,"utcofs",6)) var = Cutcofs;
+    else if (varlen == 5 && memeq(vp,"delay",5)) var = Cdelay;
     else {
       warn(0,"ignoring unknown var '%s'",vp);
       var = Cnone;
@@ -181,6 +187,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     case Csumwalklimit: sumwalklimit = ival; break;
     case Cnethistop: nethistop = ival; break;
     case Cutcofs: utcofs = ival; break;
+    case Cdelay: delay = ival; break;
     }
   }
 
@@ -212,6 +219,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
 
   // invoke actual plan here
   info(0,"plan %u to %u in %u to %u stop\as from %u for %u days",dep,arr,lostop,histop,tdep,tspan);
+  info(0,"mintt %u maxtt %u",mintt,maxtt);
 
   rv = plantrip(src,req->name,dep,arr,lostop,histop);
 
@@ -224,7 +232,9 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   } else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
   vrb0(0,"reply len %u",len);
   rep->len = len;
-//  osmillisleep(10);
+
+  if (delay) osmillisleep(delay);
+
   return 0;
 }
 
@@ -352,6 +362,38 @@ static int cmd_upd(struct myfile *req,ub4 seq)
   return 0;
 }
 
+// wrapper around cmd_plan, fork here
+static int start_plan(struct myfile *req)
+{
+  struct myfile rep;
+  int rv;
+  char logname[1024];
+  char filename[1024];
+  char *file,*ext;
+  search src;
+
+  oclear(rep);
+  oclear(src);
+
+  file = strrchr(req->name,'/');
+  if (file) file++; else file = req->name;
+  ext = strrchr(req->name,'.');
+  if (ext) fmtstring(filename,"%.*s",(ub4)(ext - file),file);
+  else strcopy(filename,file);
+
+  int pid = fork();
+  if (pid == -1) { oserror(0,"Cannot fork from %u for %s",globs.pid,filename); return -1; }
+  else if (pid) { info(0,"create process %u for %s",pid,filename); return pid; }
+
+  globs.pid = getpid();
+  fmtstring(logname,"%s_%u.log",filename,globs.pid);
+  setmsglog(globs.netdir,logname,1);
+  rv = cmd_plan(req,&rep,&src);
+  if (rv) info(0,"plan returned %d",rv);
+  rv |= setqentry(req,&rep,".rep");
+  exit(rv);
+}
+
 /* currently a directory queue based interface
  future plan :
   use a single local proxy on same system that interfaces here with sockets
@@ -365,17 +407,21 @@ static int cmd_upd(struct myfile *req,ub4 seq)
 int serverloop(void)
 {
   const char *querydir = globs.querydir;
-  struct myfile req,rep;
+  struct myfile req;
   int prv,rv = 1;
   enum Cmds cmd = Cmd_nil;
   ub4 prvseq = 0,seq = 0,useq = 0;
   char c;
   const char *region = "glob"; // todo
-  search src;
+  int cpid;
+  ub4 cldcnt = 0;
+  char logdir[1024];
 
   info(0,"entering server loop for id %u",globs.serverid);
 
-  oclear(src);
+  fmtstring(logdir,"%s/log",globs.netdir);
+
+  if (osmkdir(logdir)) return oserror(0,"cannot create dir %s",logdir);
 
   do {
     infovrb(seq > prvseq,0,"wait for new cmd %u",seq);
@@ -385,8 +431,10 @@ int serverloop(void)
     prvseq = seq;
 
     if (req.direxist == 0) osmillisleep(2000);
-    else if (req.exist == 0) osmillisleep(10);  // for linux only we may use inotify instead
-    else {
+    else if (req.exist == 0) {
+      prv = oswaitany(&cldcnt);
+      osmillisleep(10);  // for linux only we may use inotify instead
+    } else {
       info(0,"new client entry %s",req.name);
       c = req.name[req.basename];
       switch(c) {
@@ -396,12 +444,10 @@ int serverloop(void)
       default: info(0,"unknown command '%c'",c);
       }
       if (cmd == Cmd_plan) {
-        oclear(rep);
-        prv = cmd_plan(&req,&rep,&src);
-        if (prv) info(0,"plan returned %d",prv);
-        if (req.alloced) afree(req.buf,"client request");
-        setqentry(&req,&rep,".rep");
         seq++;
+        cpid = start_plan(&req);
+        if (cpid > 0) cldcnt++;
+        if (req.alloced) afree(req.buf,"client request");
       } else if (cmd == Cmd_upd) {
         prv = cmd_upd(&req,useq);
         if (prv) info(0,"update returned %d",prv);

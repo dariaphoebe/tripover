@@ -24,8 +24,8 @@ use Fcntl ':mode';
 use Time::HiRes qw(gettimeofday);
 
 my $version_maj = 0;
-my $version_min = 24;
-my $lastchanged = "6 mar 2015";
+my $version_min = 25;
+my $lastchanged = "13 mar 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -51,13 +51,13 @@ my $portrefname = 'portrefs.txt';
 my $timeout = 3; # seconds
 
 my $agelimit = 60; # seconds
-my $repagelimit = 3600; # seconds
+my $repagelimit = 7200; # seconds
 
 my $do_lcname = 0;
 
 # defaults, modifyable with 'set' cmd or args
-my $maxstop = 4;
-my $maxnetstop = 4;
+my $maxstop = 5;
+my $maxnetstop = 5;
 my $dayrange = 1;
 my $startdate = 0; # implies start of service
 my $mintt = 5;
@@ -73,6 +73,8 @@ my $utcofs12 = 2200;  # biased coded decimal
 my $utcofs12_def = 2200;
 my $utcofsmin = 10 * 60;
 my $sysutcofs;  # utc offset for current system
+
+my $delay = 0;
 
 my $testiters = 1000;
 
@@ -141,7 +143,7 @@ sub filepatindir($$$$)
 {
   my ($pat,$stamp,$clientid,$dir) = @_;
 
-  my ($dh,$serverid,$tstamp,$tid,$hstamp,$hid,$name);
+  my ($dh,$serverid,$tid,$hstamp,$hid,$name);
   my @names;
 
   opendir($dh,$dir) or error_exit("cannot open $dir:$!");
@@ -150,12 +152,11 @@ sub filepatindir($$$$)
   foreach $name (@names) {
     ($hstamp,$hid,$serverid) = ($name =~ $pat);
     next unless (defined $hstamp and defined $hid and defined $serverid);
-    $tstamp = hex($hstamp);
     $tid = hex($hid);
-    if ($tstamp == $stamp and $tid == $clientid)  {
+    if ($hstamp eq $stamp and $tid == $clientid)  {
       vrb("reply handled by server $serverid");
       return $serverid;
-    } else { vrb("reply from $tstamp $tid, expect $stamp $clientid $serverid"); }
+    } else { vrb("reply from $hstamp $tid, expect $stamp $clientid $serverid"); }
   }
   return '';
 }
@@ -434,6 +435,8 @@ sub doplan($$$$$$)
   $qstr .= "histop i $maxstop\nnethistop i $maxnetstop\n";
   $qstr .= "utcofs i $utcofs12\n";
 
+  $qstr .= "delay i $delay\n" if $delay;
+
   vrb("\n$qstr\n");
 
   query('p','glob',$qstr);
@@ -651,6 +654,8 @@ sub setvar($$)
     $utcofsmin = $hh * 60 + $mm;
     $utcofs = sprintf("%+02d:%02d",$hh,$mm);
     $tz = ofs2tz($utcofs);
+  } elsif (index($var,'delay') >= 0) {
+    $delay = int $val;
   } else {
     return error("unknown variable $var: check online help");
   }
@@ -694,13 +699,13 @@ sub ret_close_err($$)
 sub query($$$)
 {
   my ($cmd,$region,$str) = @_;
-  my ($stamp,$qfile,$qname,$qname_new,$qname_sub,$qname_rep,$qname_rcv,$serverid);
+  my ($qfile,$qname,$qname_new,$qname_sub,$qname_rep,$qname_rcv,$serverid);
 
 # prepare the query. use atomic file renames, server does the same
 # query filename: 
 #  [a-z]_     command
 #  [a-z]_     (format todo) region
-#  [0-9a-f]_  hex timestamp in sec plus _
+#  [0-9a-f]_  hex timestamp in msec
 #  [0-9a-f]   hex client id
 #  .sub
 
@@ -709,8 +714,14 @@ sub query($$$)
 # var:  [a-z] dep arr
 # type [is] i = int s = string
 
-  $stamp = time();
-  $qname = sprintf("%s/%s_%s_%010x_%04x",$querydir,$cmd,$region,$stamp,$clientid);
+  my ($sec, $usec) = gettimeofday();
+  my $now = time();
+
+  my $stamp = int ($sec * 1000 + ($usec / 1000));
+
+  my $stampstr = sprintf("%011x",$stamp);
+  $qname = sprintf("%s/%s_%s_%s_%04x",$querydir,$cmd,$region,$stampstr,$clientid);
+
   $qname_new = $qname . '.new';
   $qname_sub = $qname . '.sub';
   vrb("create $qname_new");
@@ -725,7 +736,7 @@ sub query($$$)
   print($qfile $str . "\n");
   close($qfile);
 
-  info("submit '$cmd' '$str'");
+  vrb("submit '$cmd' '$str'");
 
 # rename to submit: server will pick up from here. reply has serverid appended
   vrb("rename to $qname_sub");
@@ -734,9 +745,9 @@ sub query($$$)
   # cmd,region,stamp,clientid,serverid
   my $pat = qr'^[a-z]_[a-z]+_([0-9a-f]+)_([0-9a-f]+)_([0-9a-f]+)\.rep';
 
-  while (time() - $stamp < $timeout) {
+  while (time() - $now < $timeout) {
     select(undef,undef,undef,0.01);  # = sleep 10 millisec
-    $serverid = filepatindir($pat,$stamp,$clientid,$querydir);
+    $serverid = filepatindir($pat,$stampstr,$clientid,$querydir);
     last if length($serverid);
   }
   unless (length($serverid)) {
@@ -773,9 +784,10 @@ sub query($$$)
   }
   addtorep(".planres\tresult\t$result",0);
 
-  my ($item,$time,$dist,$fare,$stops,$ref);
+  my ($item,$time,$nxtime,$dist,$fare,$stops,$ref);
   my ($tdep,$tarr,$txtime,$xtra,$dist0,$name,$rname);
   my ($line,$rline,$c,$col);
+  my $nxtstr = '';
   my $linno = 0;
   my $triprow = 0;
   my $legno = 1;
@@ -785,11 +797,12 @@ sub query($$$)
     $line .= $c if $c ne "\n";
     if (substr($line,0,1) eq '#') { addtorep($line,1); next; }
     if (index($line,"\t") < 0) { $item = $line; }
-    else { ($item,$time,$dist,$stops,$fare,$ref) = split("\t",$line); }
+    else { ($item,$time,$dist,$stops,$fare,$nxtime,$ref) = split("\t",$line); }
     if ($item eq 'sum') {
       $legno = 1;
       addtorep(".planres\t$line",1);
-      printf("%s %s %u stops %s  ref %s",$time,$dist,$stops,$fare == 0 ? '-' : $fare,$ref);
+      $nxtstr = sprintf("next in %s",$nxtime) if $nxtime ne '-';
+      printf("%s %s %u stops %s%s  ref %s",$time,$dist,$stops,$nxtstr,$fare == 0 ? '-' : $fare,$ref);
     } elsif ($item eq 'trip') {
 
 # tdep,name,txtime;

@@ -983,7 +983,7 @@ static int rdcalendar(gtfsnet *net,const char *dir)
 
   } while (res < Eof);  // each input char
 
-  info(0,"%u from %u entries",cnt,rawcnt);
+  info(0,"%u from %u entries  timebox %u - %u",cnt,rawcnt,lodate,hidate);
   net->calendarcnt = cnt;
   net->calendarlinepos = linepos;
 
@@ -2436,7 +2436,7 @@ int main(int argc, char *argv[])
     oclear(mf);
     if (osfileinfo(&mf,dir)) return oserror(0,"cannot access net directory %s",dir);
     else if (mf.isdir == 0) return error(0,"net arg %s is not a directory",dir);
-    if (setmsglog(dir,"gtfsprep.log")) return 1;
+    if (setmsglog(dir,"gtfsprep.log",0)) return 1;
 
     if (canonin == 0) {
       if (globs.argc > 1) prefix = globs.args[1];

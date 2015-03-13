@@ -213,7 +213,7 @@ static int do_main(void)
     oclear(nd);
     if (osfileinfo(&nd,globs.netdir)) return oserror(0,"cannot access net directory %s",globs.netdir);
     else if (nd.isdir == 0) return error(0,"net arg %s is not a directory",globs.netdir);
-    if (setmsglog(globs.netdir,"tripover.log")) return 1;
+    if (setmsglog(globs.netdir,"tripover.log",0)) return 1;
   }
 
   char nowstr[64];

@@ -792,13 +792,16 @@ static void __attribute__ ((nonnull(5))) msg(enum Msglvl lvl, ub4 sublvl, ub4 fl
   }
 
   if (lvl == Warn) {
-    if (lastwarntoggle) memcpy(lastwarn,msgbuf,pos);
-    else memcpy(lastwarn2,msgbuf,pos);
+    if (lastwarntoggle) {
+      memcpy(lastwarn,msgbuf,pos);
+      lastwarn[pos] = 0;
+      lastwarniter = cnt;
+    } else {
+      memcpy(lastwarn2,msgbuf,pos);
+      lastwarn2[pos] = 0;
+      lastwarn2iter = cnt;
+    }
     lastwarntoggle ^= 1;
-    lastwarn[pos] = 0;
-    lastwarn2[pos] = 0;
-    lastwarniter = cnt;
-    lastwarn2iter = cnt;
   }
   else if (lvl < Warn && !(code & Exit)) { memcpy(lasterr,msgbuf,pos); lasterr[pos] = 0; }
   msgbuf[pos++] = '\n';
@@ -1105,7 +1108,7 @@ int __attribute__ ((format (printf,5,6))) progress2(struct eta *eta,ub4 fln,ub4 
   } else return 0;
 }
 
-int setmsglog(const char *dir,const char *name)
+int setmsglog(const char *dir,const char *name,bool newonly)
 {
   char logname[256];
   int fd,oldfd = msg_fd;
@@ -1117,14 +1120,16 @@ int setmsglog(const char *dir,const char *name)
   if (dir && *dir) fmtstring(logname,"%s/%s",dir,name);
   else strcopy(logname,name);
 
-  if (oldfd) info(0,"opening %slog in %s",oldfd ? "new " : "",logname);
+  if (newonly == 0) {
+    if (oldfd) info(0,"opening %slog in %s",oldfd ? "new " : "",logname);
+    for (c = 9; c; c--) osrotate(logname,(const char)((c - 1) + '0'), (const char)(c + '0'));
+    osrotate(logname,0,'0');
+  }
 
-  for (c = 9; c; c--) osrotate(logname,(const char)((c - 1) + '0'), (const char)(c + '0'));
-  osrotate(logname,0,'0');
   fd = oscreate(logname);
 
   if (fd == -1) { rv = oserror(0,"cannot create logfile %s",logname); fd = 2; }
-  else if (oldfd > 2 && msgwritten) {
+  else if (oldfd > 2 && msgwritten && newonly == 0) {
     if (osrewind(oldfd)) rv = oserror(0,"cannot rewind %s",globs.logname);
     n = msgwritten;
     oldlines = malloc(n);
@@ -1138,7 +1143,7 @@ int setmsglog(const char *dir,const char *name)
   msgwritten = 0;
 
   globs.msg_fd = msg_fd = fd;
-  if (oldfd) info(0,"opened new log in %s from %s",logname,globs.logname);
+  if (oldfd && newonly == 0) info(0,"opened new log in %s from %s",logname,globs.logname);
   strcopy(globs.logname,logname);
   return rv;
 }
@@ -1161,7 +1166,7 @@ void inimsg(char *progname, const char *logname, ub4 opts)
   msgopts = opts;
   msgfile = setmsgfile(__FILE__);
 
-  setmsglog(NULL,logname);
+  setmsglog(NULL,logname,0);
 
   infofln(0,Notty|User,"pid\t%d\tfd\t%d", globs.pid,globs.msg_fd); //on line 1:  used by dbg script
 

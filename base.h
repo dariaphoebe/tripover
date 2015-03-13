@@ -73,6 +73,7 @@ extern int strncpyfln(char *dst,const char *src,ub4 len,const char *sdst,const c
 
 extern ub4 str2ub4(const char *s, ub4 *pv);
 extern int hex2ub4(const char *s, ub4 *pv);
+extern int hex2ub8(const char *s, ub8 *pv);
 extern int str2dbl(const char *s,ub4 len,double *pv);
 
 #define oclear(p) do_clear(&(p),sizeof(p))

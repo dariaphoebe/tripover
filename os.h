@@ -24,8 +24,10 @@ extern int osfdinfo(struct myfile *mf,int fd);
 extern int osfileinfo(struct myfile *mf,const char *name);
 extern int osclose(int fd);
 extern int osremove(const char *name);
+extern int osmkdir(const char *dir);
 
 extern int osrun(const char *cmd,char *const argv[],char *const envp[]);
+extern int oswaitany(ub4 *cldcnt);
 
 extern int osdup2(int oldfd,int newfd);
 extern int osrewind(int fd);

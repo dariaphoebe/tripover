@@ -81,6 +81,7 @@ struct srcctx {
 
   ub4 dtcurs[Nxleg];  // low cost (=biased dt) for [0.. curleg]
   ub4 devcurs[Nxleg]; // dev index for above
+  ub4 devcurs2[Nxleg]; // idem, next low
 
   ub4 *depevs[Nxleg]; // candidate event+attr store: time,tid,dt,dur,cost
 

@@ -514,8 +514,8 @@ static int mk_netn(struct network *net,ub4 nstop)
 
   // todo configurable
   switch (nstop) {
-  case 1: nilonly = 0; varlimit = 128; var12limit = 256; break;
-  case 2: nilonly = 0; varlimit = 8; var12limit = 64; break;
+  case 1: nilonly = 0; varlimit = 64; var12limit = 256; break;
+  case 2: nilonly = 0; varlimit = 16; var12limit = 64; break;
   case 3: nilonly = 1; varlimit = 8; var12limit = 64; break;
   default: nilonly = 1; varlimit = 2; var12limit = 32; break;
   }
@@ -1432,7 +1432,7 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
     } else dname = pdep->name;
 
     if (srarr != hi32 && srarr >= parr->subcnt) {
-      warn(0,"srarr %u subcnt %u",srarr,pdep->subcnt);
+      warn(0,"srarr %u subcnt %u",srarr,parr->subcnt); // todo
       srarr = hi32;
     }
     if (srarr != hi32) {
@@ -1475,7 +1475,7 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
       if (tdep && tid >= chaincnt) error(0,"tid %u above %u",tid,chaincnt);
       error_zp(hp,l);
       info(0,"leg %u chop %u-%u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s%s",leg,hp->gid,hp2->gid,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode,suffix);
-    } else info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s %s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,mode);
+    } else info(0,"leg %u whop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s %s",leg,l,part,gdep,tdep,garr,tarr,pdep->name,parr->name,mode);
 
     // dep
     txtime = 0;

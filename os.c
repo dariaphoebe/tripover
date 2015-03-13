@@ -51,6 +51,7 @@ static ub4 msgfile;
 
 #include "os.h"
 #include "util.h"
+#include "time.h"
 
 // copy at tentative messages
 static char msginfo[1024];
@@ -126,6 +127,11 @@ int osclose(int fd)
 int osremove(const char *name)
 {
   return unlink(name);
+}
+
+int osmkdir(const char *dir)
+{
+  return mkdir(dir,0777);
 }
 
 int osdup2(int oldfd,int newfd)
@@ -303,6 +309,29 @@ void osmillisleep(ub4 msec)
   nanosleep(&ts,NULL);
 }
 
+int oswaitany(ub4 *cldcnt)
+{
+  int status,sig,rv = 0;
+  int cnt = *cldcnt;
+  if (cnt == 0) return 0;
+
+  pid_t pid = waitpid(-1,&status,WNOHANG);
+
+  if (pid == -1) return oserror(0,"waitpid failed for %u",globs.pid);
+  else if (pid == 0) return 0;
+
+  if (WIFEXITED(status)) {
+    *cldcnt = cnt - 1;
+    rv = WEXITSTATUS(status);
+    if (rv == 0) return info(0,"[%d=0] exited",pid);
+    else return error(0,"[%d=%d] exited",pid,rv);
+  } else if (WIFSIGNALED(status)) {
+    sig = WTERMSIG(status);
+    return error(0,"[%d] got signal %d",pid,sig);
+  }
+  return rv;
+}
+
 // fork/exec cmd and return reply data from file
 int osrun(const char *cmd,char *const argv[],char *const envp[])
 {
@@ -397,7 +426,7 @@ int osaccept(int sfd,struct osnetadr *ai)
   return cfd;
 }
 
-static const char namepattern[] = "p_glob_542346b6_5dfa.rcv";
+static const char namepattern[] = "p_glob_542346b6f3b_5dfa.rcv";
 
 // arrange reply to previous query
 int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext)
@@ -451,6 +480,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
   ssize_t nr;
   struct dirent *de;
   char timestr[64];
+  char clidstr[64];
   char regionstr[64];
   char name[256];
   char loname[256];
@@ -458,17 +488,16 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
   char oldname[512];
   char newname[512];
   char *pname,*dname,*p,*q,*extpos;
-  ub4 stamp,histamp,lostamp;
+  ub8 stamp,histamp,lostamp;
   struct stat ino;
-  ub8 usec = gettime_usec();
-  ub4 now = (ub4)(usec / (1000 * 1000));
+  ub4 secs,now = gettime_sec();
   ub4 iter = 0;
 
   clear(mf);
 
   if (!qdir || !*qdir) return error(0,"nil queue directory for %u",globs.serverid);
 
-  histamp = 0; lostamp = hi32;
+  histamp = 0; lostamp = hi64;
 
   dir = opendir(qdir);
 
@@ -496,7 +525,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
     namelen = strlen(dname);
     if (namelen + 1 < sizeof(namepattern)) { info(0,"expected pattern %s, found %s",namepattern,dname); continue; }
     extpos = strstr(dname,ext);
-    if (!extpos) { vrb(0,"skip %s on extension",dname); continue; }
+    if (!extpos) { vrb0(0,"skip %s on extension",dname); continue; }
 
     // basename
     q = name; p = dname;
@@ -518,15 +547,24 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
     *q = 0;
     if (*p != '_' || q == timestr) { vrb(0,"skip %s on no timestamp",dname); continue; }
 
-    if (hex2ub4(timestr,&stamp)) { vrb(0,"skip %s on no timestamp",dname); continue; }
-    vrb(0,"%s stamp %u",name,stamp);
-    if (stamp > now) warning(0,"%s has time %u %u secs in the future",dname,stamp,stamp - now);
-    else if (now - stamp > Queryage) {
-      infocc(iter == 1,0,"skip %s on age %u secs",dname,now - stamp);
+    if (hex2ub8(timestr,&stamp)) { vrb(0,"skip %s on no timestamp",dname); continue; }
+    info(0,"%s stamp %lu",name,stamp);
+    secs = (ub4)(stamp / 1000);
+    if (secs > now) warning(0,"%s has time %u %u secs in the future",dname,secs,secs - now);
+    else if (now - secs > Queryage) {
+      infocc(iter == 1,0,"skip %s on age %u secs",dname,now - secs);
       fmtstring(oldname,"%s/%s",qdir,dname);
       osremove(oldname);
       continue;
     }
+
+    // client id
+    p++; q = clidstr;
+    while (q + 1 < clidstr + sizeof(clidstr) && *p) *q++ = *p++;
+    *q = 0;
+    if (*p || q == clidstr) { info(0,"skip %s on no clientid",dname); continue; }
+
+    // now take latest entry
     if (stamp > histamp) {
       histamp = stamp;
       strcopy(hiname,name);
@@ -539,19 +577,22 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
 
   closedir(dir);
 
-  if (histamp && hiname[0] != 'p') pname = hiname;
-  else if (lostamp != hi32) pname = loname;
-  else return genmsg(Vrb,0,"no requests found, stamp %u",stamp);
+  if (histamp) pname = hiname;
+  else return vrb(0,"no requests found, stamp %lu",stamp);
 
   mf->basename = (ub4)strlen(qdir) + 1;
 
   fmtstring(oldname,"%s/%s%s",qdir,pname,ext);
   fmtstring(newname,"%s/%s_%u%s",qdir,pname,globs.serverid,".rcv");
   vrb0(0,"rename %s to %s",oldname,newname);
+
   rv = rename(oldname,newname);
   if (rv) {
     switch(errno) {
+
+    // can happen with concurrent processes
     case ENOENT: return info(0,"did not rename %s to %s: not existing",oldname,newname);
+
     case EACCES: case EBUSY: return oswarning(0,"cannot rename %s to %s",oldname,newname);
     default: return oserror(0,"cannot rename %s to %s",oldname,newname);
     }
@@ -570,7 +611,7 @@ int getqentry(const char *qdir,struct myfile *mf,const char *region,const char *
     osclose(fd);
     return warning(0,"%s exceeds %u",newname,Maxquerysize);
   } else if (len >= sizeof(mf->localbuf)) {
-    buf = alloc((ub4)len,char,0,"query",stamp);
+    buf = alloc((ub4)len,char,0,"query",(ub4)stamp);
     mf->alloced = 1;
   } else {
     buf = mf->localbuf;
