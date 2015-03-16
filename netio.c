@@ -1753,6 +1753,7 @@ static int rdexthops(netbase *net,const char *dir)
     rrid = rp->rrid;
     if (cnt == 0) info(0,"r.rid %u.%u has no hops %s",rrid,rid,rp->name);
     else if (cnt == 1) info(0,"r.rid %u.%u has 1 hop %s",rrid,rid,rp->name);
+    else info(0,"r.rid %u.%u has %u hops %s",rrid,rid,cnt,rp->name);
   }
 
 #if 0

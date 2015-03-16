@@ -200,22 +200,18 @@ int prepnet(netbase *basenet)
     bspp = bsports + sport;
     spp = sports + sport;
     nlen = bspp->namelen;
+    if (nlen) memcpy(spp->name,bspp->name,nlen);
+    else info(0,"sport %u has no name", sport);
+    spp->namelen = nlen;
     if (bspp->ndep == 0 && bspp->narr == 0) {
-      info(0,"skip unconnected port %u %s",sport,bspp->name);
-      if (nlen) memcpy(spp->name,bspp->name,nlen);
-      spp->namelen = nlen;
-      continue;
+      info(0,"unconnected subport %u %s",sport,bspp->name);
+//      continue;
     }
 
     spp->valid = 1;
     spp->id = sportcnt;
     spp->cid = bspp->cid;
     spp->parent = bspp->parent;
-    nlen = bspp->namelen;
-    if (nlen) {
-      memcpy(spp->name,bspp->name,nlen);
-      spp->namelen = nlen;
-    } else info(0,"sport %u has no name", sport);
     spp->lat = bspp->lat;
     error_z(spp->lat,sport);
     spp->lon = bspp->lon;
@@ -397,7 +393,7 @@ int prepnet(netbase *basenet)
   hopcnt = bhopcnt;
 
   // prepare <rid,dep,arr> to hop lookup
-  ub4 rhop;
+  ub4 rhop,rhopovf = 0;
 
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
@@ -407,7 +403,20 @@ int prepnet(netbase *basenet)
     rp = routes + rid;
     rhop = hp->rhop;
     if (rhop < Chainlen) rp->hops[rhop] = hop;
+    else rhopovf++;
   }
+  warncc(rhopovf,0,"%u of %u hops exceeding %u chain limit",rhopovf,hopcnt,Chainlen);
+
+  ub4 *bbox = gnet->bbox;
+
+  // bbox of connected ports
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    if (pp->ndep == 0 && pp->narr == 0) continue;
+    updbbox(pp->lat,pp->lon,bbox,Elemcnt(gnet->bbox));
+  }
+  info(0,"bbox lat %u - %u = %u",bbox[Minlat],bbox[Maxlat],bbox[Latrng]);
+  info(0,"bbox lon %u - %u = %u",bbox[Minlon],bbox[Maxlon],bbox[Lonrng]);
 
   ub4 oneridcnt = 0;
   ub4 onerid;

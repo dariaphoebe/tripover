@@ -29,7 +29,7 @@
 
 // end of limits
 
-enum Engvars { Eng_periodlim,Eng_partsize,Eng_cnt };
+enum Engvars { Eng_periodlim,Eng_conchk,Eng_cnt };
 enum Netvars {
   Net_partsize,
   Net_sumwalklimit,

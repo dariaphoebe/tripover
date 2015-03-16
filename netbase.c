@@ -350,6 +350,9 @@ int prepbasenet(void)
     error_ge(rid,ridcnt);
     rp = routes + rid;
     rhop = rp->hopndx;
+    if (rhop > 256) {
+      info(0,"hop %u rid %u index %u on %s",hop,rid,rhop,rp->name);
+    }
     hp->rhop = rhop;
     rp->hopndx = rhop + 1;
   }
@@ -501,7 +504,7 @@ int prepbasenet(void)
 
       if (rawchaincnt == 0) {
         info(0,"hop %u no chains",hop);
-        clearxtime(tp,xp,xpacc,xtimelen,gt0);
+        clearxtime(tp,xp,xpacc,xtimelen);
         continue;
       }
 
@@ -599,7 +602,7 @@ int prepbasenet(void)
     evhops++;
     infovrb(dbg,0,"final date range \ad%u-\ad%u",tp->t0 + gt0,tp->t1 + gt0);
 
-    clearxtime(tp,xp,xpacc,xtimelen,gt0);
+    clearxtime(tp,xp,xpacc,xtimelen);
 
     lodur = min(lodur,hidur);
     tp->lodur = lodur;
@@ -949,7 +952,7 @@ int prepbasenet(void)
     noexit error_ne_cc(zevcnt,hp->zevcnt,"hop %u",hop);
     if (zevcnt != hp->zevcnt) warning(Iter,"hop %u zevcnt %u != hp->zevcnt %u",hop,zevcnt,hp->zevcnt);
 
-    clearxtime(tp,xp,xpacc,xtimelen,gt0);
+    clearxtime(tp,xp,xpacc,xtimelen);
 
     if (cumevcnt2 + zevcnt > maxzev) {
       warning(0,"hop %u: exceeding total event max %u %s",hop,maxzev,hp->name);

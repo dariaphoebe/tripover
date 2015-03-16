@@ -318,6 +318,8 @@ struct network {
 
   ub1 *conmask;         // [port2] overall connectivity stopmask
 
+  ub4 bbox[10];    // lat/lon bounding box
+
 // partitions
   ub4 tportcnt;         // number of ports in global part
   ub4 tports[4096];
@@ -388,6 +390,8 @@ struct gnetwork {
 
   ub4 *tid2rtid;   // [chaincnt]
   ub4 *rrid2rid;   // [hirrid+1]
+
+  ub4 bbox[10];    // lat/lon bounding box
 
   ub4 histop;     // highest n-stop connections inited
   ub4 walklimit;

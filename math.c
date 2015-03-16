@@ -270,8 +270,13 @@ ub4 rad2lat(double rlat,ub4 scale) { return (ub4)(( (rlat * 180 / M_PI) + 90) * 
 ub4 rad2lon(double rlon,ub4 scale) { return (ub4)(( (rlon * 180 / M_PI) + 180) * scale); }
 
 // minlat,maxlat,latrange,minlon,maxlon,lonrange,midlat,midlon,count
-void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt])
+void updbbox(ub4 lat,ub4 lon,ub4 *bbox,ub4 boxlen)
 {
+  error_lt(boxlen,Geocnt);
+
+  if (bbox[Boxcnt] == 0) {
+    bbox[Minlat] = bbox[Minlon] = hi32;
+  }
   bbox[Minlat] = min(bbox[Minlat],lat);
   bbox[Maxlat] = max(bbox[Maxlat],lat);
   bbox[Minlon] = min(bbox[Minlon],lon);

@@ -24,8 +24,8 @@ use Fcntl ':mode';
 use Time::HiRes qw(gettimeofday);
 
 my $version_maj = 0;
-my $version_min = 25;
-my $lastchanged = "13 mar 2015";
+my $version_min = 26;
+my $lastchanged = "16 mar 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -53,16 +53,21 @@ my $timeout = 3; # seconds
 my $agelimit = 60; # seconds
 my $repagelimit = 7200; # seconds
 
+my $foreground = 0;
+
 my $do_lcname = 0;
 
 # defaults, modifyable with 'set' cmd or args
 my $maxstop = 5;
 my $maxnetstop = 5;
-my $dayrange = 1;
-my $startdate = 0; # implies start of service
+
+my $plusday = 1;
+my $minday = 0;
+
+my $startdatetime = 0; # implies start of service
 my $mintt = 5;
 my $maxtt = 120;
-my $transfercost = 10;
+my $transfercost = 1;
 my $walklimit = 1000;
 my $sumwalklimit = 1500;
 my $tzdef = 'Australia/Brisbane';
@@ -74,6 +79,8 @@ my $utcofs12_def = 2200;
 my $utcofsmin = 10 * 60;
 my $sysutcofs;  # utc offset for current system
 
+# engineering test provisions
+my $testiter = 0;
 my $delay = 0;
 
 my $testiters = 1000;
@@ -422,13 +429,14 @@ sub geocode($$)
   portbygeo($lat,$lon);
 }
 
-sub doplan($$$$$$)
+sub doplan($$$$$)
 {
-  my ($dep,$arr,$dayrange,$startdate,$starttime,$utcofs12) = @_;
+  my ($dep,$arr,$startdate,$starttime,$utcofs12) = @_;
   my ($qstr);
 
-  $qstr = "dep i $dep\narr i $arr\ntspan i $dayrange\n";
+  $qstr = "dep i $dep\narr i $arr\n";
   $qstr .= "deptmin i $startdate\ndepttmin i $starttime\n";
+  $qstr .= "plusday i $plusday minday i $minday\n",
   $qstr .= "mintt i $mintt\nmaxtt i $maxtt\n";
   $qstr .= "costperstop i $transfercost\n";
   $qstr .= "walklimit i $walklimit\nsumwalklimit i $sumwalklimit\n";
@@ -436,10 +444,12 @@ sub doplan($$$$$$)
   $qstr .= "utcofs i $utcofs12\n";
 
   $qstr .= "delay i $delay\n" if $delay;
+  $qstr .= "testiter i $testiter\n" if $testiter;
 
   vrb("\n$qstr\n");
 
-  query('p','glob',$qstr);
+  my $cmd = ($foreground ? 'P' : 'p');
+  query($cmd,'glob',$qstr);
 }
 
 sub iplan($$)
@@ -448,7 +458,7 @@ sub iplan($$)
 
   info("iplan $dep $arr");
 
-  my ($rdep,$rarr,$hh,$mm,$dot,$starttime);
+  my ($rdep,$rarr,$hh,$mm,$dot,$startdate,$starttime);
   my $depname = "unknown";
   my $arrname = "unknown";
 
@@ -473,15 +483,17 @@ sub iplan($$)
     info("using default display tz $tz utc$utcofs from portrefs");
   }
 
-  $dot = index($startdate,'.');
+  $dot = index($startdatetime,'.');
   $starttime = 0;
   if ($dot == 0) {
-    $starttime = substr($startdate,1);
+    $starttime = substr($startdatetime,1);
     $startdate = 0;
   } elsif ($dot > 0) {
-    $starttime = substr($startdate,$dot+1);
-    $startdate = substr($startdate,0,$dot);
+    $starttime = substr($startdatetime,$dot+1);
+    $startdate = substr($startdatetime,0,$dot);
     $starttime = 0 unless defined $starttime and length $starttime;
+  } else {
+    $startdate = $startdatetime;
   }
 
   my $rndcnt = 0;
@@ -501,12 +513,12 @@ sub iplan($$)
           if (exists($portids{$rarr})) { $arrname = $portids{$rarr}; }
           else { $arrname = "unknown"; }
           info("from $depname to $arrname  v    $rdep-$rarr");
-          doplan($rdep,$rarr,$dayrange,$startdate,$starttime,$utcofs12);
+          doplan($rdep,$rarr,$startdate,$starttime,$utcofs12);
           last unless $rndcnt++ < $testiters;
         }
       } else {
         next if $rdep == $arr;
-        doplan($rdep,$arr,$dayrange,$startdate,$starttime,$utcofs12);
+        doplan($rdep,$arr,$startdate,$starttime,$utcofs12);
         last unless $rndcnt++ < $testiters;
       }
       last unless $rndcnt++ < $testiters;
@@ -514,8 +526,8 @@ sub iplan($$)
     info("$stats_trip found, $stats_notrip no route $stats_error no time");
     return;
   }
-  info("from $depname ($dep) to $arrname ($arr) start $startdate.$starttime for $dayrange days in $maxstop stops utc $utcofs");
-  doplan($dep,$arr,$dayrange,$startdate,$starttime,$utcofs12);
+  info("from $depname ($dep) to $arrname ($arr) start $startdate.$starttime +$plusday -$minday in $maxstop stops utc $utcofs");
+  doplan($dep,$arr,$startdate,$starttime,$utcofs12);
 }
 
 sub plan($$)
@@ -581,8 +593,9 @@ sub getvar($)
     info('utcoffset- idem, in hh:mm offset from UTC');
     return;
   }
-  info("startdate: $startdate") if index($var,'startdate') >= 0;
-  info("daterange: $dayrange") if index($var,'daterange') >= 0;
+  info("startdate: $startdatetime") if index($var,'startdate') >= 0;
+  info("plusday: $plusday") if index($var,'plusday') >= 0;
+  info("minday: $minday") if index($var,'minday') >= 0;
   info("transferlimit: $maxstop") if index($var,'transerlimit') >= 0;
   info("timezone: $tz") if index($var,'timezone') >= 0;
   info("utcoffset: $utcofs") if index($var,'utcoffset') >= 0;
@@ -611,9 +624,11 @@ sub setvar($$)
 
   vrb("set $var to '$val'");
   if ($var eq 'date' or $var eq 'startdate') {
-    $startdate = $val;
-  } elsif ($var eq 'days') {
-    $dayrange = $val;
+    $startdatetime = $val;
+  } elsif ($var eq 'plusday') {
+    $plusday = $val;
+  } elsif ($var eq 'minday') {
+    $minday = $val;
   } elsif ($var eq 'maxstops') {
     $maxstop = $val;
   } elsif ($var eq 'maxnetstop') {
@@ -656,6 +671,8 @@ sub setvar($$)
     $tz = ofs2tz($utcofs);
   } elsif (index($var,'delay') >= 0) {
     $delay = int $val;
+  } elsif (index($var,'testiter') >= 0) {
+    $testiter = int $val;
   } else {
     return error("unknown variable $var: check online help");
   }
@@ -743,7 +760,7 @@ sub query($$$)
   rename($qname_new,$qname_sub);
 
   # cmd,region,stamp,clientid,serverid
-  my $pat = qr'^[a-z]_[a-z]+_([0-9a-f]+)_([0-9a-f]+)_([0-9a-f]+)\.rep';
+  my $pat = qr'^[a-zA-Z]_[a-z]+_([0-9a-f]+)_([0-9a-f]+)_([0-9a-f]+)\.rep';
 
   while (time() - $now < $timeout) {
     select(undef,undef,undef,0.01);  # = sleep 10 millisec
@@ -785,9 +802,10 @@ sub query($$$)
   addtorep(".planres\tresult\t$result",0);
 
   my ($item,$time,$nxtime,$dist,$fare,$stops,$ref);
-  my ($tdep,$tarr,$txtime,$xtra,$dist0,$name,$rname);
-  my ($line,$rline,$c,$col);
+  my ($tdep,$tarr,$sdist,$txtime,$xtra,$dist0,$name,$rname);
+  my ($line,$rline,$thop,$c,$col);
   my $nxtstr = '';
+  my $aname = '';
   my $linno = 0;
   my $triprow = 0;
   my $legno = 1;
@@ -808,28 +826,38 @@ sub query($$$)
 # tdep,name,txtime;
       if ($triprow == 0) {
         print "\n";
-        ($item,$tdep,$name,$txtime,$xtra) = split("\t",$line);
+        ($item,$tdep,$name,$sdist,$txtime,$xtra) = split("\t",$line);
+        $sdist = '' unless defined $sdist;
         $txtime = '' unless defined $txtime;
-        $rline = join("\t",'.planres',$item,$tdep,$name,$txtime);
+        $rline = join("\t",'.planres',$item,$tdep,$name,$sdist,$txtime);
         addtorep($rline,1);
-        print "$legno. ";
-        if ($legno > 1) { print join(' ',$tdep,'continue with',$txtime,'transfer time'); }
-        else  { print join(' ',$tdep,$name); }
+        if ($legno > 1) {
+          if ($name ne $aname) {
+            print "                 $name within $sdist\n";
+          }
+          print "$legno. ";
+          print join(' ',$tdep,'continue with',$txtime,'transfer time');
+        } else {
+          print "$legno. ";
+          print join(' ',$tdep,$name);
+        }
         $triprow++;
 
 # mode,route,dist
       } elsif ($triprow == 1) {
-        ($item,$mode,$rname,$dist,$xtra) = split("\t",$line);
-        $rline = join("\t",'.planres',$item,$mode,$rname,$dist);
+        ($item,$mode,$rname,$thop,$dist,$xtra) = split("\t",$line);
+        $rline = join("\t",'.planres',$item,$mode,$rname,$thop,$dist);
         $xtra = '' unless defined $xtra;
         addtorep($rline,1);
-        print join(' ','                ',$mode,$rname,$dist,$xtra);
+        print join(' ','                ',$mode,$rname,$thop,$dist,$xtra);
         $triprow++;
+
+# tarr,name
       } elsif ($triprow == 2) {
-        ($item,$tarr,$name) = split("\t",$line);
-        $rline = join("\t",'.planres',$item,$tarr,$name);
+        ($item,$tarr,$aname) = split("\t",$line);
+        $rline = join("\t",'.planres',$item,$tarr,$aname);
         addtorep($rline,1);
-        print join(' ','  ',$tarr,$name);
+        print join(' ','  ',$tarr,$aname);
         $triprow = 0;
         $legno++;
       }
@@ -1132,7 +1160,7 @@ sub init()
   info("localtime $ltsec utc $utcsec ofs $sysutcofs");
 }
 
-my ($Aver,$Ver,$Id,$Cmd,$Deplat,$Deplon,$Arrlat,$Arrlon,$Dep,$Arr,$Date,$Time,$Utcofs,$Delay,$Walklim);
+my ($Aver,$Ver,$Id,$Cmd,$Deplat,$Deplon,$Arrlat,$Arrlon,$Dep,$Arr,$Date,$Time,$PMday,$Utcofs,$Delay,$Walklim,$Srcmode);
 
 sub initcgi()
 {
@@ -1146,19 +1174,21 @@ sub runcgi()
   my $clntip = $ENV{'REMOTE_ADDR'};
 
   my ($sec, $usec) = gettimeofday;
+  my $msec = int ($usec / 1000);
 
   print "Access-Control-Allow-Origin: *\r\n";
 
   print "Content-type: text/plain\r\n\r\n";
-  print "test\n\n$0\n";
+
+#  print "test\n\n$0\n";
 
   my ($dev,$ino,$mode) = lstat($0);
   my $progpath = $0;
   if (S_ISLNK($mode)) {
     $progpath = readlink($0);
-    print " xx progpath $progpath\n";
+#    print " xx progpath $progpath\n";
   }
-  print "progpath $progpath\n";
+#  print "progpath $progpath\n";
 
   my $progdir = rindex $progpath,'/';
   my $cwd;
@@ -1173,12 +1203,12 @@ sub runcgi()
   my @rargs =  split('/',$url);
   my @args;
   for my $arg (@rargs) {
-    print "$arg\n";
+#    print "$arg\n";
     $arg = 0 if $arg =~ qr'[^0-9]';
     push(@args,$arg) 
   }
-  while (@args < 15) { push @args,0; }
-  ($Aver,$Ver,$Id,$Cmd,$Deplat,$Deplon,$Arrlat,$Arrlon,$Dep,$Arr,$Date,$Time,$Utcofs,$Delay,$Walklim) = @args;
+  while (@args < 20) { push @args,0; }
+  ($Aver,$Ver,$Id,$Cmd,$Deplat,$Deplon,$Arrlat,$Arrlon,$Dep,$Arr,$Date,$Time,$PMday,$Utcofs,$Walklim,$Srcmode,$Delay) = @args;
 
   print("aver $Aver\n") if defined $Aver;
   print("ver $Ver\n") if defined $Ver;
@@ -1186,21 +1216,32 @@ sub runcgi()
   print("dep $Dep\n") if defined $Dep;
   print("arr $Arr\n") if defined $Arr;
 
-  $repfile = "$repdir/plantrip-$clntip-$$-$Cmd-$Deplat-$Deplon-$Dep-$Arr-$sec.$usec";
+  my $pday = int($PMday / 100);
+  my $mday = int($PMday % 100);
+
+  $repfile = "$repdir/plantrip-$clntip-$$-$Cmd-$Deplat-$Deplon-$Dep-$Arr-$sec.$msec";
   $reqid = $Id;
 
-  print("reqfile $repfile");
+#  print("reqfile $repfile");
 
   init();
 
-  if ($Delay) { sleep($Delay); }
+  if ($Delay) { sleep($Delay); }  # engineering provision
 
   my ($rlat,$rlon);
   my $geoscale = 1000000; # match with .js
 
   if ($Cmd == 0) { # plan
     set_var("date=$Date.$Time");
+    set_var("plusday=$pday");
+    set_var("minday=$mday");
     set_var("utcofs12=$Utcofs");
+    set_var("walklimit=$Walklim");
+
+    if ($Srcmode == 0) { set_var("transfercost=2"); }  # fewest transfers
+    elsif ($Srcmode == 1) { set_var("transfercost=1"); }  # balanced
+    else { set_var("transfercost=0"); }  # fastest
+
     iplan($Dep,$Arr);
     agedir($querydir,time() - $agelimit);
   } elsif ($Cmd == 1) { #geocode
@@ -1224,8 +1265,8 @@ my ($dep,$arr,$rid,$d0,$t0);
 my @args;
 
 my ($sec,$min,$hour,$mday,$mon,$year) = localtime(time);
-$startdate = sprintf("%04u%02u%02u.%02u%02u",$year+1900,$mon+1,$mday,$hour,$min);
-info("$startdate");
+$startdatetime = sprintf("%04u%02u%02u.%02u%02u",$year+1900,$mon+1,$mday,$hour,$min);
+vrb("$startdatetime");
 
 if (@ARGV > 0) {
   foreach $arg (@ARGV) {
@@ -1253,6 +1294,7 @@ if (@ARGV > 0) {
       elsif ($opt eq 'n' or $opt eq 'dryrun') { info('dryrun mode'); $dryrun = 1; }
       elsif ($opt eq 'h' or $opt eq 'help') { usage(); exit 1; }
       elsif ($opt eq 'x') {} # dummy
+      elsif ($opt eq 'f') { $foreground = 1; }
       elsif ($opt eq 'V' or $opt eq 'version') { showvers(1); exit 1; }
       elsif ($opt eq 'o' and length($optarg)) {
         $repfile = $repdir . '/' . $optarg;

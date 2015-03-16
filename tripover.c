@@ -190,6 +190,8 @@ static int do_main(void)
   ub4 argc = globs.argc;
   struct myfile nd;
   const char *cmdstr;
+  char logdir[1024];
+  int rv;
 
   if (argc == 0) return shortusage();
 
@@ -214,6 +216,13 @@ static int do_main(void)
     if (osfileinfo(&nd,globs.netdir)) return oserror(0,"cannot access net directory %s",globs.netdir);
     else if (nd.isdir == 0) return error(0,"net arg %s is not a directory",globs.netdir);
     if (setmsglog(globs.netdir,"tripover.log",0)) return 1;
+
+    fmtstring(logdir,"%s/log",globs.netdir);
+    rv = osexists(logdir);
+    if (rv == -1) return oserror(0,"cannot access dir %s",logdir);
+    else if (rv == 0) {
+      if (osmkdir(logdir)) return oserror(0,"cannot create dir %s",logdir);
+    }
   }
 
   char nowstr[64];
@@ -232,7 +241,6 @@ static int do_main(void)
 
   if (globs.testcnt > 1 && globs.netok) {
     ub4 dep,arr,lostop = 0, histop = 3;
-    int rv;
     search src;
 
     oclear(src);

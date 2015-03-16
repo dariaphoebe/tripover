@@ -95,6 +95,15 @@ int osfileinfo(struct myfile *mf,const char *name)
   return 0;
 }
 
+int osexists(const char *name)
+{
+  struct stat ino;
+
+  if (stat(name,&ino) == 0) return 1;
+  if (errno == ENOENT) return 0;
+  else return -1;
+}
+
 int osrewind(int fd)
 {
   off_t rv;

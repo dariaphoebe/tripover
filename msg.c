@@ -174,6 +174,7 @@ static ub4 ucnv(char *dst, ub4 x,ub4 wid,char pad)
   if (wid > n) {
     while (wid > nn) { *dst++ = pad; nn++; }
   }
+  memset(dst,' ',n);
   dst += n;
   do *--dst = (ub1)((x % 10) + '0'); while (x /= 10);
   return nn;
@@ -322,7 +323,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
   double dval;
   char *pval;
   char c,c1,c2;
-  char pad;
+  char pad = ' ';
 
   if (!p || pos >= len || len - pos < 2) return 0;
   len -= pos; dst += pos; len--;
@@ -384,6 +385,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                   if (do_U && luval >= 1024UL * 10) {
                     lx = luval;
                     if (lx == hi32) n += Ucnv(dst + n,4,0,'G');
+                    else if (lx >= 1024UL * 1024UL * 1024UL) n += Ucnv(dst + n,(ub4)(lx >> 30),(ub4)(lx >> 20) & 0x3ff,'G');
                     else if (lx >= 1024UL * 1024UL) n += Ucnv(dst + n,(ub4)(lx >> 20),(ub4)(lx >> 10) & 0x3ff,'M');
                     else n += Ucnv(dst + n,(ub4)(lx >> 10),(ub4)lx & 0x3ff,'K');
                   } else if (uval == hi32) {
@@ -520,6 +522,8 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     if (x == hi32) n += Ucnv(dst + n,4,0,'G');
                     else if (x >= 1024U * 1024 * 2) n += Ucnv(dst + n,x >> 20,(x >> 10) & 0x3ff,'M');
                     else n += Ucnv(dst + n,x >> 10,x & 0x3ff,'K');
+
+                  // regular
                   } else if (uval == hi32) {
                     memcpy(dst + n,"hi32",4); n += 4;
                   } else n += ucnv(dst + n,uval,wid,pad);

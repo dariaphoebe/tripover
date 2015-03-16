@@ -15,6 +15,22 @@
   output is a variant of gtfs : tab-separated, unquoted and in a canonical column order
   only columns tripover uses
   this simpilies and speeds up subsequent processig by gtfstool
+
+  additinal processing:
+  - filtering on transprt mode
+  - merge duplicate or nearby stops by inferring common parent
+
+  for manual entry support, a few syntax variations are understood :
+
+- blank lines are allowed and skipped
+
+  stop_times.txt:
+  - departure time, if omitted, is equal to arrival time
+  - seconds, if omitted, are 0
+  - . instead of : as time separator
+  - sequence_number  if first after blank line is 1, and rest upto next blank line omitted, auto-increment
+    otherwise, if higher than zero, autodecrement
+
  */
 
 #include <string.h>
@@ -1401,8 +1417,8 @@ static int rdstops(gtfsnet *net,const char *dir)
         val = vals + valno * Collen;
         vrb0(0,"line %u col %u val '%s'",linno,valno,val);
       }
-      if (valcnt < 4 || valcnt < colcnt) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
-      else if (valcnt != colcnt) return parserr(FLN,fname,linno,colno,"row has %u cols, header %u",valcnt,colcnt);
+      if (valcnt < 4 || valcnt + 1 < colcnt) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
+      else if (valcnt != colcnt) infocc(stop == 0,0,"row has %u cols, header %u",valcnt,colcnt);
 
       sp->id = stop;
 // id
@@ -1919,10 +1935,14 @@ static int rdtrips(gtfsnet *net,const char *dir)
 // to be refined: porpoer time parsing and cleanup
 static ub4 dotime(char *p,ub4 len,char *dst)
 {
-  if (len == 8) {
+  ub4 i;
+
+  for (i = 0; i < len; i++) if (p[i] == '.') p[i] = ':';
+
+  if (len == 8) { // hh:mm:ss
     memcpy(dst,p,8);
     return 8;
-  } else if (len == 5) {
+  } else if (len == 5) { // hh:mm
     memcpy(dst,p,5);
     memcpy(dst + 5,":00",3);
     return 8;
@@ -1978,6 +1998,9 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
   hash *trips = net->trips;
   ub4 tid;
 
+  ub4 seq = 0,seqline = 0;
+  bool seqinc = 1;
+
   ub4 stopcnt = 0;
 
   vals = eft.vals;
@@ -2020,8 +2043,8 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
       colno = eft.colno;
       vallens = eft.vallens;
       error_ge(cnt,rawcnt);
-      if (valcnt < 4 || valcnt < colcnt) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
-      else if (valcnt != colcnt) return parserr(FLN,fname,linno,colno,"row has %u columns, header %u",valcnt,colcnt);
+      if (valcnt < 4 || valcnt < colcnt - 1) return parserr(FLN,fname,linno,colno,"missing required columns, only %u",valcnt);
+      else if (valcnt != colcnt) infocc(cnt == 0,0,"row has %u columns, header %u",valcnt,colcnt);
 
 // tripid
       val = vals + trip_idpos * Collen;
@@ -2057,14 +2080,28 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
       val = vals + stop_seqpos * Collen;
       vlen = vallens[stop_seqpos];
 
+      if (vlen) {
+        seq = uvals[stop_seqpos];
+        if (linno > seqline + 1) seqinc = (seq == 1);
+        seqline = linno;
+      } else {
+        if (seqinc) seq++; else seq--;
+        vlen = myutoa(val,seq);
+      }
       bound(mem,linepos + vlen + 1,char);
       linepos = addcol(lines,linepos,val,vlen,tab,0);
 
 // tarr,tdep
       taval = vals + tarr_pos * Collen;
       tavlen = vallens[tarr_pos];
-      tdval = vals + tdep_pos * Collen;
-      tdvlen = vallens[tdep_pos];
+
+      if (valcnt < colcnt) {
+        tdval = taval;
+        tdvlen = 0;
+      } else {
+        tdval = vals + tdep_pos * Collen;
+        tdvlen = vallens[tdep_pos];
+      }
 
       if (tdvlen && tavlen == 0) { tavlen = tdvlen; taval = tdval; }
       else if (tavlen && tdvlen == 0) { tdvlen = tavlen; tdval = taval; }

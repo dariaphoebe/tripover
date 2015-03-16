@@ -125,6 +125,7 @@ static struct cfgvar {
 
   {"engineering",Bool,Section,0,0,0,0,"engineering settings"},
   {"eng.periodlim",Uint,Eng_gen,Eng_periodlim,0,365 * 20,365 * 10,"schedule period limit"},
+  {"eng.conncheck",Uint,Eng_gen,Eng_conchk,0,1,1,"check connectivity"},
   {"eng.options",String,Eng_opt,0,0,0,0,"engineering options"},
   {NULL,0,0,0,0,0,0,NULL}
 };
@@ -368,7 +369,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
 
   fmtstring(fln,"%s ln %u col %u var '%s': ",cfgname,linno,colno,varname);
 
-  if (varlen == 0) return error(0,"%s: empty var",fln);
+  if (varlen == 0) return warn(0,"%s: empty var",fln);
 
   varname[varlen] = 0;
   while (vp->name) {
@@ -377,7 +378,7 @@ static int addvar(char *varname,char *val,ub4 varlen,ub4 vallen)
     if (n == varlen && memeq(name,varname,n)) break;
     vp++;
   }
-  if (vp->name == NULL) return error(0,"%s: unknown config var",fln);
+  if (vp->name == NULL) return warn(0,"%s: unknown config var",fln);
   var = vp->var;
   error_ge(var,Cfgcnt);
 
@@ -531,6 +532,8 @@ static int rdcfg(const char *name,int *havecfg)
       if (c == '\n') state = Out;
       break;
     } // switch state
+
+    if (rv) return rv;
 
   } // each char
   switch(state) {

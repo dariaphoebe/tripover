@@ -228,7 +228,7 @@ int partition(gnet *gnet)
 
     net->portcnt = portcnt;
     net->hopcnt = hopcnt;
-    net->chopcnt = gnet->chopcnt;
+    net->chopcnt = chopcnt;
     net->ports = ports;
     net->hops = hops;
 
@@ -250,6 +250,8 @@ int partition(gnet *gnet)
 //    net->hopcdur = gnet->hopcdur;
 
     net->fhopofs = gnet->fhopofs;
+
+    memcpy(net->bbox,gnet->bbox,sizeof(net->bbox));
 
     // global
     cpfromgnet(gnet,net);

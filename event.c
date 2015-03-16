@@ -215,7 +215,7 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
   return n;
 }
 
-void clearxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlim,ub4 gt0)
+void clearxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlim)
 {
   ub4 t,tt,t0,t1;
 

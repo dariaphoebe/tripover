@@ -84,21 +84,25 @@ enum Cmds { Cmd_nil,Cmd_plan,Cmd_upd,Cmd_stop,Cmd_cnt };
 
 // parse parameters and invoke actual planning. Runs in separate process
 // to be elaborated: temporary simple interface
-static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
+static int cmd_plan(gnet *net,struct myfile *req,struct myfile *rep,search *src)
 {
   char *vp,*lp = req->buf;
   ub4 n,pos = 0,len = (ub4)req->len;
   ub4 ival;
   ub4 varstart,varend,varlen,valstart,valend,type;
 
-  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,ttdep = 0,tspan = 3,utcofs=2200;
-  ub4 costperstop = 10;
+  ub4 portcnt = net->portcnt;
+
+  ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,ttdep = 0,utcofs=2200;
+  ub4 plusday = 1,minday = 0;
+  ub4 costperstop = 1;
   ub4 mintt = globs.mintt;
   ub4 maxtt = globs.maxtt;
   ub4 walklimit = globs.walklimit;
   ub4 sumwalklimit = globs.sumwalklimit;
   ub4 nethistop = hi32;
   ub4 delay = 0;
+  ub4 testiter = 0;
 
   int rv;
   enum Vars {
@@ -107,7 +111,8 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     Carr,
     Ctdep,
     Cttdep,
-    Ctspan,
+    Cplusday,
+    Cminday,
     Clostop,
     Chistop,
     Cmintt,
@@ -117,7 +122,8 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     Csumwalklimit,
     Cnethistop,
     Cutcofs,
-    Cdelay
+    Cdelay,
+    Ctestiter
   } var;
 
   ub4 *evpool;
@@ -156,7 +162,8 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     else if (varlen == 3 && memeq(vp,"arr",3)) var = Carr;
     else if (varlen == 7 && memeq(vp,"deptmin",7)) var = Ctdep;
     else if (varlen == 8 && memeq(vp,"depttmin",8)) var = Cttdep;
-    else if (varlen == 5 && memeq(vp,"tspan",5)) var = Ctspan;
+    else if (varlen == 7 && memeq(vp,"plusday",7)) var = Cplusday;
+    else if (varlen == 6 && memeq(vp,"minday",6)) var = Cminday;
     else if (varlen == 6 && memeq(vp,"lostop",6)) var = Clostop;
     else if (varlen == 6 && memeq(vp,"histop",6)) var = Chistop;
     else if (varlen == 5 && memeq(vp,"mintt",5)) var = Cmintt;
@@ -167,6 +174,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     else if (varlen == 9 && memeq(vp,"nethistop",9)) var = Cnethistop;
     else if (varlen == 6 && memeq(vp,"utcofs",6)) var = Cutcofs;
     else if (varlen == 5 && memeq(vp,"delay",5)) var = Cdelay;
+    else if (varlen == 8 && memeq(vp,"testiter",8)) var = Ctestiter;
     else {
       warn(0,"ignoring unknown var '%s'",vp);
       var = Cnone;
@@ -177,7 +185,8 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     case Carr: arr = ival; break;
     case Ctdep: tdep = ival; break;
     case Cttdep: ttdep = ival; break;
-    case Ctspan: tspan = ival; break;
+    case Cplusday: plusday = ival; break;
+    case Cminday: minday = ival; break;
     case Clostop:  lostop = ival; break;
     case Chistop: histop = ival; break;
     case Cmintt: mintt = ival; break;
@@ -188,6 +197,7 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     case Cnethistop: nethistop = ival; break;
     case Cutcofs: utcofs = ival; break;
     case Cdelay: delay = ival; break;
+    case Ctestiter: testiter = ival; break;
     }
   }
 
@@ -200,6 +210,9 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
     sumwalklimit = walklimit;
   }
 
+  if (dep >= portcnt) return error(0,"dep %u not in %u member net",dep,portcnt);
+  if (arr >= portcnt) return error(0,"arr %u not in %u member net",arr,portcnt);
+
   if (dep == arr) warning(0,"dep %u equal to arr",dep);
   evpool = src->evpool;
   clear(src);
@@ -208,7 +221,8 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   src->depttmin_cd = ttdep;
   src->deptmin_cd = tdep;
   src->utcofs12 = utcofs;
-  src->tspan = tspan;
+  src->plusday = plusday;
+  src->minday = minday;
   src->nethistop = min(nethistop,histop);
   src->mintt = mintt;
   src->maxtt = maxtt;
@@ -218,8 +232,8 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   src->sumwalklimit = m2geo(sumwalklimit);
 
   // invoke actual plan here
-  info(0,"plan %u to %u in %u to %u stop\as from %u for %u days",dep,arr,lostop,histop,tdep,tspan);
-  info(0,"mintt %u maxtt %u",mintt,maxtt);
+  info(0,"plan %u to %u in %u to %u stop\as from \ad%u for +%u -%u days",dep,arr,lostop,histop,tdep,plusday,minday);
+  info(0,"mintt %u maxtt %u maxwalk %u costperstop %u",mintt,maxtt,walklimit,costperstop);
 
   rv = plantrip(src,req->name,dep,arr,lostop,histop);
 
@@ -234,6 +248,32 @@ static int cmd_plan(struct myfile *req,struct myfile *rep,search *src)
   rep->len = len;
 
   if (delay) osmillisleep(delay);
+
+  if (testiter == 0 || dep == arr) return 0;
+
+  ub4 iter = 0;
+
+  while (iter < testiter) {
+    if (++arr == portcnt) {
+      arr = 0;
+      if (++dep == portcnt) dep = 0;
+    }
+    if (dep == arr) continue;
+    iter++;
+    rv = plantrip(src,req->name,dep,arr,lostop,histop);
+    if (rv) return rv;
+  }
+
+  ub4 iv,cnt;
+
+  cnt = src->notrips;
+  infocc(cnt,0,"%u of %u trips not found",cnt,testiter);
+  info(0,"max dur %lu msec for dep %u arr %u",src->querymaxdur / 1000,src->querymaxdep,src->querymaxarr);
+  info(0,"query times in msec for %u iters",testiter);
+  for (iv = 0; iv < Elemcnt(src->querydurs); iv++) {
+    cnt = src->querydurs[iv];
+    infocc(cnt,0,"%02u: %u",iv,cnt);
+  }
 
   return 0;
 }
@@ -363,7 +403,7 @@ static int cmd_upd(struct myfile *req,ub4 seq)
 }
 
 // wrapper around cmd_plan, fork here
-static int start_plan(struct myfile *req)
+static int start_plan(struct myfile *req,int do_fork)
 {
   struct myfile rep;
   int rv;
@@ -371,6 +411,7 @@ static int start_plan(struct myfile *req)
   char filename[1024];
   char *file,*ext;
   search src;
+  int pid;
 
   oclear(rep);
   oclear(src);
@@ -381,17 +422,23 @@ static int start_plan(struct myfile *req)
   if (ext) fmtstring(filename,"%.*s",(ub4)(ext - file),file);
   else strcopy(filename,file);
 
-  int pid = fork();
-  if (pid == -1) { oserror(0,"Cannot fork from %u for %s",globs.pid,filename); return -1; }
-  else if (pid) { info(0,"create process %u for %s",pid,filename); return pid; }
+  if (do_fork) {
+    pid = fork();
+    if (pid == -1) { oserror(0,"Cannot fork from %u for %s",globs.pid,filename); return -1; }
+    else if (pid) { info(0,"create process %u for %s",pid,filename); return pid; }
 
-  globs.pid = getpid();
-  fmtstring(logname,"%s_%u.log",filename,globs.pid);
-  setmsglog(globs.netdir,logname,1);
-  rv = cmd_plan(req,&rep,&src);
+    globs.pid = getpid();
+    fmtstring(logname,"log/%s_%u.log",filename,globs.pid);
+    setmsglog(globs.netdir,logname,1);
+  }
+
+  gnet *net = getgnet();
+
+  rv = cmd_plan(net,req,&rep,&src);
   if (rv) info(0,"plan returned %d",rv);
   rv |= setqentry(req,&rep,".rep");
-  exit(rv);
+  if (do_fork) exit(rv);
+  else return rv;
 }
 
 /* currently a directory queue based interface
@@ -414,14 +461,10 @@ int serverloop(void)
   char c;
   const char *region = "glob"; // todo
   int cpid;
+  int do_fork;
   ub4 cldcnt = 0;
-  char logdir[1024];
 
   info(0,"entering server loop for id %u",globs.serverid);
-
-  fmtstring(logdir,"%s/log",globs.netdir);
-
-  if (osmkdir(logdir)) return oserror(0,"cannot create dir %s",logdir);
 
   do {
     infovrb(seq > prvseq,0,"wait for new cmd %u",seq);
@@ -436,17 +479,23 @@ int serverloop(void)
       osmillisleep(10);  // for linux only we may use inotify instead
     } else {
       info(0,"new client entry %s",req.name);
+      do_fork = 1;
       c = req.name[req.basename];
       switch(c) {
       case 's': cmd = Cmd_stop; break;
       case 'p': cmd = Cmd_plan; break;
+      case 'P': cmd = Cmd_plan; do_fork = 0; break;
       case 'u': cmd = Cmd_upd; break;
       default: info(0,"unknown command '%c'",c);
       }
       if (cmd == Cmd_plan) {
         seq++;
-        cpid = start_plan(&req);
-        if (cpid > 0) cldcnt++;
+        if (do_fork) {
+          cpid = start_plan(&req,1);
+          if (cpid > 0) cldcnt++;
+        } else {
+          rv = start_plan(&req,do_fork);
+        }
         if (req.alloced) afree(req.buf,"client request");
       } else if (cmd == Cmd_upd) {
         prv = cmd_upd(&req,useq);
