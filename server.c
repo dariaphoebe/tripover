@@ -84,14 +84,16 @@ enum Cmds { Cmd_nil,Cmd_plan,Cmd_upd,Cmd_stop,Cmd_cnt };
 
 // parse parameters and invoke actual planning. Runs in separate process
 // to be elaborated: temporary simple interface
-static int cmd_plan(gnet *net,struct myfile *req,struct myfile *rep,search *src)
+static int cmd_plan(gnet *net,struct myfile *req,search *src)
 {
+  struct myfile rep;
   char *vp,*lp = req->buf;
   ub4 n,pos = 0,len = (ub4)req->len;
   ub4 ival;
   ub4 varstart,varend,varlen,valstart,valend,type;
 
   ub4 portcnt = net->portcnt;
+  ub4 sportcnt = net->sportcnt;
 
   ub4 dep = 0,arr = 0,lostop = 0,histop = 3,tdep = 0,ttdep = 0,utcofs=2200;
   ub4 plusday = 1,minday = 0;
@@ -129,6 +131,8 @@ static int cmd_plan(gnet *net,struct myfile *req,struct myfile *rep,search *src)
   ub4 *evpool;
 
   if (len == 0) return 1;
+
+  oclear(rep);
 
   while (pos < len && lp[pos] >= 'a' && lp[pos] <= 'z') {
     ival = 0;
@@ -210,8 +214,8 @@ static int cmd_plan(gnet *net,struct myfile *req,struct myfile *rep,search *src)
     sumwalklimit = walklimit;
   }
 
-  if (dep >= portcnt) return error(0,"dep %u not in %u member net",dep,portcnt);
-  if (arr >= portcnt) return error(0,"arr %u not in %u member net",arr,portcnt);
+  if (dep > portcnt && dep - portcnt >= sportcnt) return error(0,"dep %u not in %u member net",dep - portcnt,sportcnt);
+  if (arr > portcnt && arr - portcnt >= sportcnt) return error(0,"arr %u not in %u member net",arr - portcnt,sportcnt);
 
   if (dep == arr) warning(0,"dep %u equal to arr",dep);
   evpool = src->evpool;
@@ -232,24 +236,26 @@ static int cmd_plan(gnet *net,struct myfile *req,struct myfile *rep,search *src)
   src->sumwalklimit = m2geo(sumwalklimit);
 
   // invoke actual plan here
-  info(0,"plan %u to %u in %u to %u stop\as from \ad%u for +%u -%u days",dep,arr,lostop,histop,tdep,plusday,minday);
+  info(0,"plan %u to %u in %u to %u stop\as from \ad%u.%u for +%u -%u days",dep,arr,lostop,histop,tdep,ttdep,plusday,minday);
   info(0,"mintt %u maxtt %u maxwalk %u costperstop %u",mintt,maxtt,walklimit,costperstop);
 
   rv = plantrip(src,req->name,dep,arr,lostop,histop);
 
   // prepare reply
-  rep->buf = rep->localbuf;
-  if (rv) len = fmtstring(rep->localbuf,"reply plan %u-%u error code %d\n",dep,arr,rv);
+  rep.buf = rep.localbuf;
+  if (rv) len = fmtstring(rep.localbuf,"reply plan %u-%u error code %d\n",dep,arr,rv);
   else if (src->reslen) {
-    len = min(src->reslen,sizeof(rep->localbuf));
-    memcpy(rep->localbuf,src->resbuf,len);
-  } else len = fmtstring(rep->localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
+    len = min(src->reslen,sizeof(rep.localbuf));
+    memcpy(rep.localbuf,src->resbuf,len);
+  } else len = fmtstring(rep.localbuf,"reply plan %u-%u : no trip found\n",dep,arr);
   vrb0(0,"reply len %u",len);
-  rep->len = len;
+  rep.len = len;
 
   if (delay) osmillisleep(delay);
 
-  if (testiter == 0 || dep == arr) return 0;
+  rv |= setqentry(req,&rep,".rep");
+
+  if (testiter == 0 || dep == arr) return rv;
 
   ub4 iter = 0;
 
@@ -264,7 +270,7 @@ static int cmd_plan(gnet *net,struct myfile *req,struct myfile *rep,search *src)
     if (rv) return rv;
   }
 
-  ub4 iv,cnt;
+  ub4 iv,cnt,cumcnt = 0;
 
   cnt = src->notrips;
   infocc(cnt,0,"%u of %u trips not found",cnt,testiter);
@@ -272,7 +278,8 @@ static int cmd_plan(gnet *net,struct myfile *req,struct myfile *rep,search *src)
   info(0,"query times in msec for %u iters",testiter);
   for (iv = 0; iv < Elemcnt(src->querydurs); iv++) {
     cnt = src->querydurs[iv];
-    infocc(cnt,0,"%02u: %u",iv,cnt);
+    cumcnt += cnt;
+    infocc(cnt,0,"%02u: %u %u",iv,cnt,cumcnt);
   }
 
   return 0;
@@ -405,15 +412,14 @@ static int cmd_upd(struct myfile *req,ub4 seq)
 // wrapper around cmd_plan, fork here
 static int start_plan(struct myfile *req,int do_fork)
 {
-  struct myfile rep;
   int rv;
   char logname[1024];
   char filename[1024];
   char *file,*ext;
-  search src;
   int pid;
 
-  oclear(rep);
+  search src;
+
   oclear(src);
 
   file = strrchr(req->name,'/');
@@ -434,9 +440,8 @@ static int start_plan(struct myfile *req,int do_fork)
 
   gnet *net = getgnet();
 
-  rv = cmd_plan(net,req,&rep,&src);
+  rv = cmd_plan(net,req,&src);
   if (rv) info(0,"plan returned %d",rv);
-  rv |= setqentry(req,&rep,".rep");
   if (do_fork) exit(rv);
   else return rv;
 }
