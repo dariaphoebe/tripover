@@ -132,7 +132,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
     t = tday * daymin;
 
 //    warncc(t + tdep >= t1 + daymin,0,"t \ad%u + tdep %u >= \ad%u",t,tdep,t1);
-    error_ge(t + tdep,t1 + daymin);
+//    error_ge(t + tdep,t1 + daymin);
     tt = t - gt0 + tdep;
     if (tt >= xlen) {
       warning(0,"t %u tdep %u xlen %u n %u",t,tdep,xlen,n);

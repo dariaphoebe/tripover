@@ -178,6 +178,10 @@ static void wrstderrlog(const char *buf,ub4 len)
 void *osmmap(size_t len)
 {
   void *p = mmap(NULL,len,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+  if (p == MAP_FAILED) {
+    oserror(0,"mmap failed for \ah%lu b",(ub8)len);
+    return NULL;
+  }
   return p;
 }
 int osmunmap(void *p,size_t len)

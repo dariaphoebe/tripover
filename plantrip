@@ -24,8 +24,8 @@ use Fcntl ':mode';
 use Time::HiRes qw(gettimeofday);
 
 my $version_maj = 0;
-my $version_min = 26;
-my $lastchanged = "16 mar 2015";
+my $version_min = 27;
+my $lastchanged = "24 mar 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -47,6 +47,8 @@ my $repfile = $repdir . '/plantrip.rep';
 my $reqid = 0;
 
 my $portrefname = 'portrefs.txt';
+my $haveportrefs = 0;
+my @portrefs;
 
 my $timeout = 3; # seconds
 
@@ -200,6 +202,7 @@ sub agedir($$)
 }
 
 my $pi = 3.141592655;
+my $pi180 = 0.017453293;
 my $geolow = $pi * 2.0e-5; # ~500 m
 my $geolimit = $pi * 1.0e-7;
 my $mean_earth_radius = 6371.0;
@@ -214,10 +217,10 @@ sub geodist($$$$)
 
   my ($dist,$dlat,$dlon);
 
-  my $phi1 = ($slat * $pi) / 180;
-  my $lam1 = ($slon * $pi) / 180;
-  my $phi2 = ($lat * $pi) / 180;
-  my $lam2 = ($lon * $pi) / 180;
+  my $phi1 = $slat * $pi180;
+  my $lam1 = $slon * $pi180;
+  my $phi2 = $lat * $pi180;
+  my $lam2 = $lon * $pi180;
 
   my $dlam = $lam2 - $lam1;
   my $dphi = $phi2 - $phi1;
@@ -235,8 +238,8 @@ sub geodist($$$$)
   my ($d,$dsig);
 
   $d = sin($phi1) * sin($phi2) + cos($phi1) * cos($phi2) * cos($dlam);
-  if ($d >= 1.0) { error("geodist d $d for $phi1 $phi2 $lam1 $lam2"); return 0; }
-  elsif ($d <= -1.0) { error("geodist d $d for $phi1 $phi2 $lam1 $lam2"); return 0; }
+#  if ($d >= 1.0) { error("geodist d $d for $phi1 $phi2 $lam1 $lam2"); return 0; }
+#  elsif ($d <= -1.0) { error("geodist d $d for $phi1 $phi2 $lam1 $lam2"); return 0; }
 
   $dsig = acos($d);
 
@@ -256,8 +259,6 @@ sub addtorep($$)
   print("$txt\n") if $iscgi;
   close $fh;
 }
-
-my $haveportrefs = 0;
 
 # read port to id mappings
 sub readportrefs($)
@@ -304,9 +305,43 @@ sub readportrefs($)
     $portmodes{$subid} = $modes;
   }
   $portcnt = scalar(keys %portids);
-  vrb("$portcnt ports");
+  info("$portcnt ports [name]");
 
   $haveportrefs = 1;
+}
+
+# as above, geocode version
+sub readportrefs_geo($)
+{
+  my ($fname) = @_;
+
+#  my ($id,$subid,$name,$lcname,$nlen,$lat,$lon,$modes,$rlat,$rlon);
+  my ($fh,$line,$c,$var,$val);
+
+  open($fh,'<:encoding(UTF-8)',$fname) or error_exit("cannot open $fname: $!");
+
+  my @lines = readline($fh);
+  unless (scalar @lines) { error_exit("$fname is empty"); }
+
+  foreach $line (@lines) {
+    next unless length($line);
+    $c = chop $line;
+    $line .= $c if $c ne "\n";
+    next unless length($line);
+    $c = substr($line,0,1);
+    next if $c eq '#';
+
+    if ($c eq '.') {
+      ($var,$val) = split("\t",substr($line,1));
+      $tzdef = $val if $var eq 'tz';
+      $latscale = $val if $var eq 'latscale';
+      $lonscale = $val if $var eq 'lonscale';
+      next;
+    }
+    push @portrefs,$line;
+  }
+  $portcnt = scalar @portrefs;
+  info("$portcnt ports [geo]");
 }
 
 # returns sub-id by name
@@ -380,28 +415,30 @@ sub portbyname($)
 sub portbygeo($$)
 {
   my ($lat,$lon) = @_;
-  my ($clat,$clon,$dist,$lodist,$loid,$id,$pid,$name,$pname,$fmtdist,$mdist,$modes);
-
-  readportrefs($portrefname) unless $haveportrefs;
+  my ($clat,$clon,$dist,$lodist,$loid,$pid,$pname,$fmtdist,$mdist);
+  my ($line,$loline);
+  my ($id,$subid,$name,$ilat,$ilon,$rlat,$rlon,$modes);
 
   $lodist = 999999999; $loid = -1;
-  while (($id,$name) = each %portids) {
-    $clat = $portrlats{$id};
-    $clon = $portrlons{$id};
+
+  for $line (@portrefs) {
+    ($id,$subid,$name,$ilat,$ilon,$modes) = split("\t",$line);
+
+    $clat = ($ilat / $latscale) - 90;
+    $clon = ($ilon / $lonscale) - 180;
 
     $dist = geodist($lat,$lon,$clat,$clon);
-    if ($dist < $lodist) { $lodist = $dist; $loid = $id; }
+    if ($dist < $lodist) { $lodist = $dist; $loid = $subid; $loline = $line; }
   }
-  unless (exists $portids{$loid}) {
+  if ($loid == -1) {
     warning("$lat,$lon not found");
     return -1;
   }
-  $clat = $portrlats{$loid};
-  $clon = $portrlons{$loid};
-  $pid = $idbysub{$loid};
-  $name = $portids{$loid};
-  $pname = $portids{$pid};
-  $modes = $portmodes{$loid};
+  ($id,$subid,$name,$ilat,$ilon,$modes) = split("\t",$loline);
+  $clat = ($ilat / $latscale) - 90;
+  $clon = ($ilon / $lonscale) - 180;
+
+  $pid = $id;
 
   $mdist = int($lodist * 1000);
   if ($lodist < 1.500) { $fmtdist = $mdist . ' m'; }
@@ -409,7 +446,9 @@ sub portbygeo($$)
 
   if ($loid == $pid) {
     info("$lat,$lon $fmtdist from $clat,$clon ID $loid $name");
+    $pname = $name;
   } else {
+    $pname = '(unavailable)';
     info("$lat,$lon $fmtdist from $clat,$clon ID $loid > $pid $name > $pname");
   }
   # if id >= portcnt, id - portcnt = subid; subid->parent
@@ -426,6 +465,7 @@ sub geocode($$)
 {
   my ($lat,$lon) = @_;
 
+  readportrefs_geo($portrefname);
   portbygeo($lat,$lon);
 }
 
@@ -768,7 +808,8 @@ sub query($$$)
     last if length($serverid);
   }
   unless (length($serverid)) {
-    info("no reply in $timeout sec");
+    info("no reply from tripover server in $timeout sec");
+    addtorep(".planres\tno reply from tripover server in $timeout sec",0);
     return;
   }
 
@@ -833,7 +874,7 @@ sub query($$$)
         addtorep($rline,1);
         if ($legno > 1) {
           if ($name ne $aname) {
-            print "                 $name within $sdist\n";
+            print "                $name within $sdist\n";
           }
           print "$legno. ";
           print join(' ',$tdep,'continue with',$txtime,'transfer time');
@@ -849,7 +890,7 @@ sub query($$$)
         $rline = join("\t",'.planres',$item,$mode,$rname,$thop,$dist);
         $xtra = '' unless defined $xtra;
         addtorep($rline,1);
-        print join(' ','                ',$mode,$rname,$thop,$dist,$xtra);
+        print join(' ','                 ',$mode,$rname,$thop,$dist,$xtra);
         $triprow++;
 
 # tarr,name
@@ -1326,7 +1367,8 @@ if (@ARGV > 0) {
     } elsif ($cmd eq 'iplan') {
       exit info("iplan needs 'from' and 'to' arg") unless (@args > 2);
       $dep = $args[1]; $arr = $args[2];
-      splice(@args,0,3);
+      if ($arr eq 'to') { $arr = $args[3]; splice(@args,0,4); }
+      else {splice(@args,0,3); }
       foreach $arg (@args) { set_var($arg); }
       iplan($dep,$arr);
       agedir($querydir,time() - $agelimit);

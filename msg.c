@@ -388,7 +388,7 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     else if (lx >= 1024UL * 1024UL * 1024UL) n += Ucnv(dst + n,(ub4)(lx >> 30),(ub4)(lx >> 20) & 0x3ff,'G');
                     else if (lx >= 1024UL * 1024UL) n += Ucnv(dst + n,(ub4)(lx >> 20),(ub4)(lx >> 10) & 0x3ff,'M');
                     else n += Ucnv(dst + n,(ub4)(lx >> 10),(ub4)lx & 0x3ff,'K');
-                  } else if (uval == hi32) {
+                  } else if (luval == hi32) {
                     memcpy(dst + n,"hi32",4); n += 4;
                   } else if (luval > hi32) {
                     n += ucnv(dst + n,(ub4)(luval >> 32),wid,pad);

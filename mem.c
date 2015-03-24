@@ -165,7 +165,7 @@ void *alloc_fln(ub4 elems,ub4 elsize,const char *slen,const char *sel,ub1 fill,c
   if (nm >= mmap_from_mb) {
     if (nm > 64) infofln2(fln,0,FLN,"alloc %u MB. for %s-%u",nm,desc,arg);
     p = osmmap(n);
-    if (!p) { oserrorfln(fln,Exit,"%u: cannot allocate %u MB for %s-%u", __LINE__,nm, desc,arg); return NULL; }
+    if (!p) { errorfln(fln,Exit,FLN,"cannot allocate %u MB for %s-%u",nm,desc,arg); return NULL; }
     if (fill) memset(p, fill, n);
   } else {
     if (nm > 64) infofln2(fln,0,FLN,"alloc %u MB for %s-%u",nm,desc,arg);

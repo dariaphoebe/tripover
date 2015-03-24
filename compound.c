@@ -286,6 +286,8 @@ int compound(gnet *net)
   for (rid = 0; rid < ridcnt; rid++) {
     if (progress(&eta,"compound rid %u of %u for %u chains pass 2",rid,ridcnt,chaincnt)) return 1;
 
+    rp = routes + rid;
+
     nsethi(port2rport,portcnt);
     rportcnt = 0;
     for (hop = 0; hop < hopcnt; hop++) {
@@ -363,7 +365,7 @@ int compound(gnet *net)
           if (dep1 == arr2) continue;
           deparr = dep1 * rportcnt + arr2;
           prvda = cduphops[deparr];
-          if (prvda != hi32) {  // existing: accumulate duration if constant
+          if (prvda != hi32) {  // existing: accumulate and range duration
             tdep1 = ptdep[ci1];
             tarr2 = ptarr[ci2];
             error_lt(tarr2,tdep1);
@@ -371,6 +373,7 @@ int compound(gnet *net)
             rhopcdur[prvda] += dur;
             hoplodur[prvda] = min(hoplodur[prvda],dur);
             hophidur[prvda] = max(hophidur[prvda],dur);
+
             hopccnt[prvda]++;
             continue;
           }
@@ -391,7 +394,7 @@ int compound(gnet *net)
           tdep1 = ptdep[ci1];
           tarr2 = ptarr[ci2];
 
-          infocc(dist2 == 0,0,"xxx chop %u dist %u+%u",chop,dist1,dist2);
+          infocc(dist2 == 0,0,"chop %u dist %u+%u",chop,dist1,dist2);
 
           error_eq(hop1,hop2);
 
@@ -429,6 +432,7 @@ int compound(gnet *net)
           else midur = hi32;
           hopdur[chop] = midur;
 
+          // first entry
           rhopcdur[deparr] = midur;
           hoplodur[deparr] = midur;
           hophidur[deparr] = midur;
@@ -467,8 +471,10 @@ int compound(gnet *net)
         dur = sumdur / cnt;
         warncc(dur > 1440 * 2,Iter,"chop %u dur %u",hop,dur);
         aeqdurs++;
-      } else {
-        infovrb(durdif > 60,Iter,"chop %u dur %u-%u",chop ,hoplodur[da],hophidur[da]);
+      } else { // possible if loop in route
+        hop1 = choporg[hop * 2];
+        hop2 = choporg[hop * 2 + 1];
+        infovrb(durdif > 30,Notty,"chop %u %u-%u dur %u-%u rid %u %s",hop,hop1,hop2,hoplodur[da],hophidur[da],rid,rp->name);
         dur = hi32;
       }
       hopcdur[hop] = dur;

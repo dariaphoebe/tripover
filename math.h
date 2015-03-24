@@ -35,7 +35,7 @@ extern ub4 rad2lon(double rlon,ub4 scale);
 
 enum Geobox {Minlat,Maxlat,Minlon,Maxlon,Latrng,Lonrng,Midlat,Midlon,Boxcnt,Geocnt};
 
-extern void updbbox(ub4 lat,ub4 lon,ub4 bbox[Geocnt]);
+extern void updbbox(ub4 lat,ub4 lon,ub4 *bbox,ub4 bboxlen);
 
 extern double geodist(double rlat1, double rlon1, double rlat2, double rlon2);
 

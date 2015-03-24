@@ -51,14 +51,14 @@ int fileopen(const char *name,int mustexist)
   return fd;
 }
 
-int filewrite(int fd, const void *buf,ub4 len,const char *name)
+int filewritefln(ub4 fln,int fd, const void *buf,ub4 len,const char *name)
 {
   long n;
 
-  if (len == 0) return error(0,"nil write to %s",name);
+  if (len == 0) return errorfln(fln,0,FLN,"nil write to %s",name);
   n = oswrite(fd,buf,len);
-  if (n == -1) return oserror(0,"cannot write \ah%u bytes to %s",len,name);
-  else if (n != (long)len) return error(0,"partial write \ah%ld of \ah%u bytes to %s",n,len,name);
+  if (n == -1) return oserrorfln(fln,0,"cannot write \ah%u bytes to %s",len,name);
+  else if (n != (long)len) return errorfln(fln,0,FLN,"partial write \ah%ld of \ah%u bytes to %s",n,len,name);
   else return 0;
 }
 
@@ -235,7 +235,7 @@ int readfile(struct myfile *mf,const char *name, int mustexist,ub4 maxlen)
     warn(0,"limiting read of %u-byte file %s to %u",(ub4)len,name,maxlen);
     len = maxlen;
   }
-  if (len < sizeof(mf->localbuf)) buf = mf->localbuf;
+  if (len <= sizeof(mf->localbuf)) buf = mf->localbuf;
   else {
     buf = alloc((ub4)len,char,0,name,0);
     mf->alloced = 1;

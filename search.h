@@ -30,18 +30,20 @@ struct srcctx {
   ub4 viacnt;
 
   // search params
-  ub4 deptmin,deptmax;
-  ub4 deptmin_cd,depttmin_cd,tspan;
+  ub4 deptmin,deptmax,deptmid;
+  ub4 deptmin_cd,depttmin_cd;
+  ub4 plusday,minday;
   ub4 utcofs12;
   ub4 lostop,histop,nethistop;
   ub4 mintt,maxtt;
   ub4 walklimit,sumwalklimit;
   ub4 stop;
-  ub4 costlim;
+//  ub4 costlim;
   ub4 costperstop;
 
   // workspace
   ub4 lodt,hidt;
+  ub4 locost;
   ub4 lodist;
   ub4 hidist;
   ub4 geodist;
@@ -64,11 +66,18 @@ struct srcctx {
   ub4 varcnt;
   ub4 dvarcnt,tvarcnt,avarcnt,dvarxcnt,tvarxcnt,avarxcnt;
 
-  ub8 combicnt,totevcnt;
+  ub8 combicnt;
+  ub8 totevcnt[Nxleg];
 
   ub4 stat_noprv;
   ub4 stat_nxtlim;
   ub4 stat_nxt0,stat_nxt3;
+
+  // stats for iter test
+  ub4 querydurs[10000];
+  ub8 querymaxdur;
+  ub4 querymaxdep,querymaxarr;
+  ub4 notrips;
 
   ub4 nleg;
 
@@ -79,7 +88,7 @@ struct srcctx {
 
   ub4 dcnts[Nxleg];   // #events in dev[leg]
 
-  ub4 dtcurs[Nxleg];  // low cost (=biased dt) for [0.. curleg]
+  ub4 costcurs[Nxleg];  // low cost (=biased dt) for [0.. curleg]
   ub4 devcurs[Nxleg]; // dev index for above
   ub4 devcurs2[Nxleg]; // idem, next low
 

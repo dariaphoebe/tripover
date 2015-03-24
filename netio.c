@@ -953,8 +953,8 @@ static int rdexttimes(netbase *net,const char *dir)
           timebox[1] = timebox[0] + 1;
         }
         tbox0 = timebox[0]; tbox1 = timebox[1];
-        daybox0 = cd2day(tbox0) - 2;
-        daybox1 = cd2day(tbox1) + 2;
+        daybox0 = cd2day(tbox0) - 1;
+        daybox1 = cd2day(tbox1) + 7;
         dtbox = daybox1 - daybox0;
         if (periodt0 > Epochyear) {
           daybox0 = max(daybox0,periodt0);
@@ -965,10 +965,10 @@ static int rdexttimes(netbase *net,const char *dir)
 
         if (daybox0 > daybox1) {
           warn(0,"period start \ad%u after end \ad%u",daybox0,daybox1);
-          daybox1 = daybox0 + 1;
+          daybox1 = daybox0 + 7;
         }
-        if (daybox1 - daybox0 < dtbox) timespanlimit = daybox1 - daybox0 + 2;
-        dtbox = daybox1 - daybox0 + 2;
+        if (daybox1 - daybox0 < dtbox) timespanlimit = daybox1 - daybox0 + 7;
+        dtbox = daybox1 - daybox0 + 7;
         tbox0 = timebox[0] = day2cd(daybox0);
         tbox1 = timebox[1] = day2cd(daybox1);
         info(0,"period start \ad%u end \ad%u %u days",daybox0,daybox1,dtbox);
@@ -976,7 +976,7 @@ static int rdexttimes(netbase *net,const char *dir)
           warning(0,"timebox %u-%u limited to %u days",tbox0,tbox1,timespanlimit);
           daybox1 = daybox0 + timespanlimit;
           tbox1 = timebox[1] = day2cd(daybox1);
-          dtbox = daybox1 - daybox0 + 1;
+          dtbox = daybox1 - daybox0 + 7;
         }
         info(0,"timebox %u-%u = %u days",tbox0,tbox1,daybox1 - daybox0);
         sidmaps = alloc(rawsidcnt * (dtbox+1),ub1,0,"time sidmap",dtbox);
@@ -1606,10 +1606,10 @@ static int rdexthops(netbase *net,const char *dir)
         if (fmt & Fmt_diftarr) tarrsec += prvtarr;
 
         if (tarrsec < tdepsec) {
-          parsewarn(FLN,fname,linno,colno,"hop %u arr %u before dep %u",hop,tarrsec,tdep);
+          parsewarn(FLN,fname,linno,colno,"hop %u arr %u before dep %u %s %s",hop,tarrsec,tdep,dname,aname);
           tarrsec = tdepsec;
         } else if (tarrsec == tdepsec) {
-          parsewarn(FLN,fname,linno,colno,"hop %u arr time %u equals dep",hop,tarrsec);
+          parsewarn(FLN,fname,linno,colno,"hop %u arr time %u equals dep %s %s",hop,tarrsec,dname,aname);
         }
 
 //        info(0,"fmt %x at %u.%u rsid \ax%u tid %u,%u td %u ta %u",fmt,linno,tndx,rsid,tid,rtid,tdepsec,tarrsec);

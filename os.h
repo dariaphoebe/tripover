@@ -25,6 +25,7 @@ extern int osfileinfo(struct myfile *mf,const char *name);
 extern int osclose(int fd);
 extern int osremove(const char *name);
 extern int osmkdir(const char *dir);
+extern int osexists(const char *name);
 
 extern int osrun(const char *cmd,char *const argv[],char *const envp[]);
 extern int oswaitany(ub4 *cldcnt);

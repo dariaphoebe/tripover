@@ -405,7 +405,7 @@ int prepbasenet(void)
     } else {
       fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
       if (fdist < 1) warning(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-      else if (fdist > 42000) vrb0(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+      else if (fdist > 420000) warn(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
       dist = (ub4)fdist;
     }
     hp->dist = max(dist,1);
@@ -740,8 +740,12 @@ int prepbasenet(void)
         hp = hops + hop;
         error_ne(hp->rid,rid);
         tdep = chp->tdep;
-        warncc(tdep < prvtdep,0,"hop %u %s",hop,hp->name);
-        noexit error_lt(tdep,prvtdep); // todo
+        if (tdep < prvtdep) {
+          pdep = ports + hp->dep;
+          parr = ports + hp->arr;
+          warn(0,"hop %u %s %s to %s",hop,hp->name,pdep->name,parr->name);
+          noexit error_lt(tdep,prvtdep); // todo
+        }
         prvtdep = tdep;
         dist += hp->dist;
         if (hp->tp.midur == hi32) { prvdur = midur; midur = hi32; }

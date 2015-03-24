@@ -396,9 +396,9 @@ static ub4 estdur2(lnet *net,ub4 hop1,ub4 hop2,ub4 ttmin,ub4 ttmax)
   ub4 chopcnt = net->chopcnt;
   ub8 tdur1,tdur2,*sev1,*sev2,*sevents = net->sevents;
   ub4 scnt1,scnt2,*sevcnts = net->sevcnts;
-  ub4 e1,e2,i;
-  ub4 t1,t2,dur1,dur2,avgdt,dt;
-  ub4 dtcnt = 0,dtbcnt = 0;
+  ub4 e1,e2,prve1,prve2,i;
+  ub4 t1,t2,dur1,dur2,avgdt,dt,lodt;
+  ub4 dtcnt2,dtcnt = 0,dtbcnt = 0;
   ub8 dtsum = 0,dtbsum = 0;
 
 static ub4 dtbins[60 * 12];
@@ -426,57 +426,75 @@ static ub4 stat_nocnt;
   }
 
   // forward
-  e2 = 0;
-  tdur2 = sev2[e2];
-  t2 = (ub4)(tdur2 >> 32);
+  e2 = prve2 = 0;
   for (e1 = 0; e1 < scnt1; e1++) {
     tdur1 = sev1[e1];
     dur1 = tdur1 & hi32;
     t1 = (ub4)(tdur1 >> 32);
+    e2 = prve2;
+    while (e2 < scnt2) {
+      tdur2 = sev2[e2];
+      t2 = (ub4)(tdur2 >> 32);
+      if (t2 >= t1 + dur1 + ttmin) break;
+      e2++;
+    }
+    prve2 = e2;
+    if (e2 == scnt2) break;
 
-//    warncc(t1 == hi32,0,"hop %u-%u ev %u t hi",hop1,hop2,e1);
-//    warncc(dur1 == hi32,0,"hop %u-%u ev %u dur hi",hop1,hop2,e1);
-    warncc(dur1 > 6000,Notty,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e1,scnt1,dur1);
+    lodt = hi32;
+    dtcnt2 = 0;
 
-    while (e2 < scnt2 && t2 < t1 + dur1 + ttmin) {
+    while (e2 < scnt2) { // search for the single best xfer
       tdur2 = sev2[e2++];
       t2 = (ub4)(tdur2 >> 32);
-//      warncc(t2 == hi32,0,"hop %u-%u ev %u t hi",hop1,hop2,e2);
+
+      if (dtcnt2 && t2 - t1 + dur1 > ttmax) break;
+
+      dur2 = tdur2 & hi32;
+      dur2 &= hi16; // todo
+
+      dt = (t2 - t1) + dur2;
+      if (dt < lodt) { lodt = dt; dtcnt2++; }
     }
-    if (e2 == scnt2) break;
-    else if (t2 - t1 + dur1 > ttmax) continue;
-    dur2 = tdur2 & hi32;
-//    warncc(dur2 == hi32,0,"hop %u-%u ev %u t hi",hop1,hop2,e2);
+    if (dtcnt2 == 0) continue;
 
-    warncc(dur2 > 6000,Notty,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e2,scnt2,dur2);
-    dur2 &= hi16; // todo
-
-    dt = (t2 - t1) + dur2;
-//    warncc(dt > 600,0,"hop %u-%u ev %u/%u dur %u t1 %u t2 %u",hop1,hop2,e2,scnt2,dur2,t2,t1);
-    dtsum += dt;
+    dtsum += lodt;
     dtcnt++;
   }
 
   // backward
-  e1 = 0;
-  tdur1 = sev1[e1];
-  t1 = (ub4)(tdur1 >> 32);
-  dur1 = tdur1 & hi32;
-//  warncc(dur1 > 600,0,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e1,scnt1,dur1);
+  e1 = prve1 = 0;
   for (e2 = 0; e2 < scnt2; e2++) {
     tdur2 = sev2[e2];
     t2 = (ub4)(tdur2 >> 32);
-    while (e1 < scnt1 && t1 + dur1 + ttmin < t2) {
-      tdur1 = sev1[e1++];
-      t1 = (ub4)(tdur1 >> 32);
-    }
-    if (e1 == scnt1 || t1 + dur1 + ttmax > t2) break;
-    else if (t2 - t1 + dur1 > ttmax) continue;
     dur2 = tdur2 & hi32;
-    warncc(dur2 > 6000,Exit,"hop %u-%u ev %u/%u dur %u",hop1,hop2,e2,scnt2,dur2);
-    dt = t2 - t1 + dur2;
-//    warncc(dt > 600,0,"hop %u-%u ev %u/%u dur %u t1 %u t2 %u",hop1,hop2,e2,scnt2,dur2,t2,t1);
-    dtbsum += dt;
+    e1 = prve1;
+    while (e1 < scnt1) {
+      tdur1 = sev1[e1];
+      t1 = (ub4)(tdur1 >> 32);
+      dur1 = tdur1 & hi32;
+      if (t1 + dur1 + ttmin >= t2) break;
+      e1++;
+    }
+    prve1 = e1;
+
+    lodt = hi32;
+    dtcnt2 = 0;
+
+    while (e1) {
+      tdur1 = sev1[--e1];
+      t1 = (ub4)(tdur1 >> 32);
+      dur1 = tdur1 & hi32;
+      dur1 &= hi16;
+
+      if (dtcnt2 && t2 - t1 + dur1 > ttmax) break;
+
+      dt = (t2 - t1) + dur2;
+      if (dt < lodt) { lodt = dt; dtcnt2++; }
+    }
+    if (dtcnt2 == 0) continue;
+
+    dtbsum += lodt;
     dtbcnt++;
   }
 

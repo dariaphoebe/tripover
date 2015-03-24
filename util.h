@@ -29,9 +29,11 @@ struct cmdarg { // commandline arg defines
   int (*fn)(struct cmdval *cp);
 };
 
+#define filewrite(fd,buf,len,name) filewritefln(FLN,(fd),(buf),(len),(name))
+
 extern int filecreate(const char *name,int mustsucceed);
 extern int fileopen(const char *name,int mustexist);
-extern int filewrite(int fd, const void *buf,ub4 len,const char *name);
+extern int filewritefln(ub4 fln,int fd, const void *buf,ub4 len,const char *name);
 extern int fileread(int fd,void *buf,ub4 len,const char *name);
 extern int fileclose(int fd,const char *name);
 

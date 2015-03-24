@@ -21,8 +21,8 @@ typedef short sb2;
 typedef int sb4;
 
 #define Version_maj 0
-#define Version_min 25
-#define Version_phase "pre-alpha"
+#define Version_min 26
+#define Version_phase "alpha"
 #define Program_name "tripover"
 #define Program_desc "broad-search journey planner"
 
