@@ -457,14 +457,19 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                     n += ucnv(dst + n,uval,wid,'0');
                     break;
 
-                  // coded decimal date
+                  // coded decimal or standard date/time
                   } else if (do_mindate) {
                     if (do_mindate == 2) {
                       n += ucnv(dst + n,uval,wid,pad);
                       dst[n++] = ' ';
                     }
                     do_mindate = 0;
-                    if (uval > 1440 * 356 * 10) { // minutes
+
+                    if (uval < 1440 * 365) { // relative minutes
+                      hh = uval / 60; mm = uval % 60;
+                      x = hh * 100 + mm;
+                      n += ucnv(dst + n,x,0,' ');
+                    } else if (uval < 20000101) { // minutes since epoch
                       cdval = lmin2cd(uval);
                       n += ucnv(dst + n,cdval,4,'0');
                       uval %= 1440;
@@ -474,13 +479,9 @@ static ub4 vsnprint(char *dst, ub4 pos, ub4 len, const char *fmt, va_list ap)
                         x = hh * 100 + mm;
                         n += ucnv(dst + n,x,0,' ');
                       }
-                    } else if (uval > 356 * 10) { // yyyymmdd
+                    } else { // yyyymmdd
                       cdval = day2cd(uval);
                       n += ucnv(dst + n,cdval,wid,pad);
-                    } else { // minutes
-                      hh = uval / 60; mm = uval % 60;
-                      x = hh * 100 + mm;
-                      n += ucnv(dst + n,x,0,' ');
                     }
                     break;
 

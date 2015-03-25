@@ -1,16 +1,15 @@
 = tripover - Broad-search journey planner for timetable-based transport
 
 An attempt to build a journey planner good at broad searches.
-Like "from Germany to Java, depart next month, return one to two weeks later".
+Like "from Cairns to Perth, depart any day next week".
 Aiming at the longer distance traveller searching for good trip options.
 
 == Description
-Aimed at transport options running on a schedule, with or without fares:
-Flights, ferries, trains and buses.
-For manageability anticipating only the longer-haul routes.
+Plan a trip using schedule-based transport such as train, plane, bus or ferry.
+Both advance-bookable and regular.
 Results are to be selected on a handful of criteria, like price, travel time, number of stops or stopover time.
 
-The planner is targeted to run on a server, accessed by local and web clients.
+The planner typically runs on a server, accessed by local and web clients.
 
 === Goals
 
@@ -20,13 +19,6 @@ The planner is targeted to run on a server, accessed by local and web clients.
 * real-time updates, like planned changes, disruptions and fare availability
 
 === Non-goals
-
-* obtaining schedule and fare data
-+
-[small]#airline data is generally not publicly available#
-+
-[small]#good coverage for public transport data is a project in itself#
-+
 
 * booking+ticketing
 +
@@ -43,16 +35,16 @@ The planner is targeted to run on a server, accessed by local and web clients.
 [small]#aim at higher system requirements#
 
 == Status
-Pre-alpha - initial testing on larger networks
+Alpha - initial testing on larger networks
 
 * GTFS reader and external readable network file format
-* Timezone support
+* Handle timezone boundaries
 * Combine multiple datasets
 * Static connectivity matrix aka graph builing
-* simple local commandline client / server interface
+* local commandline client / server interface
 * CGI / web interface
 * time and route search - promising results and query times. Some results need work
-* handling of reserved transport and real-time fare updates
+* inital provision for handling of reserved transport
 
 == Installation
 
@@ -62,12 +54,11 @@ You can compile, install and run the program in any directory. The chosen dir is
 In the examples below, this project root is shown as current dir +./+.
 
 === Prerequisites
-Most unix-like systems like Linux and Macosx are suitable, as Tripover only uses C99 and Posix features. A 64-bits system is recommended given the size of typical data sets.
+Most unix-like systems like Linux and Mac OS X are suitable, as Tripover only uses C99 and Posix features. A 64-bits system is recommended given the size of typical data sets.
 
 Further you need Perl 5.12 or higher
 
 You need a relatively modern C99 compiler, for example clang ( = Xcode ), gcc or icc. Tripover uses C11 language features conditionally.
-
 
 === Configure compilers
 

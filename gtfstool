@@ -2734,7 +2734,7 @@ if (@args > 0) {
       merge($outdir,$args[$argno],$argno == 2) or exit 1;
     }
   }
-  else { info("unknown command"); }
+  else { info("unknown command: known are 'import','merge'"); }
 }
 
 my $usertime = time() - $starttime;

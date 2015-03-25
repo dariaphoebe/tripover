@@ -1312,7 +1312,7 @@ static int srcleg3(gnet *gnet,lnet *net,search *src,ub4 dep,ub4 arr,ub4 nleg1,ub
         if (altcnt > altlimit) break;
         lst11 = lst1 + v1 * nleg1;
 
-//        if (n1 * n2 * n3 > 256 && gettime_usec() > src->querytlim) return havetime | havedist;
+        if (n1 * n2 * n3 > 256 && gettime_usec() > src->querytlim) return havetime | havedist;
 
         dist1 = walkdist1 = sumwalkdist1 = 0;
         for (leg1 = 0; leg1 < nleg1; leg1++) {

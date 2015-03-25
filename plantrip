@@ -793,10 +793,14 @@ sub query($$$)
   print($qfile $str . "\n");
   close($qfile);
 
-  vrb("submit '$cmd' '$str'");
+  info("submit '$cmd' '$str'") if $iscgi;
 
 # rename to submit: server will pick up from here. reply has serverid appended
   vrb("rename to $qname_sub");
+#  my $tst;
+#  open($tst,'>',"/tmp/test.q");
+#  print($tst "$str");
+#  close($tst);
   rename($qname_new,$qname_sub);
 
   # cmd,region,stamp,clientid,serverid
@@ -1256,6 +1260,9 @@ sub runcgi()
 
   print("dep $Dep\n") if defined $Dep;
   print("arr $Arr\n") if defined $Arr;
+
+  print("date $Date\n") if defined $Date;
+  print("time $Time\n") if defined $Time;
 
   my $pday = int($PMday / 100);
   my $mday = int($PMday % 100);
