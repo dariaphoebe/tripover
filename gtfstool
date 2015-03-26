@@ -1955,7 +1955,7 @@ sub readstoptimes($)
     }
 
     unless (exists $rstopids{$rstop_id}) {
-#      warning("line $linno: unknown stop ID $rstop_id");
+      warning("line $linno: unknown stop ID $rstop_id");
       next;
     }
     $rstopid = $rstopids{$rstop_id};

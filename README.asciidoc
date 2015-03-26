@@ -46,6 +46,17 @@ Alpha - initial testing on larger networks
 * time and route search - promising results and query times. Some results need work
 * inital provision for handling of reserved transport
 
+== Demo
+At the time of this writing, a demo site is set up for the largest parts of Australia.
+
+http://timeandwheel.com
+
+It contains all trains, bus and ferries of Cairns, Brisbane, Sydney, Canberra, Adelaide and Perth. Melbourne does not provide data yet.
+I have added an excerpt from regional interstate trains, most run only once or twice weekly.
+
+Note that the low frequency of these cross-country train service imposes challenges to the search algorithm.
+You may have to set flexible days up to a week or navigate to an appropriate start day.
+
 == Installation
 
 Below is a short version of how to install and run : see the wiki for more complete doc.

@@ -477,13 +477,12 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 bstop,ub4 hop,ub4 midur,ub4 
 
       // above max transfer time
       } else if (t > atarr + ttmax) {
-        if (ddcnt > 3) {
+        if (ddcnt > 2) {
           info(Notty,"skip on transfer time %u",t - atarr);
           src->stat_nxt3++;
           break;
         }
-        if (t > last) ddcnt++;
-      }
+      } else ddcnt++;
 
       if (farepos) {
         fare = farepos[gndx * Faregrp];

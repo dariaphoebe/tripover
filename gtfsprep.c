@@ -1364,7 +1364,7 @@ static int rdstops(gtfsnet *net,const char *dir)
 
   struct gtstop *sp,*sp2,*sp3,*psp,*stops = alloc(rawstopcnt,struct gtstop,0,"ext ports",rawstopcnt);
 
-  linelen = len + 5 * rawstopcnt + rawstopcnt * prefixlen1;
+  linelen = len + 6 * rawstopcnt + rawstopcnt * prefixlen1;
   char *lines = net->stoplines = mkblock(mem,linelen,char,Noinit,"gtfs %u stops, len %u",rawstopcnt-1,linelen);
 
   const char tab = '\t';
