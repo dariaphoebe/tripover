@@ -830,6 +830,8 @@ sub obj2exe($) {
   my $hasmain2 = qr'int\s+main\s*\(\s*int\s+argc\s*,\s*char\s*\*\s*\*\s*argv';
   my $inc_dq = qr'^\s*#\s*include\s+\"([a-z0-9_/.]+)\"';
 
+  my $library = qr'^//\s*-l\s+([-a-zA-Z0-9_/.]+)';
+
 # determine apps
   foreach $spath (sort keys %files) {
     $info = $files{$spath};
@@ -845,9 +847,15 @@ sub obj2exe($) {
     my $ismain = 0;
     my $hitime = timebyname($dir,$oname);
     my $objlist = $opath;
+    my $libs = '';
     open($fh,'<',$spath) or error_exit("cannot open $spath: $!");
     while ($line = readline($fh)) {
       $ismain = 1 if $line =~ $hasmain1 or $line =~ $hasmain2;
+      if ($line =~ $library) {
+        info("add lib $1");
+        $libs .= $1 . ' ';
+      }
+
       if ($line =~ $inc_dq) {
         $incname = $1;
         vrb("$spath inc $incname");
@@ -881,6 +889,7 @@ sub obj2exe($) {
     $pos = index($arg, $cmd);
     $arg = substr($arg, length($cmd)) if $pos == 0;
     $arg =~ s?%\.o?$objlist?;
+    $arg .= ' ' . $libs if length $libs;
     $arg =~ s?%\.x?$xpath?;
 
     return 0 unless run($dir,$cmd,$arg,$cmd . $xpath . ' <- ' . $objlist);

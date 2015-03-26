@@ -901,7 +901,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 
   // todo
   ub4 portlimit = 50000;
-  ub4 lstlimit = 1024 * 1024 * 512;
+  ub4 lstlimit = 1024 * 1024 * 1024;
   ub4 altlimit = min(var12limit * 8,256);
 
   ub4 trip1ports[Nleg * 2];

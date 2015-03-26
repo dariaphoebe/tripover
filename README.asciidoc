@@ -116,6 +116,9 @@ Run tripover server with this network:
 `./tripover au/qld/seq`
 
 This will initialise and precompute the network. For 7000-stops Queensland with 1-transfer limit it takes a handful of minutes.
+When done, a commandloop is entered, processing plan queries from a client.
+If invoked with the -b option, the server runs in the background, detached from the terminal.
+You can inspect the logfile in the same dir as the loaded network.
 
 Invoke the commandline client :
 

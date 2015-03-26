@@ -381,6 +381,34 @@ int osrun(const char *cmd,char *const argv[],char *const envp[])
   return 1;
 }
 
+int osbackground(void)
+{
+  pid_t pid = fork();
+  if (pid == -1) return oserror(0,"cannot fork for %u",globs.pid);
+  else if (pid > 0) _exit(0);
+
+  info0(0,"entering background mode");
+  globs.pid = getpid();
+  if (setsid() < 0) return oserror(0,"cannot create session for %u",globs.pid);
+
+  struct sigaction sa;
+  oclear(sa);
+  sa.sa_handler = SIG_IGN;
+  sigaction(SIGCHLD,&sa,NULL);
+  sigaction(SIGHUP,&sa,NULL);
+
+  pid = fork();
+
+  if (pid == -1) return oserror(Exit,"cannot fork for %u",globs.pid);
+  else if (pid > 0) _exit(0);
+  globs.pid = getpid();
+  globs.background = 1;
+  close(0);
+  close(1);
+  close(2);
+  return 0;
+}
+
 int ossocket(bool inet)
 {
   int fd;

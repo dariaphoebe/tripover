@@ -278,6 +278,8 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur,ub4 costlim)
     if (dur == hi32) dur = midur;
     error_eq(dur,hi32);
 
+    extracost = min(extracost,dur / 10);
+
     cost = dur + extracost;
 
     if (cost >= costlim) continue;
@@ -352,7 +354,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 bstop,ub4 hop,ub4 midur,ub4 
   ub4 costperstop = src->costperstop;
   ub4 fare,afare;
   ub2 *farepos,*fareposbase = net->fareposbase;
-  ub4 extracost = 0;
+  ub4 ttbiascost;
 
   error_z(leg,0);
   aleg = leg - 1;
@@ -465,8 +467,6 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 bstop,ub4 hop,ub4 midur,ub4 
       gndx++;
       t = rt + gt0;
 
-      extracost = 0;
-
       // below min transfer time, not same trip
       if (tid != atid && t < atarr + ttmin) {
         src->stat_nxt0++; continue;
@@ -478,6 +478,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 bstop,ub4 hop,ub4 midur,ub4 
       // above max transfer time
       } else if (t > atarr + ttmax) {
         if (ddcnt > 3) {
+          info(Notty,"skip on transfer time %u",t - atarr);
           src->stat_nxt3++;
           break;
         }
@@ -546,8 +547,10 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 bstop,ub4 hop,ub4 midur,ub4 
       dt = adt + dur + t - atarr;   // accumulate total trip time
 
       // currently, cost is duration plus transfer cost
-      cost = acost + dur + t - atarr + extracost;
-      curcost = cost + (dt * bstop * costperstop / stopcostfac);
+      cost = acost + dur + t - atarr;
+      ttbiascost = ( (adt + dur) * bstop * costperstop) / stopcostfac;
+      ttbiascost = min(ttbiascost,dt / 10);
+      curcost = cost + ttbiascost;
       if (curcost >= costlim) { src->stat_nxtlim++; break; }
 
       if (t > last || dcnt == 0) {  // new entry

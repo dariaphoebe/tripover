@@ -315,6 +315,8 @@ sub readportrefs_geo($)
 {
   my ($fname) = @_;
 
+  return if (@portrefs > 0);
+
 #  my ($id,$subid,$name,$lcname,$nlen,$lat,$lon,$modes,$rlat,$rlon);
   my ($fh,$line,$c,$var,$val);
 
@@ -594,6 +596,8 @@ sub plan($$)
 
   ($dlat,$dlon) = ($depname =~ $isgeo);
   if (defined $dlat and defined $dlon) {
+    readportrefs_geo($portrefname);
+    readportrefs($portrefname) unless $haveportrefs;
     $dep = portbygeo($dlat,$dlon);
   } else {
     $dep = portbyname($depname);
@@ -603,6 +607,8 @@ sub plan($$)
 
   ($alat,$alon) = ($arrname =~ $isgeo);
   if (defined $alat and defined $alon) {
+    readportrefs_geo($portrefname);
+    readportrefs($portrefname) unless $haveportrefs;
     $arr = portbygeo($alat,$alon) 
   } else {
     $arr = portbyname($arrname);

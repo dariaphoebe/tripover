@@ -113,7 +113,7 @@ static void msgwrite(const char *buf,ub4 len,int notty)
 
   if (nw == -1) nw = (int)oswrite(2,"\nI/O error on msg write\n",24);
   if (nw == -1) oserrcnt++;
-  if (msg_fd > 2 && !notty) oswrite(1,buf,len);
+  if (msg_fd > 2 && !notty && !globs.background) oswrite(1,buf,len);
 }
 
 void msg_write(const char *buf,ub4 len) { msgwrite(buf,len,0); }
@@ -123,7 +123,7 @@ static void myttywrite(char *buf, ub4 len)
 {
   int nw;
 
-  if (len == 0) return;
+  if (len == 0 || globs.background) return;
 
   nw = (int)oswrite(2,buf,len);
   if (nw == -1) oserrcnt++;

@@ -119,6 +119,7 @@ struct globs {
   char logname[256];
   int pid;
   int sigint,sig;
+  bool background;
 
   ub4 limassert;
   ub4 testa,testb;

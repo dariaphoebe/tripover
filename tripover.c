@@ -97,6 +97,8 @@ static int init0(char *progname)
 
 static int do_eximsg; // enable at net init
 
+static int background;
+
 static void exit0(void)
 {
   exiutil();
@@ -235,6 +237,8 @@ static int do_main(void)
 
   do_eximsg = 1;
 
+  if (background) osbackground();
+
   if (initnet()) return 1;
 
   if (mknet(globs.maxstops)) return 1;
@@ -319,6 +323,12 @@ static int cmd_stopat(struct cmdval *cv)
   return 0;
 }
 
+static int cmd_bg(struct cmdval *cv)
+{
+  background = 1;
+  return info(0,"%s set",cv->subarg);
+}
+
 static int cmd_arg(struct cmdval *cv)
 {
   ub4 argc = globs.argc;
@@ -338,6 +348,7 @@ static struct cmdarg cmdargs[] = {
   { "verbose|v", "[level]%u", "set or increase verbosity", cmd_vrb },
   { "assert-limit", "[limit]%u", "stop at this #assertions", cmd_limassert },
   { "max-stops", "limit%u", "limit #stops", cmd_max },
+  { "background|b",NULL,"run in background",cmd_bg },
   { "stopat|runto","stage","run only up to the given stage",cmd_stopat },
   { ".test-a", "test%u", "test", cmd_test },
   { ".test-b", "test%u", "test", cmd_test },

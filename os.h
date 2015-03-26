@@ -29,6 +29,7 @@ extern int osexists(const char *name);
 
 extern int osrun(const char *cmd,char *const argv[],char *const envp[]);
 extern int oswaitany(ub4 *cldcnt);
+extern int osbackground(void);
 
 extern int osdup2(int oldfd,int newfd);
 extern int osrewind(int fd);

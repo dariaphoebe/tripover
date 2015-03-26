@@ -14,6 +14,11 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+#ifdef Websock
+ #include <openssl/sha.h>
+// # -l /home/joris/lib/libcrypto.a
+#endif
+
 #include "base.h"
 struct globs globs;
 
@@ -138,8 +143,16 @@ static int getreq(int fd,struct toreq *tr)
   ub4 val = 0,valndx = 0;
   ub4 cmd;
 
+#ifdef Websock
+  const unsigned char test[64] = "test";
+  unsigned char sha[20];
+  ub4 testlen = sizeof(test);;
+#endif
+
   state = Out;
   aclear(vals);
+
+//  SHA1(test,testlen,sha);
 
   while (nr < maxreqlen && state != Eoh) {
     chunk = min(maxreqlen - nr,sizeof(buf) - 2);
