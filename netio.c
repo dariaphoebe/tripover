@@ -202,14 +202,14 @@ struct extfmt {
   char name[Maxname];
   ub4 namelen;
   ub4 radix;
-  ub4 val,valndx,vals[Maxval];
+  ub4 val,xval,valndx,vals[Maxval];
 };
 
 static enum extresult nextchar(struct extfmt *ef)
 {
   char *fname,*name,c;
   ub4 pos,len,linno,colno,x,valndx,namelen;
-  ub4 val,*vals;
+  ub4 val,xval,*vals;
   ub4 namemax = Maxname - 2;
   int newitem,iscmd;
   ub4 radix;
@@ -223,6 +223,7 @@ static enum extresult nextchar(struct extfmt *ef)
   state = ef->state;
   valndx = ef->valndx;
   val = ef->val;
+  xval = ef->xval;
   linno = ef->linno + 1;
   colno = ef->colno;
   namelen = ef->namelen;
@@ -332,24 +333,31 @@ static enum extresult nextchar(struct extfmt *ef)
       break;
 
     case Dec0:  // dec number
-      if (c == '.' || c == 'D') radix = 10;
-      else if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
-      else { val = c - '0'; state = Dec1; }
+      if (c == '\t') {
+        if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
+        vals[valndx++] = 0;
+        vals[valndx] = 0;
+        state = Val0;
+      } else if (c == '.' || c == 'D') radix = 10;
+      else if (c >= 'A' && c <= 'Z') { val = 0; xval = (ub4)c << 24; state = Dec1; }
+      else if (c < '0' || c > '9') return parserr(FLN,fname,linno,colno,"expected decimal digit or letter, found '%c'",c);
+      else { val = c - '0'; xval = 0; state = Dec1; }
       break;
 
     case Dec1:  // dec number
       if (c == '\t' || c == ' ') {
         if (valndx >= Maxval) return parserr(FLN,fname,linno,colno,"exceeding %u values",valndx);
-        vals[valndx++] = val;
+        vals[valndx++] = val | xval;
         vals[valndx] = 0;
         state = Val0;
-      } else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
+      } else if (c >= 'A' && c <= 'Z') xval |= (ub4)c << 16;
+      else if (c >= '0' && c <= '9') val = (val * 10) + (c - '0');
       else if (c == '\n') {
-        vals[valndx++] = val;
+        vals[valndx++] = val | xval;
         vals[valndx] = 0;
         newitem = 1;
         state = Out;
-      } else return parserr(FLN,fname,linno,colno,"expected decimal digit, found '%c'",c);
+      } else return parserr(FLN,fname,linno,colno,"expected decimal digit or letter, found '%c'",c);
       break;
 
     case Fls:
@@ -364,6 +372,7 @@ static enum extresult nextchar(struct extfmt *ef)
 
   ef->valndx = valndx;
   ef->val = val;
+  ef->xval = xval;
   ef->linno = linno - 1;
   ef->colno = colno;
   ef->namelen = namelen;
@@ -1260,6 +1269,7 @@ static int rdextroutes(netbase *net,const char *dir)
           parsewarn(FLN,fname,linno,colno,"hi rrid %u < ridcnt %u",hirrid,rawridcnt);
           hirrid = rawridcnt;
         }
+        error_eq(hirrid,hi32);
         rrid2rid = alloc(hirrid+1,ub4,0xff,"net rrid2rid",hirrid);
         initvars = 1;
       }
@@ -1315,7 +1325,6 @@ static int rdextroutes(netbase *net,const char *dir)
 // match with gtfstool
 enum Zformat { Fmt_prvsid=1,Fmt_diftid=2,Fmt_diftdep=4,Fmt_diftarr=8,Fmt_prvdep=16,Fmt_prvarr=32 };
 
-// name id dport.id aport.id route.seq (dow.hhmm.rep.t0.t1.dur dow.hhmm.rep)+ 
 static int rdexthops(netbase *net,const char *dir)
 {
   enum extresult res;
@@ -1339,6 +1348,7 @@ static int rdexthops(netbase *net,const char *dir)
   char *buf;
   ub4 len,linno,colno,val,namelen,valndx,id,maxid,hirrid,maxsid;
   ub4 depid,arrid,sdepid,sarrid,dep,arr,sdep,sarr,srdep,srarr,prvsdep,prvsarr,pid;
+  ub4 tripno;
   ub4 rtype,routeid,timecnt;
   char *name,*dname,*aname;
   ub4 *vals;
@@ -1559,10 +1569,11 @@ static int rdexthops(netbase *net,const char *dir)
 
         if (vndx + 3 > valndx) break; 
         rtid = vals[vndx];
-        tdepsec = vals[vndx+1];
-        tarrsec = vals[vndx+2];
-        tripseq = vals[vndx+3];
-        vndx += 4;
+        tripno = vals[vndx+1];
+        tdepsec = vals[vndx+2];
+        tarrsec = vals[vndx+3];
+        tripseq = vals[vndx+4];
+        vndx += 5;
 
         if (fmt & Fmt_diftid) rtid += prvtid;
 
@@ -1649,6 +1660,7 @@ static int rdexthops(netbase *net,const char *dir)
 
         tbp[Tesid] = sid;
         tbp[Tetid] = tid;
+        tbp[Tetripno] = tripno;
         tbp[Tetdep] = tdepsec;
         tbp[Tetarr] = tarrsec;
         tbp[Teseq] = tripseq;

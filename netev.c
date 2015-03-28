@@ -391,15 +391,20 @@ int mksubevs(lnet *net)
 
 // get an average total duration between two hops
 // based on a prepared handful of random samples
-static ub4 estdur2(lnet *net,ub4 hop1,ub4 hop2,ub4 ttmin,ub4 ttmax)
+static ub4 estdur2(lnet *net,ub4 hop1,ub4 hop2,ub4 dttmin)
 {
+  ub4 hopcnt = net->hopcnt;
   ub4 chopcnt = net->chopcnt;
+  ub4 *choporg = net->choporg;
+
+  struct hop * hp1,*hp2,*hops = net->hops;
   ub8 tdur1,tdur2,*sev1,*sev2,*sevents = net->sevents;
   ub4 scnt1,scnt2,*sevcnts = net->sevcnts;
   ub4 e1,e2,prve1,prve2,i;
   ub4 t1,t2,dur1,dur2,avgdt,dt,lodt;
   ub4 dtcnt2,dtcnt = 0,dtbcnt = 0;
   ub8 dtsum = 0,dtbsum = 0;
+  ub4 ttmax,ttmin;
 
 static ub4 dtbins[60 * 12];
 static ub4 dthibin = Elemcnt(dtbins) - 1;
@@ -424,6 +429,23 @@ static ub4 stat_nocnt;
     stat_nocnt++;
     return hi32;
   }
+
+  if (hop1 < hopcnt) hp1 = hops + hop1;
+  else hp1 = hops + choporg[hop1 * 2];
+  if (hop2 < hopcnt) hp2 = hops + hop2;
+  else hp2 = hops + choporg[hop2 * 2];
+
+  if (hp1->kind == Airint || hp2->kind == Airint) {
+    ttmax = 24 * 60;
+    ttmin = 90;
+  } else if (hp1->kind == Airdom || hp2->kind == Airdom) {
+    ttmax = 12 * 60;
+    ttmin = 60;
+  } else {
+    ttmax = globs.netvars[Net_tpatmaxtt];
+    ttmin = globs.netvars[Net_tpatmintt];
+  }
+  ttmin += dttmin;
 
   // forward
   e2 = prve2 = 0;
@@ -649,8 +671,6 @@ ub4 prepestdur(lnet *net,ub4 *trip,ub4 len)
   ub4 avgdur;
   ub4 h,h1,h2;
   struct hop *hp,*hops = net->hops;
-  ub4 ttmax = globs.netvars[Net_tpatmaxtt];
-  ub4 ttmin = globs.netvars[Net_tpatmintt];
 
   if (len == 1) {  // basic net1 case
     h = *trip;
@@ -663,7 +683,7 @@ ub4 prepestdur(lnet *net,ub4 *trip,ub4 len)
   } else if (len == 2) {
     h1 = trip[0];
     h2 = trip[1];
-    if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,ttmin,ttmax);
+    if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,0);
     else return shopdur[h1] + shopdur[h2];
   }
   // rest todo
@@ -682,7 +702,7 @@ ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
 
   if (len1 == 1 && len2 == 1) { // basic net1 case
     h1 = *trip1; h2 = *trip2;
-    if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,ttmin,ttmax);
+    if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,0);
     else return shopdur[h1] + shopdur[h2];
 
   } else if (len1 + len2 == 3) {
@@ -691,11 +711,11 @@ ub4 estdur(lnet *net,ub4 *trip1,ub4 len1,ub4 *trip2,ub4 len2)
 
     if (h1 < chopcnt && h2 < chopcnt && h3 < chopcnt) return estdur3(net,h1,h2,h3,ttmin,ttmax);
     else if (h1 < chopcnt && h2 < chopcnt) {
-      return estdur2(net,h1,h2,ttmin,ttmax) + shopdur[h3];
+      return estdur2(net,h1,h2,0) + shopdur[h3];
     } else if (h1 < chopcnt && h3 < chopcnt) {
-      return estdur2(net,h1,h3,ttmin + shopdur[h2],ttmax);
+      return estdur2(net,h1,h3,shopdur[h2]);
     } else if (h2 < chopcnt && h3 < chopcnt) {
-      return estdur2(net,h2,h3,ttmin,ttmax) + shopdur[h1];
+      return estdur2(net,h2,h3,0) + shopdur[h1];
     } else return shopdur[h1] + shopdur[h2] + shopdur[h3];
   }  
 
@@ -713,11 +733,11 @@ ub4 estdur_3(lnet *net,ub4 h1,ub4 h2,ub4 h3)
 
   if (h1 < chopcnt && h2 < chopcnt && h3 < chopcnt) return estdur3(net,h1,h2,h3,ttmin,ttmax);
   else if (h1 < chopcnt && h2 < chopcnt) {
-    return estdur2(net,h1,h2,ttmin,ttmax) + shopdur[h3];
+    return estdur2(net,h1,h2,0) + shopdur[h3];
   } else if (h1 < chopcnt && h3 < chopcnt) {
-    return estdur2(net,h1,h3,ttmin + shopdur[h2],ttmax);
+    return estdur2(net,h1,h3,shopdur[h2]);
   } else if (h2 < chopcnt && h3 < chopcnt) {
-    return estdur2(net,h2,h3,ttmin,ttmax) + shopdur[h1];
+    return estdur2(net,h2,h3,0) + shopdur[h1];
   } else return shopdur[h1] + shopdur[h2] + shopdur[h3];
 }
 
@@ -726,9 +746,6 @@ ub4 estdur_2(lnet *net,ub4 h1,ub4 h2)
   ub4 chopcnt = net->chopcnt;
   ub4 *shopdur = net->shopdur;
 
-  ub4 ttmax = globs.netvars[Net_tpatmaxtt];
-  ub4 ttmin = globs.netvars[Net_tpatmintt];
-
-  if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,ttmin,ttmax);
+  if (h1 < chopcnt && h2 < chopcnt) return estdur2(net,h1,h2,0);
   else return shopdur[h1] + shopdur[h2];
 }

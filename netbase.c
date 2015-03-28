@@ -265,7 +265,7 @@ int prepbasenet(void)
 
   ub4 *tbp,*timesbase = basenet.timesbase;
   ub4 tndx,vndx,timecnt,timespos,evcnt,zevcnt,cnt;
-  ub4 sid,rsid,tid,rtid,rid,rrid;
+  ub4 sid,rsid,tid,rtid,rid,rrid,tripno;
   ub4 tdep,tarr,tripseq,tdepsec,tarrsec;
   ub4 chcnt,i;
   ub4 t0,t1,ht0,ht1,hdt,tdays,mapofs;
@@ -457,6 +457,8 @@ int prepbasenet(void)
       error_ge(tid,rawchaincnt);
       rtid = tid2rtid[tid];
 
+      tripno = tbp[Tetripno];
+
       tdepsec = tbp[Tetdep];
       tarrsec = tbp[Tetarr];
       tripseq = tbp[Teseq];
@@ -519,6 +521,7 @@ int prepbasenet(void)
         error_ge(rhop,rp->hopcnt);
         cp = chains + tid;
         error_ge_cc(rhop,cp->rhopcnt,"rid %u/%u cnt %u of %u",rid,cp->rid,cp->rhopcnt,rp->hopcnt);
+        cp->tripno = tripno;
         rtid = cp->rtid;
         chip = chainidxs + cp->hopofs;
         chrp = chainrhops + cp->rhopofs;
@@ -910,6 +913,7 @@ int prepbasenet(void)
 
       vndx++;
       tid = tbp[Tetid];
+      tripno = tbp[Tetripno];
       tdepsec = tbp[Tetdep];
       tarrsec = tbp[Tetarr];
       tripseq = tbp[Teseq];

@@ -482,6 +482,7 @@ int prepnet(netbase *basenet)
     bcp = bchains + chain;
     cp = chains + chain;
     cp->rid = bcp->rid;
+    cp->tripno = bcp->tripno;
     cnt = bcp->hopcnt;
     if (cnt < 3) { vrb(0,"skip dummy chain %u with %u hop\as",chain,cnt); continue; }
     cp->hopcnt = cnt;

@@ -53,7 +53,7 @@ static ub4 vrblvl = 2;
 static ub4 msgopts;
 int msg_doexit = 1;
 
-static int msg_fd;
+static int msg_fd = -1;
 static ub4 msgwritten;
 
 static ub4 warncnt,errcnt,assertcnt,oserrcnt;
@@ -109,9 +109,9 @@ static void msgwrite(const char *buf,ub4 len,int notty)
 
   msgwritten += len;
 
-  nw = (int)oswrite(msg_fd ? msg_fd : 1,buf,len);
+  nw = (int)oswrite(msg_fd < 0 ? 1 : msg_fd,buf,len);
 
-  if (nw == -1) nw = (int)oswrite(2,"\nI/O error on msg write\n",24);
+  if (nw == -1 && !globs.background) nw = (int)oswrite(2,"\nI/O error on msg write\n",24);
   if (nw == -1) oserrcnt++;
   if (msg_fd > 2 && !notty && !globs.background) oswrite(1,buf,len);
 }
@@ -1171,13 +1171,12 @@ void inimsg(char *progname, const char *logname, ub4 opts)
   msgopts = opts;
   msgfile = setmsgfile(__FILE__);
 
-  setmsglog(NULL,logname,0);
+  setmsglog(NULL,logname,1);
 
   infofln(0,Notty|User,"pid\t%d\tfd\t%d", globs.pid,globs.msg_fd); //on line 1:  used by dbg script
 
-  if (msg_fd > 2) {
-    infofln(FLN,Notty,"opening log %s for %s\n", logname,progname);
-  }
+  infocc(msg_fd >= 0,Notty,"opening log %s for %s\n", logname,progname);
+
   iniassert();
 }
 
@@ -1255,7 +1254,7 @@ void eximsg(void)
   }
 
   fd = globs.msg_fd;
-  if (fd > 2) { osclose(fd); globs.msg_fd = 0; }
+  if (fd != -1) { osclose(fd); globs.msg_fd = -1; }
 }
 
 void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert)

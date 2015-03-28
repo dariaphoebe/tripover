@@ -95,6 +95,7 @@ struct chainbase {
   ub4 hoprefs;
   ub4 rhopcnt;
   ub4 rtid;
+  ub4 tripno;
   ub4 rrid;
   ub4 rid;
   ub4 dep;
@@ -296,7 +297,7 @@ struct networkbase {
 };
 typedef struct networkbase netbase;
 
-enum Tentry { Tesid,Tetid,Tetdep,Tetarr,Teseq,Tesdep,Tesarr,Tentries };
+enum Tentry { Tesid,Tetid,Tetripno,Tetdep,Tetarr,Teseq,Tesdep,Tesarr,Tentries };
 
 extern netbase *getnetbase(void);
 extern int mkrandnet(ub4 portcnt,ub4 hopcnt);

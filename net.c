@@ -1356,6 +1356,7 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
   struct sport *psdep,*psarr,*gsports = gnet->sports;
   struct hop *hops,*hp,*hp2;
   struct route *rp,*routes = gnet->routes;
+  struct chain *cp,*chains = gnet->chains;
   ub4 *trip = ptrip->trip;
   const char *name,*rname,*dname,*aname,*mode = "";
   const char *suffix;
@@ -1381,6 +1382,8 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
   ub4 walkspeed = gnet->walkspeed;  // geo's per hour
   double deplat,deplon,arrlat,arrlon,prvarrlat,prvarrlon,srdist;
   ub4 sdist;
+  ub4 tripno,fltno1,alcode1,alcode2;
+  char fltno[32];
 
   if (triplen == 0) { // trivial case: within same parent group
     if (udep == uarr && usrdep == usrarr) return 1;
@@ -1553,7 +1556,23 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
     } else { rname = "(unnamed)"; mode = ""; }
     if (ptrip->info[leg] & 1) suffix = " *";
     else suffix = "";
-    if (l < hopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s%s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,mode,suffix);
+
+    if (tid < chaincnt) {
+      cp = chains + tid;
+      tripno = cp->tripno;
+      info(0,"tripno \ax%u",tripno);
+    } else tripno = 0;
+
+    if (tripno) {
+      fltno1 = tripno & hi16;
+      alcode1 = tripno >> 24;
+      alcode2 = (tripno >> 16) & 0xff;
+      if (alcode1 < 'A' || alcode1 > 'Z') alcode1 = '?';
+      if (alcode2 < 'A' || alcode2 > 'Z') alcode2 = '?';
+      fmtstring(fltno,"%c%c%u ",alcode1,alcode2,fltno1);
+    } else *fltno = 0;
+
+    if (l < hopcnt) info(0,"leg %u hop %u dep %u.%u at \ad%u arr %u at \ad%u %s to %s route %s r.rid %u.%u tid %u %s %s%s",leg,ghop,part,gdep,tdep,garr,tarr,pdep->name,parr->name,rname,rrid,rid,tid,fltno,mode,suffix);
     else if (l < chopcnt) {
       hp2 = hops + l2;
       noexit error_ne(rid,hp2->rid);
@@ -1582,7 +1601,7 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
     if (tdep && tarr && tarr >= tdep) thop = tarr - tdep;
     else thop = 0;
     if (rid == hi32) pos += mysnprintf(buf,pos,buflen,"trip\t\t%s",name);
-    else pos += mysnprintf(buf,pos,buflen,"trip\t%s\t%s",mode,rname);
+    else pos += mysnprintf(buf,pos,buflen,"trip\t%s\t%s%s",mode,fltno,rname);
     pos += mysnprintf(buf,pos,buflen,"\t\at%u",thop);
     if (dist != dist0) pos += mysnprintf(buf,pos,buflen,"\t\ag%u\t# (direct \ag%u)\n",dist,dist0);
     else pos += mysnprintf(buf,pos,buflen,"\t\ag%u\n",dist);

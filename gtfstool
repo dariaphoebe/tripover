@@ -19,8 +19,8 @@ use strict;
 use utf8;
 
 my $version_maj = 0;
-my $version_min = 30;
-my $lastchanged = "6 mar 2015";
+my $version_min = 31;
+my $lastchanged = "28 mar 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -280,6 +280,7 @@ my %stops2ignore;
 my %stopnames;
 
 my %stops;
+my @rstops;
 
 my @stopdeps;
 my @stoparrs;
@@ -294,6 +295,8 @@ my %stop2parent;
 
 my %uniparents;
 my %parentdups;
+
+my (%rstops,%rstopids,%rstopbyid,%stopmerge,%rstopbyname);
 
 my @calendar;
 my @caldates;
@@ -321,6 +324,8 @@ my @uniqids;
 
 my %triproutes;
 my %tripsids;
+
+my %tripnos;
 
 my @trips;
 
@@ -630,6 +635,254 @@ sub tz2ofs($)
   return ($hh,$mm);
 }
 
+sub mksid($)
+{
+  my $service_id = shift;
+  my ($dow,$t0,$t1) = split('_',$service_id);
+
+  my ($mon,$tue,$wed,$thu,$fri,$sat,$sun);
+
+  if (index($dow,'1') < 0) { $mon = 0; } else { $mon = 1; }
+  if (index($dow,'2') < 0) { $tue = 0; } else { $tue = 1; }
+  if (index($dow,'3') < 0) { $wed = 0; } else { $wed = 1; }
+  if (index($dow,'4') < 0) { $thu = 0; } else { $thu = 1; }
+  if (index($dow,'5') < 0) { $fri = 0; } else { $fri = 1; }
+  if (index($dow,'6') < 0) { $sat = 0; } else { $sat = 1; }
+  if (index($dow,'7') < 0) { $sun = 0; } else { $sun = 1; }
+
+  push @calendar,join("\t",$service_id,$mon,$tue,$wed,$thu,$fri,$sat,$sun,$t0,$t1);
+}
+
+sub ddmmm($$)
+{
+  my ($day,$mon) = @_;
+  my $cdday = $day;
+
+  if ($mon eq 'Jan') { $cdday += 100; }
+  elsif ($mon eq 'Feb') { $cdday += 200; }
+  elsif ($mon eq 'Mar') { $cdday += 300; }
+  elsif ($mon eq 'Apr') { $cdday += 400; }
+  elsif ($mon eq 'May') { $cdday += 500; }
+  elsif ($mon eq 'Jun') { $cdday += 600; }
+  elsif ($mon eq 'Jul') { $cdday += 700; }
+  elsif ($mon eq 'Aug') { $cdday += 800; }
+  elsif ($mon eq 'Sep') { $cdday += 900; }
+  elsif ($mon eq 'Oct') { $cdday += 1000; }
+  elsif ($mon eq 'Nov') { $cdday += 1100; }
+  elsif ($mon eq 'Dec') { $cdday += 1200; }
+  else { error("unrecognised month $mon"); }
+  return sprintf('%04u',$cdday);
+}
+
+sub air2gtfs($$$)
+{
+  my ($dir,$tbox0,$tbox1) = @_;
+  my ($tname,$pname,$fh,$line,$linno,$state);
+  my ($dep,$arr,$depid,$arrid,$flno);
+  my ($tdep,$tarr,$tdhh,$tdmm,$tahh,$tamm,$dow);
+  my ($plus,$plusday,$min,$minday,$day,$mon,$day0,$day1,$mon0,$mon1,$opts);
+  my ($name,$code,$dlat,$dlon,$dcc,$alat,$alon,$acc,$dutcofs,$autcofs);
+  my ($tripid,$trip_id,$tripline);
+  my ($route_id,$rtype,$rname,$stops);
+  my ($service_id,$sidt0,$sidt1);
+
+  my %airports;
+  my %airportids;
+  my $rid = 1;
+  my $tid = 1;
+  my $sid = 1;
+
+  my $agency_id = 'qantas';
+
+  my $year = substr($tbox0,0,4);
+
+  $pname = "$dir/airports.tab";
+  return error("required $pname not present") unless -f $pname;
+
+  open($fh,'<:encoding(UTF-8)',$pname) or return error("cannot open $pname:$!");
+
+  my @lines = readline($fh);
+  close $fh;
+
+  $linno = 0;
+  for $line (@lines) {
+    $linno++;
+    chop $line;
+    next unless length($line);
+    next if index($line,'#') == 0;
+    ($name,$code,$dcc,$dlat,$dlon,$dutcofs) = split("\t",$line);
+
+    return error("airport $name previously defined on line $airportids{$name}") if exists $airportids{$name};
+    $airportids{$name} = $linno;
+    $airports{$name} = $line;
+    $rstopbyid{$linno} = $name;
+    if (defined $code) {
+      push @rstops, join("\t",$name,$code,$name,$dlat,$dlon,$dcc);
+    }
+  }
+
+  $tname = "$dir/timetable.txt";
+  return error("required $tname not present") unless -f $tname;
+
+  open($fh,'<:encoding(UTF-8)',$tname) or return error("cannot open $tname:$!");
+
+  @lines = readline($fh);
+  close $fh;
+
+  $state = 0;
+  $dep = ''; $arr = ''; $flno = '';
+
+  # WS3464* 1645 1753 12345·7 - until 27 Feb
+  # flno dep arr dow stops period
+  #                    flight     tdep     tarr       days           stops
+  my $linepat1 = qr'^[A-Z0-9*]+\s+[0-9]+\s+[-0-9+]+\s+[A-Za-z1-7·]+\s+[-0-9]';
+
+ #                    flight         tdep        tarr       days              stops   opt
+  my $linepat2 = qr'^([A-Z0-9*]+)\s+([0-9]+)\s+([-0-9+]+)\s+([A-Za-z1-7·]+)\s+([-0-9])(.*)';
+
+  $linno = 0;
+
+  for $line (@lines) {
+    $linno++;
+    chop $line;
+    next unless length($line);
+    next if index($line,'#') == 0;
+    next if $line eq '†';
+#
+    if (index($line,'"') == 0) {
+      $line = $flno . substr($line,1);
+    }
+
+    if ($line =~ qr'^[-A-Za-z ]+\s+to$') {
+      ($dep) = ($line =~ qr'^([-A-Za-z ]+)\s+to$');
+      $arr = '';
+#      info("dep $dep");
+      if (exists($airportids{$dep})) {
+        $depid = $airportids{$dep};
+        ($name,$code,$dcc,$dlat,$dlon,$dutcofs) = split("\t",$airports{$dep});
+        $depid = 0 unless defined $code;
+      } else {
+        warning("unknown dep airport $dep");
+        $depid = 0;       
+      }
+      $state = 1;
+      $arrid = 0;
+    } elsif ($line =~ qr'^[-A-Za-z ]+$') {
+      ($arr) = ($line =~ qr'^([-A-Za-z ]+)$');
+ #     info("dep $dep arr $arr");
+      if (exists($airportids{$arr})) {
+        $arrid = $airportids{$arr};
+        ($name,$code,$acc,$alat,$alon,$autcofs) = split("\t",$airports{$arr});
+        $arrid = 0 unless defined $code;
+      } else {
+#       warning("unknown arr airport $arr");
+        $arrid = 0;
+      }
+      $state = 1;
+      if ($state == 1 and $depid != 0 and $arrid != 0) {
+        warning("incomplete line for dep airport $dep") unless defined $dutcofs;
+        $rid++;
+        $route_id = $dep . '_' . $arr;
+        $agency_id = 1;
+        if ($dcc eq $acc) { $rtype = 1102;} else { $rtype = 1101;}
+        $rname = "$dep to $arr";
+        push @routes,join("\t",$route_id,$agency_id,1,$dutcofs,$rname,'',$rtype);
+        $state = 2;
+      }
+    } elsif ($line =~ $linepat1) {
+      ($flno,$tdep,$tarr,$dow,$stops,$opts) = ($line =~ $linepat2);
+      return error("line $linno: cannot parse '$line'") unless defined $flno;
+      $opts = '' unless defined $opts;
+#      info("flno $flno td $tdep ta $tarr dow $dow '$opts'");
+      $state = 3 if $state == 2 and $stops eq '-';
+    } else { warning("line $linno  undecoded '$line'"); return 0; }
+
+    next if ($state != 3);
+
+    return error("line $linno dep $dep id $depid") if $depid == 0;
+    return error("line $linno arr $arr id $arrid") if $arrid == 0;
+
+    warning("incomplete line for arr airport $arr") unless defined $autcofs;
+
+    $state = 2;
+
+    if ($dow eq 'Daily') { $dow = '1234567'; }
+    elsif ($dow =~ qr'[1-7·]+') { }
+    else { return error("unrecognised day of week pattern '$dow'"); }
+
+    $dow =~ tr'·''d;
+    $flno =~ tr'*''d;
+    $opts =~ s/^ //g;
+    $opts =~ s/ $//g;
+
+    return error("line $linno: cannot parse '$line'") unless defined $flno;
+
+    if (length($opts) == 0) {
+      $sidt0 = $tbox0;
+      $sidt1 = $tbox1;
+   } elsif (index($opts,'from ') == 0) {
+      ($day,$mon) = ($opts =~ qr'([0-9]+)\s+([A-Za-z]+)');
+      $sidt0 = $year . ddmmm($day,$mon);
+      $sidt1 = $tbox1;
+    } elsif (index($opts,'until ') == 0) {
+      ($day,$mon) = ($opts =~ qr'([0-9]+)\s+([A-Za-z]+)');
+      $sidt1 = $year . ddmmm($day,$mon);
+      $sidt0 = $tbox0;
+    } elsif (index($opts,' only') > 0) {
+      ($day,$mon) = ($opts =~ qr'([0-9]+)\s+([A-Za-z]+)');
+      $sidt0 = $year . ddmmm($day,$mon);
+      $sidt1 = $sidt0;
+    } elsif ($opts =~ qr'[0-9]+\s+[A-Za-z]+\s+-\s+[0-9]+\s+[A-Za-z]+') {
+      ($day0,$mon0,$day1,$mon1) = ($opts =~ qr'([0-9]+)\s+([A-Za-z]+)\s+-\s+([0-9]+)\s+([A-Za-z]+)');
+      $sidt0 = $year . ddmmm($day0,$mon0);
+      $sidt1 = $year . ddmmm($day1,$mon1);
+    }
+
+    next if $sidt1 < $sidt0;
+
+    $service_id = join('_',$dow,$sidt0,$sidt1);
+
+    unless (exists $serviceids{$service_id}) {
+      $serviceids{$service_id} = $sid;
+      $sidrefs{$sid} = 1;
+      $sid++;
+      mksid($service_id);
+    }
+    $plus = index($tarr,'+');
+    if ($plus > 0) {
+      $plusday = substr($tarr,$plus + 1);
+      $tarr = substr($tarr,0,$plus);
+      $tarr += $plusday * 2400;
+    }
+    $min = index($tarr,'-');
+    if ($min > 0) {
+      $minday = substr($tarr,$min + 1);
+      $tarr = substr($tarr,0,$min);
+      $tarr -= $minday * 2400;
+    }
+    $tarr -= ($autcofs - $dutcofs);
+    if (($tarr % 100) >= 60) { $tarr += 40; }
+
+    $tdhh = int($tdep / 100); $tdmm = int($tdep % 100);
+    $tdep = sprintf('%02u:%02u:00',$tdhh,$tdmm);
+    $tahh = int($tarr / 100); $tamm = int($tarr % 100);
+    $tarr = sprintf('%02u:%02u:00',$tahh,$tamm);
+
+#    info("flno $flno td $tdep ta $tarr dow $dow $dep to $arr");
+    $route_id = $dep . '_' . $arr;
+    $trip_id = join('_',$flno,$route_id,$tid);
+    $tripline = join("\t",$route_id,$service_id,$trip_id,$arr);
+    $trip_ids{$tid} = $trip_id;
+    push @trips,$tripline;
+
+    push @stop_times,join("\t",$tid,$depid,1,$tdep,$tdep);
+    push @stop_times,join("\t",$tid,$arrid,2,$tarr,$tarr);
+
+    $tid++;
+  }
+  return 1;
+}
+
 sub opengtfs($$$)
 {
   my ($name,$cvsmode,$utf8) = @_;
@@ -875,8 +1128,6 @@ sub geodist($$$$)
   return $dist;
 }
 
-my (%rstops,%rstopids,%rstopbyid,%stopmerge,%rstopbyname);
-
 sub readstops($)
 {
   my ($dir) = @_;
@@ -958,6 +1209,7 @@ sub readstops($)
       vrb("$id has empty lon");
       $lon = 0; $ilon = 0;
     } else { 
+      warning("$linno: stop $name has unknown location $lat") if $lat eq 'au';
       $ilat = str2lat($lat,$linno);
     }
     if (length($lat) < 1) {
@@ -1364,9 +1616,11 @@ sub readroutes($)
 
     $agency_id = $agencyid unless defined $agency_id and length $agency_id;
     $desc = '' unless defined $desc;
-    $sname = '' unless defined $sname;
-    $slname = $sname;
-    $slname .= ' ' . $lname if defined $lname;
+
+    if (defined $sname and defined $lname) { $slname = $sname . ' ' . $lname; }
+    elsif (defined $sname) { $slname = $sname; }
+    elsif (defined $lname) { $slname = $lname; }
+    else { $slname = '(unnamed)'; warning("$linno: route has no name $route_id $desc"); }
 
     vrb("$linno $route_id '$slname' $rtype");
     $routeid = $linno;
@@ -1428,7 +1682,8 @@ sub readtrips($)
 
   my ($tripfile,$tripfname,$rv,$headline);
   my ($val,$col,$colid,$colname,$line,$comma,$endq,$c,$req);
-  my ($route_id,$routeid,$trip_id,$tripid,$service_id,$sid,$agency_id,$headsign,$utcofs);
+  my ($route_id,$routeid,$rtype,$trip_id,$tripid,$tripno,$service_id,$sid);
+  my ($agency_id,$headsign,$utcofs);
 
   $tripfname = $dir . '/' . 'trips.tab';
 
@@ -1498,6 +1753,14 @@ sub readtrips($)
 
     $routeid = $routeids{$route_id};
     $triproutes{$tripid} = $routeid;
+    $rtype = $rtypes{$routeid};
+
+    $tripno = '';
+    if ($rtype == 1101 || $rtype == 1102) {
+      ($tripno) = split('_',$trip_id);
+      $tripno = '' unless defined $tripno;
+    }
+    $tripnos{$tripid} = $tripno;
 
     $sid = $serviceids{$service_id};
     error_exit("undefined sid for $service_id") unless defined $sid;
@@ -1870,7 +2133,7 @@ sub readstoptimes($)
 
   my ($route_id,$trip_id,$arr_time,$dep_time,$stop_id,$headsign);
 
-  my ($routeid,$tripid,$stopid,$id,$rstopid,$rstop_id,$dep);
+  my ($routeid,$tripid,$tripno,$stopid,$id,$rstopid,$rstop_id,$dep);
   my ($route,$trip,$seq,$hop,$dep_id,$arr_id);
 
   return error("missing dir arg for import") unless defined $dir and length($dir);
@@ -2099,6 +2362,7 @@ sub readstoptimes($)
         $uniqid = join('_',$prvroute,$prvpid,$pid);
 #        info("uniqid $uniqid");
         $sumtimes++;
+
         if (exists($tripseq{$uniqid})) {
           push @{ $tripseq{$uniqid} },join('_',$prvid,$id,$xtripid,$htdep,$htarr,$seq);
         } else {
@@ -2205,7 +2469,7 @@ sub writext($$)
   my ($indir,$outdir) = @_;
 
   my ($name,$portfile,$hopfile,$routefile);
-  my ($stop,$stopid,$hop,$route,$hopid);
+  my ($stop,$stopid,$hop,$route,$hopid,$tripno);
   my ($dep_id,$arr_id,$dep,$arr,$depname,$arrname);
   my ($routeid,$route_id,$agency_id,$reserve,$rid,$rtype,$srtype,$shortname,$longname);
   my ($cnt,$line);
@@ -2413,8 +2677,10 @@ sub writext($$)
 
     next unless defined $sid;
 
+    $tripno = $tripnos{$tid};
+
     $fmt = 0;
-    $timestr = sprintf("%x\t%x\t%x\t%x\t%x\t%x\t%x\t%x",$fmt,$sdep,$sarr,$sid,$tid,$tdep,$tarr,$seq);
+    $timestr = sprintf("%x\t%x\t%x\t%x\t%x\t.%s\t%x\t%x\t%x",$fmt,$sdep,$sarr,$sid,$tid,$tripno,$tdep,$tarr,$seq);
 
     warning("tdep $tdep after tarr $tarr for tid $tid") if $tdep > $tarr;
     warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
@@ -2424,6 +2690,8 @@ sub writext($$)
       $prvsdep = $sdep; $prvsarr = $sarr;
       ($sdep,$sarr,$tid,$tdep,$tarr,$seq) = split('_',$testr);
       $sid = $tripsids{$tid};
+
+      $tripno = $tripnos{$tid};
 
       warning("tdep $tdep after tarr $tarr") if $tdep > $tarr;
       warning("tdep $tdep equals tarr $tarr") if $tdep == $tarr;
@@ -2449,9 +2717,9 @@ sub writext($$)
       } else { $ztarr = $tarr; }
       if ($sid == $prvsid) {
         $fmt |= $fmt_prvsid;
-        $timestr .= sprintf("\t%x\t%s%s%x\t%x\t%x\t%x",$fmt,$depstr,$arrstr,$ztid,$ztdep,$ztarr,$seq);
+        $timestr .= sprintf("\t%x\t%s%s%x\t.%s\t%x\t%x\t%x",$fmt,$depstr,$arrstr,$ztid,$tripno,$ztdep,$ztarr,$seq);
       } else {
-        $timestr .= sprintf("\t%x\t%s%s%x\t%x\t%x\t%x\t%x",$fmt,$depstr,$arrstr,$sid,$ztid,$ztdep,$ztarr,$seq);
+        $timestr .= sprintf("\t%x\t%s%s%x\t%x\t.%s\t%x\t%x\t%x",$fmt,$depstr,$arrstr,$sid,$ztid,$tripno,$ztdep,$ztarr,$seq);
       }
     }
     printf($hopfile "%s\t%x\t.%u\t.%u\t%x\t.%u\t.%u\t%s%s\n",$route,$hopid,$dep,$arr,$rtype,$rid,$timecnt,$timestr,$xinfo);
@@ -2491,46 +2759,61 @@ sub writegtfs()
   return warning("input is canonical, no canonical output") if ($iscanonin);
 
 # agency
-  $fname = 'agency.tab';
-  inican($canondir . "/$fname");
-  open($agencyfile,'>:encoding(UTF-8)',$canondir . "/$fname") or return 0;
-  print($agencyfile "agency_id\tagency_name\tagency_timezone\tagency_url\n");
+  if (@agencies) {
+    $fname = 'agency.tab';
+    inican($canondir . "/$fname");
+    open($agencyfile,'>:encoding(UTF-8)',$canondir . "/$fname") or return 0;
+    print($agencyfile "agency_id\tagency_name\tagency_timezone\tagency_url\n");
 
-  foreach $line (@agencies) {
-    ($agency_id,$agency_name,$agency_url,$agency_timezone) = split("\t",$line);
-    print($agencyfile "$agency_id\t$agency_name\t$agency_timezone\t$agency_url\n");
+    foreach $line (@agencies) {
+      ($agency_id,$agency_name,$agency_url,$agency_timezone) = split("\t",$line);
+      print($agencyfile "$agency_id\t$agency_name\t$agency_timezone\t$agency_url\n");
+    }
+    close($agencyfile);
+    info("wrote canonical agency.tab");
   }
-  close($agencyfile);
-  info("wrote canonical agency.tab");
 
 # stops
   $fname = 'stops.tab';
   inican($canondir . "/$fname");
   open($stopsfile,'>:encoding(UTF-8)',$canondir . "/$fname") or return 0;
   print($stopsfile "stop_id\tstop_code\tlocation_type\tparent_station\tstop_name\tstop_lat\tstop_lon\tstop_desc\n");
-  while (($stopid,$stopstr) = each %stops) {
 
-    ($name,$ilat,$ilon,$code,$desc,$opt) = split("\t",$stopstr);
+  if (@rstops > 0) {
 
-    $id = $stop_ids{$stopid};  # gtfs-view : stop_id.parent = stopid@tripover
+    for $stopstr (@rstops) {
+      ($id,$code,$name,$lat,$lon,$desc) = split("\t",$stopstr);
+      print($stopsfile join("\t",$idprefix . $id,$code,0,'',$name,$lat,$lon,$desc));
+      print($stopsfile "\n");
+    }
 
-    $code = '' unless defined $code;
-    $opt = 0 unless defined $opt;
+  } else {
 
-    $parent = '';
-    $parent = $idprefix . $parentbyid{$stopid} if exists $parentbyid{$stopid};
+    while (($stopid,$stopstr) = each %stops) {
 
-    $loctype = ($opt & $opt_parentstop) ? 1 : 0;
+      ($name,$ilat,$ilon,$code,$desc,$opt) = split("\t",$stopstr);
 
-#    next if ($omit_unconnect and $loctype == 1 and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
-    next if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+      $id = $stop_ids{$stopid};  # gtfs-view : stop_id.parent = stopid@tripover
 
-    $lat = ilat2lat($ilat);
-    $lon = ilon2lon($ilon);
+      $code = '' unless defined $code;
+      $opt = 0 unless defined $opt;
 
-    print($stopsfile join("\t",$idprefix . $id,$code,$loctype,$parent,$name,$lat,$lon,$desc));
-    print($stopsfile "\n");
+      $parent = '';
+      $parent = $idprefix . $parentbyid{$stopid} if exists $parentbyid{$stopid};
+
+      $loctype = ($opt & $opt_parentstop) ? 1 : 0;
+
+  #    next if ($omit_unconnect and $loctype == 1 and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+      next if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0);
+
+      $lat = ilat2lat($ilat);
+      $lon = ilon2lon($ilon);
+
+      print($stopsfile join("\t",$idprefix . $id,$code,$loctype,$parent,$name,$lat,$lon,$desc));
+      print($stopsfile "\n");
+    }
   }
+
   close($stopsfile);
   info("wrote canonical stops.tab");
 
@@ -2581,6 +2864,7 @@ sub writegtfs()
   inican($canondir . "/$fname");
   open($routesfile,'>:encoding(UTF-8)',$canondir . "/$fname") or return 0;
   print($routesfile "route_id\tagency_id\troute_type\troute_short_name\troute_long_name\troute_desc\n");
+  $desc = '';
 
   foreach $line (@routes) {
     ($route_id,$agency_id,$reserve,$utcofs,$shortname,$longname,$rtype) = split("\t",$line);
@@ -2620,7 +2904,7 @@ sub writegtfs()
     ($tripid,$stopid,$seq,$arr_time,$dep_time) = split("\t",$line);
     $trip_id = $idprefix . $trip_ids{$tripid};
     $stop_id = $idprefix . $rstopbyid{$stopid};
-    print($stoptimfile "$trip_id\t$stop_id\t$seq\t$arr_time\t$dep_time\n");
+    printf($stoptimfile "%s\t%s\t%u\t%s\t%s\n",$trip_id,$stop_id,$seq,$arr_time,$dep_time);
   }
   close($stoptimfile);
   info("wrote canonical stop_times.tab");
@@ -2677,7 +2961,7 @@ sub merge($$$)
 
 my $starttime = time();
 
-my ($arg,$opt,$cmd,$argno);
+my ($arg,$opt,$cmd,$argno,$tbox0,$tbox1);
 my @args;
 
 if (@ARGV == 0) { usage(); exit 1; }
@@ -2732,6 +3016,17 @@ if (@args > 0) {
     $outdir = $args[1];
     for ($argno = 2; $argno < @args; $argno++) {
       merge($outdir,$args[$argno],$argno == 2) or exit 1;
+    }
+  } elsif ($cmd eq 'air2gtfs') {
+    unless (@args > 4) { basemsg("$cmd needs indir,outdir,startdate,enddate"); exit 1; }
+    $outdir = $args[1];
+    $indir = $args[2];
+    $canondir = $outdir;
+    $tbox0 = $args[3];
+    $tbox1 = $args[4];
+    info("$cmd from $indir to $outdir");
+    if (air2gtfs($indir,$tbox0,$tbox1)) {
+      writegtfs();
     }
   }
   else { info("unknown command: known are 'import','merge'"); }

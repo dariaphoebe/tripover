@@ -417,7 +417,13 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 bstop,ub4 hop,ub4 midur,ub4 
   } else farepos = NULL;
 
   ahop = src->hop1s[aleg];
-  if (ahop >= chopcnt) ttmin = 0;
+  if (ahop >= chopcnt) ttmin = 0; // walk arrivals have no transfer time
+
+  if (hp1->kind == Airint) {
+    ttmin = 90; ttmax = 24 * 60;
+  } else if (hp1->kind == Airdom) {
+    ttmin = 90; ttmax = 24 * 60;
+  }
 
   src->duraccs[leg] = tp->duracc;
 

@@ -132,6 +132,7 @@ struct chainhop {
 struct chain {
   ub4 rrid,rid;
   ub4 rtid,tid;
+  ub4 tripno;
   ub4 hopcnt;
   ub4 rhopcnt;
   ub4 hopofs;
