@@ -578,7 +578,7 @@ static int mk_netn(struct network *net,ub4 nstop)
 
   // todo configurable
   switch (nstop) {
-  case 1: nilonly = 0; varlimit = 64; var12limit = 256; break;
+  case 1: nilonly = 0; varlimit = 32; var12limit = 256; break;
   case 2: nilonly = 0; varlimit = 16; var12limit = 64; break;
   case 3: nilonly = 1; varlimit = 8; var12limit = 64; break;
   default: nilonly = 1; varlimit = 2; var12limit = 32; break;
@@ -1550,6 +1550,7 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
       case Rail: mode = "train"; break;
       case Bus: mode = "bus"; break;
       case Ferry: mode = "ferry"; break;
+      case Taxi: mode = "taxi"; break;
       case Walk: mode = "walk";
       case Unknown: case Kindcnt:  mode = "unknown";
       }
@@ -1560,7 +1561,6 @@ int gtriptoports(struct gnetwork *gnet,ub4 udep,ub4 uarr,ub4 usrdep,ub4 usrarr,s
     if (tid < chaincnt) {
       cp = chains + tid;
       tripno = cp->tripno;
-      info(0,"tripno \ax%u",tripno);
     } else tripno = 0;
 
     if (tripno) {

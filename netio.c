@@ -92,7 +92,7 @@ routes.txt  todo
 
 enum stopopts { Stopopt_child = 1, Stopopt_parent = 2 };
 
-static const char *kindnames[Kindcnt] = { "unknown","air int","air dom","rail","bus","ferry","walk" };
+static const char *kindnames[Kindcnt] = { "unknown","air int","air dom","rail","bus","ferry","taxi","walk" };
 
 enum extresult { Next, Newitem, Newcmd, Eof, Parserr };
 
@@ -982,7 +982,7 @@ static int rdexttimes(netbase *net,const char *dir)
         tbox1 = timebox[1] = day2cd(daybox1);
         info(0,"period start \ad%u end \ad%u %u days",daybox0,daybox1,dtbox);
         if (dtbox > timespanlimit) {
-          warning(0,"timebox %u-%u limited to %u days",tbox0,tbox1,timespanlimit);
+          info(0,"timebox %u-%u limited to %u days",tbox0,tbox1,timespanlimit);
           daybox1 = daybox0 + timespanlimit;
           tbox1 = timebox[1] = day2cd(daybox1);
           dtbox = daybox1 - daybox0 + 7;
@@ -1204,6 +1204,7 @@ static enum txkind rt2tx(ub4 rtype)
   case 4: return Ferry;
   case 1101: return Airint;
   case 1102: return Airdom;
+  case 1500: return Taxi;
   default: return Unknown;
   }
 }
@@ -1584,7 +1585,7 @@ static int rdexthops(netbase *net,const char *dir)
           if (sdep >= subportcnt) return inerr(FLN,fname,linno,colno,"dep %u id %u above highest subport %u",sdep,sdepid,subportcnt);
           psdep = subports + sdep;
           pid = psdep->id;
-          if (id2ports[pid] != dep) return inerr(FLN,fname,linno,colno,"parent %u for sub %u differss from dep %u",id2ports[pid],sdep,dep);
+          if (id2ports[pid] != dep) return inerr(FLN,fname,linno,colno,"parent %u for sub %u differs from dep %u",id2ports[pid],sdep,dep);
           srdep = psdep->seq;
         } else psdep = NULL;
 
@@ -1702,6 +1703,7 @@ static int rdexthops(netbase *net,const char *dir)
       case Rail: pdep->rail = parr->rail = 1; if (psdep) psdep->rail = 1; if (psarr) psarr->rail = 1; break;
       case Ferry: pdep->ferry = parr->ferry = 1; if (psdep) psdep->ferry = 1; if (psarr) psarr->ferry = 1; break;
       case Bus: pdep->bus = parr->bus = 1; if (psdep) psdep->bus = 1; if (psarr) psarr->bus = 1; break;
+      case Taxi: break;
       case Walk: routeid = hi32; break;
       }
 

@@ -40,7 +40,7 @@
 
 #define Netbase_inc
 
-enum txkind { Unknown,Airint,Airdom,Rail,Bus,Ferry,Walk,Kindcnt };
+enum txkind { Unknown,Airint,Airdom,Rail,Bus,Ferry,Taxi,Walk,Kindcnt };
 
 struct portbase {
   ub4 magic;

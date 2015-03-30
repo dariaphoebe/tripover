@@ -169,9 +169,12 @@ static void wrstderrlog(const char *buf,ub4 len)
 {
   int fd = globs.msg_fd;
 
-  oswrite(2,buf,len);
-  oswrite(1,buf,len);
-  if (fd > 0 && fd != 2) oswrite(fd,buf,len);
+  if (globs.background) oswrite(fd,buf,len);
+  else {
+    oswrite(2,buf,len);
+    oswrite(1,buf,len);
+    if (fd > 0 && fd != 2) oswrite(fd,buf,len);
+  }
 }
 
 #ifdef MAP_ANONYMOUS
@@ -330,8 +333,10 @@ int oswaitany(ub4 *cldcnt)
 
   pid_t pid = waitpid(-1,&status,WNOHANG);
 
-  if (pid == -1) return oserror(0,"waitpid failed for %u",globs.pid);
-  else if (pid == 0) return 0;
+  if (pid == -1) {
+    if (errno == ECHILD) return info(Notty|Iter,"waitpid expecting %u processes failed for %u",cnt,globs.pid);
+    return oserror(0,"waitpid expecting %u processes failed for %u",cnt,globs.pid);
+  } else if (pid == 0) return 0;
 
   if (WIFEXITED(status)) {
     *cldcnt = cnt - 1;

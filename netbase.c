@@ -384,7 +384,7 @@ int prepbasenet(void)
 
     msgprefix(0,"hop %u",hop);
 
-//    dbg = (hop == 21295 || hop == 21300);
+    dbg = (hop == 94);
 
     dep = hp->dep;
     arr = hp->arr;
@@ -405,7 +405,7 @@ int prepbasenet(void)
     } else {
       fdist = geodist(pdep->rlat,pdep->rlon,parr->rlat,parr->rlon);
       if (fdist < 1) warning(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
-      else if (fdist > 420000) warn(0,"port %u-%u distance %e for latlon %u,%u-%u,%u %s to %s",dep,arr,fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
+      else if (fdist > 800000) warn(0,"port %u-%u distance \ag%u for latlon %u,%u-%u,%u %s to %s",dep,arr,(ub4)fdist,pdep->lat,pdep->lon,parr->lat,parr->lon,dname,aname);
       dist = (ub4)fdist;
     }
     hp->dist = max(dist,1);
@@ -558,7 +558,7 @@ int prepbasenet(void)
           chp2 = chainhops + ofs;
           for (i = 0; i < chcnt; i++) {
             if (chp2[i].hop == hop) { // todo investigate
-              info(0,"rrid %u r.tid %u.%u equal hop %u td %u vs %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,tdep,chp2[i].tdep,i,pdep->name,parr->name,pp->name,hp->name);
+              info(Notty|Iter,"rrid %u r.tid %u.%u equal hop %u td %u vs %u at %u %s to %s start %s %s",rrid,rtid,tid,hop,tdep,chp2[i].tdep,i,pdep->name,parr->name,pp->name,hp->name);
               break;
             } else if ( (chip[i] >> 32) == tripseq) {
               warn(0,"rrid %x tid %u skip equal seq %u at %u %s to %s start %s",rrid,tid,tripseq,i,pdep->name,parr->name,pp->name);
@@ -603,7 +603,7 @@ int prepbasenet(void)
       continue;
     }
     evhops++;
-    infovrb(dbg,0,"final date range \ad%u-\ad%u",tp->t0 + gt0,tp->t1 + gt0);
+    infovrb(dbg,0,"final date range \ad%u-\ad%u %s",tp->t0 + gt0,tp->t1 + gt0,hp->name);
 
     clearxtime(tp,xp,xpacc,xtimelen);
 
@@ -619,6 +619,7 @@ int prepbasenet(void)
       case Rail: if (lodur > 12 * 60) duracc = 10; else duracc = 2; break;
       case Bus:  if (lodur > 2 * 60) duracc = 10; else duracc = 5; break;
       case Ferry: duracc = 10; break;
+      case Taxi: duracc = 10; break;
       case Walk: duracc = 5; break;
       case Unknown: duracc = 15; break;
       case Kindcnt: duracc = 15; break;
@@ -865,8 +866,8 @@ int prepbasenet(void)
   basenet.events = mkblock(eventmem,cumzevcnt * 2,ub8,Noinit,"time events");
 
   basenet.evmaps = mkblock(evmapmem,cumtdays * 5,ub2,Init0,"time eventmaps");
-  
-  ub4 evofs = 0,dayofs = 0;
+
+  ub4 evofs = 0,dayofs = 0,maplen;
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     tp = &hp->tp;
@@ -881,7 +882,7 @@ int prepbasenet(void)
 
   // pass 2: fill from time entries
   info(0,"preparing \ah%lu events in %u base hops pass 2",cumevcnt,hopcnt);
-  
+
   ub8 cumevcnt2 = 0,cumzevcnt2 = 0;
   for (hop = 0; hop < hopcnt; hop++) {
 
@@ -933,8 +934,9 @@ int prepbasenet(void)
       tp->utcofs = sp->utcofs;
       mapofs = sp->mapofs;
       daymap = sidmaps + mapofs;
+      maplen = sp->maplen;
 
-      cnt = fillxtime2(tp,xp,xpacc,xtimelen,gt0,sp,daymap,tdep,tid,dur,srdep,srarr);
+      cnt = fillxtime2(tp,xp,xpacc,xtimelen,gt0,sp,daymap,maplen,tdep,tid,dur,srdep,srarr);
       hoplog(hop,0,"tid %u rsid %x \ad%u \ad%u td \ad%u ta \ad%u %u events seq %u",tid,sp->rsid,t0,t1,tdep,tarr,cnt,tripseq);
       noexit error_z(cnt,hop); // todo
       evcnt += cnt;

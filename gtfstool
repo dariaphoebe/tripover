@@ -79,8 +79,10 @@ my $iscanonin = 0;
 
 my ($indir,$outdir);
 
+my $glinno = 0;
+
 # stop at compile-time warnings
-local $SIG{__WARN__} = sub { print "$_[0]\n"; exit 1; };
+local $SIG{__WARN__} = sub { print "$_[0] input line $glinno\n"; exit 1; };
 
 if (-t STDOUT) {
   for (my $bck = 8; $bck >= 0; $bck--) {
@@ -611,7 +613,7 @@ sub init()
   $tzofs{'PST'} = '-08:00';
   $tzofs{'SAST'} = '+02:00';
   $tzofs{'SGT'} = '+08:00';
-  $tzofs{'UTC'} = '+08:00';
+  $tzofs{'UTC'} = '+00:00';
   $tzofs{'WET'} = '+00:00';
   $tzofs{'WIB'} = '+07:00';
   $tzofs{'WIT'} = '+09:00';
@@ -625,10 +627,13 @@ sub tz2ofs($)
   my ($str) = @_;
   my ($hh,$mm,$hhmm);
 
-  unless (exists($tzofs{$str})) { warning("no timezone info for $str"); return (0,0); }
+  if ($str =~ qr'[-+][0-9]+:[0-9]+') { $hhmm = $str; }
+  else {
+    unless (exists($tzofs{$str})) { warning("no timezone info for $str"); return (0,0); }
+    $hhmm = $tzofs{$str};
+  }
 
-  $hhmm = $tzofs{$str};
-  $a = index($hhmm,':');
+  my $a = index($hhmm,':');
   $hh = substr($hhmm,0,$a);
   $mm = substr($hhmm,$a+1);
   vrb("utc offset hh $hh mm $mm");
@@ -638,7 +643,7 @@ sub tz2ofs($)
 sub mksid($)
 {
   my $service_id = shift;
-  my ($dow,$t0,$t1) = split('_',$service_id);
+  my ($dow,$utcofs,$t0,$t1) = split('_',$service_id);
 
   my ($mon,$tue,$wed,$thu,$fri,$sat,$sun);
 
@@ -678,8 +683,8 @@ sub air2gtfs($$$)
 {
   my ($dir,$tbox0,$tbox1) = @_;
   my ($tname,$pname,$fh,$line,$linno,$state);
-  my ($dep,$arr,$depid,$arrid,$flno);
-  my ($tdep,$tarr,$tdhh,$tdmm,$tahh,$tamm,$dow);
+  my ($dep,$arr,$idep,$depid,$arrid,$idepid,$flno);
+  my ($tdep,$tarr,$ftdep,$ftarr,$tdhh,$tdmm,$tahh,$tamm,$dow);
   my ($plus,$plusday,$min,$minday,$day,$mon,$day0,$day1,$mon0,$mon1,$opts);
   my ($name,$code,$dlat,$dlon,$dcc,$alat,$alon,$acc,$dutcofs,$autcofs);
   my ($tripid,$trip_id,$tripline);
@@ -696,6 +701,8 @@ sub air2gtfs($$$)
 
   my $year = substr($tbox0,0,4);
 
+  my ($dist,$dur,$citydst,$cdlat,$cdlon);
+
   $pname = "$dir/airports.tab";
   return error("required $pname not present") unless -f $pname;
 
@@ -707,17 +714,100 @@ sub air2gtfs($$$)
   $linno = 0;
   for $line (@lines) {
     $linno++;
+    $glinno = $linno;
     chop $line;
     next unless length($line);
     next if index($line,'#') == 0;
-    ($name,$code,$dcc,$dlat,$dlon,$dutcofs) = split("\t",$line);
+    ($name,$code,$dcc,$dlat,$dlon,$dutcofs,$citydst,$cdlat,$cdlon) = split("\t",$line);
 
     return error("airport $name previously defined on line $airportids{$name}") if exists $airportids{$name};
-    $airportids{$name} = $linno;
+    $depid = $linno * 2;
+    $airportids{$name} = $depid;
     $airports{$name} = $line;
-    $rstopbyid{$linno} = $name;
-    if (defined $code) {
-      push @rstops, join("\t",$name,$code,$name,$dlat,$dlon,$dcc);
+    $rstopbyid{$depid} = $name;
+    next unless defined $code;
+
+#    info($line);
+
+    push @rstops, join("\t",$name,$code,$name,$dlat,$dlon,$dcc);
+    next unless defined $citydst;
+    return error("line $linno: incomplete taxi info") unless defined $cdlon;
+
+    # create airport to city taxi link
+    if (exists($airportids{$citydst})) {
+      $arrid = $airportids{$citydst};
+    } else {
+      push @rstops, join("\t",$citydst,$code,$citydst,$cdlat,$cdlon,$dcc);
+      $arrid = $depid + 1;
+      $airportids{$citydst} = $arrid;
+      $rstopbyid{$arrid} = $citydst;
+    }
+
+    $dist = geodist($dlat,$dlon,$cdlat,$cdlon);
+    $dur = int(($dist * 6) + 15);
+
+    $route_id = join('_','taxi',$name,$citydst);
+    $rname = "taxi to $citydst";
+    $rtype = 1500;
+    push @routes,join("\t",$route_id,$agency_id . '_' . $dutcofs,1,$dutcofs,$rname,'',$rtype);
+
+    $service_id = join('_','1234567',$dutcofs,$tbox0,$tbox1);
+    if (exists($serviceids{$service_id})) { $sid = $serviceids{$service_id}; }
+    else {
+      $serviceids{$service_id} = $sid;
+      $sidrefs{$sid} = 1;
+      $sid++;
+      mksid($service_id);
+    }
+
+    for ($tdep = 0; $tdep < 2350; $tdep += 10) {
+      if ( ($tdep % 100) >= 60) { $tdep += 40; }
+      $tarr = $tdep + $dur;
+      if ( ($tarr % 100) >= 60) { $tarr += 40; }
+      $tdep = int($tdep);
+      $tarr = int($tarr);
+
+      $tdhh = int($tdep / 100); $tdmm = int($tdep % 100);
+      $ftdep = sprintf('%02u:%02u:00',$tdhh,$tdmm);
+      $tahh = int($tarr / 100); $tamm = int($tarr % 100);
+      $ftarr = sprintf('%02u:%02u:00',$tahh,$tamm);
+
+      $trip_id = join('_',$route_id,$tid);
+      $tripline = join("\t",$route_id,$service_id,$trip_id,$citydst);
+      $trip_ids{$tid} = $trip_id;
+      push @trips,$tripline;
+
+      push @stop_times,join("\t",$tid,$depid,1,$ftdep,$ftdep);
+      push @stop_times,join("\t",$tid,$arrid,2,$ftarr,$ftarr);
+      $tid++;
+    }
+
+    # and city to airport
+    $route_id = join('_','taxi',$citydst,$name);
+    $rname = "taxi to $name";
+    $rtype = 1500;
+    push @routes,join("\t",$route_id,$agency_id . '_' . $dutcofs,1,$dutcofs,$rname,'',$rtype);
+
+    for ($tarr = 0; $tarr < 2350; $tarr += 10) {
+      if ( ($tarr % 100) >= 60) { $tarr += 40; }
+      $tdep = $tarr + $dur;
+      if ( ($tdep % 100) >= 60) { $tdep += 40; }
+      $tdep = int($tdep);
+      $tarr = int($tarr);
+
+      $tdhh = int($tdep / 100); $tdmm = int($tdep % 100);
+      $ftdep = sprintf('%02u:%02u:00',$tdhh,$tdmm);
+      $tahh = int($tarr / 100); $tamm = int($tarr % 100);
+      $ftarr = sprintf('%02u:%02u:00',$tahh,$tamm);
+
+      $trip_id = join('_',$route_id,$tid);
+      $tripline = join("\t",$route_id,$service_id,$trip_id,$citydst);
+      $trip_ids{$tid} = $trip_id;
+      push @trips,$tripline;
+
+      push @stop_times,join("\t",$tid,$depid,2,$ftdep,$ftdep);
+      push @stop_times,join("\t",$tid,$arrid,1,$ftarr,$ftarr);
+      $tid++;
     }
   }
 
@@ -769,7 +859,7 @@ sub air2gtfs($$$)
       $arrid = 0;
     } elsif ($line =~ qr'^[-A-Za-z ]+$') {
       ($arr) = ($line =~ qr'^([-A-Za-z ]+)$');
- #     info("dep $dep arr $arr");
+#      info("dep $dep arr $arr");
       if (exists($airportids{$arr})) {
         $arrid = $airportids{$arr};
         ($name,$code,$acc,$alat,$alon,$autcofs) = split("\t",$airports{$arr});
@@ -781,12 +871,36 @@ sub air2gtfs($$$)
       $state = 1;
       if ($state == 1 and $depid != 0 and $arrid != 0) {
         warning("incomplete line for dep airport $dep") unless defined $dutcofs;
+
+# portlist has plain name for domestic. _int only if not colocated
+        if ($dcc eq $acc) {
+          $rtype = 1102;
+          $idep = $dep;
+          $idepid = $depid;
+        } else {
+          $rtype = 1101;
+          $idep = $dep;
+          $idepid = $depid;
+          if (exists($airportids{$dep . '_int'})) {
+            $idep = $dep . '_int';
+            $idepid = $airportids{$idep};
+            ($name,$code,$dcc,$dlat,$dlon,$dutcofs) = split("\t",$airports{$idep});
+            $idepid = 0 unless defined $code;
+          }
+          if (exists($airportids{$arr . '_int'})) {
+            $arr .= '_int';
+            $arrid = $airportids{$arr};
+            ($name,$code,$acc,$alat,$alon,$autcofs) = split("\t",$airports{$arr});
+            $arrid = 0 unless defined $code;
+          }
+        }
+        next if $idepid == 0 or $arrid == 0;
+
         $rid++;
-        $route_id = $dep . '_' . $arr;
-        $agency_id = 1;
-        if ($dcc eq $acc) { $rtype = 1102;} else { $rtype = 1101;}
+        $route_id = $idep . '_' . $arr;
         $rname = "$dep to $arr";
-        push @routes,join("\t",$route_id,$agency_id,1,$dutcofs,$rname,'',$rtype);
+#        info("route $rname $route_id");
+        push @routes,join("\t",$route_id,$agency_id . '_' . $dutcofs,1,$dutcofs,$rname,'',$rtype);
         $state = 2;
       }
     } elsif ($line =~ $linepat1) {
@@ -838,9 +952,11 @@ sub air2gtfs($$$)
       $sidt1 = $year . ddmmm($day1,$mon1);
     }
 
-    next if $sidt1 < $sidt0;
+    $sidt0 = max($sidt0,$tbox0);
+    next if $sidt1 < $sidt0 or $sidt1 < $tbox0;
+    $sidt1 = min($sidt1,$tbox1);
 
-    $service_id = join('_',$dow,$sidt0,$sidt1);
+    $service_id = join('_',$dow,$dutcofs,$sidt0,$sidt1);
 
     unless (exists $serviceids{$service_id}) {
       $serviceids{$service_id} = $sid;
@@ -869,13 +985,13 @@ sub air2gtfs($$$)
     $tarr = sprintf('%02u:%02u:00',$tahh,$tamm);
 
 #    info("flno $flno td $tdep ta $tarr dow $dow $dep to $arr");
-    $route_id = $dep . '_' . $arr;
+    $route_id = $idep . '_' . $arr;
     $trip_id = join('_',$flno,$route_id,$tid);
     $tripline = join("\t",$route_id,$service_id,$trip_id,$arr);
     $trip_ids{$tid} = $trip_id;
     push @trips,$tripline;
 
-    push @stop_times,join("\t",$tid,$depid,1,$tdep,$tdep);
+    push @stop_times,join("\t",$tid,$idepid,1,$tdep,$tdep);
     push @stop_times,join("\t",$tid,$arrid,2,$tarr,$tarr);
 
     $tid++;
@@ -1183,6 +1299,7 @@ sub readstops($)
     next if $line eq $headline;  # support catenated files if same col layout
     next unless length $line;
     next if substr($line,0,1) eq '#';
+    $glinno = $linno;
 
     ($id,$code,$loctype,$parent,$name,$lat,$lon,$desc) = split "\t",$line;
     $desc = '' unless defined $desc;
@@ -1607,6 +1724,7 @@ sub readroutes($)
     $c = chop $line;
 
     $linno++;
+    $glinno = $linno;
 
     next if $line eq $headline;  # support catenated files if same col layout
     next unless length $line;
@@ -2169,6 +2287,7 @@ sub readstoptimes($)
   my ($htdep,$htarr,$htdeparr);
 
   my ($prvseq,$prvid,$prvtdep,$prvtarr);
+  my $prvrstopid = 0;
 
   info("$linecnt lines");
 
@@ -2222,6 +2341,12 @@ sub readstoptimes($)
       next;
     }
     $rstopid = $rstopids{$rstop_id};
+    if ($rstopid == $prvrstopid and $prvtrip == $tripid) {
+      warning("line $linno: trip to same stop ID $rstop_id $rstopid");
+      next;
+    }
+    $prvrstopid = $rstopid;
+
     $stopid = $stopmerge{$rstopid};
 
     unless (exists $stop_ids{$stopid}) {
@@ -2254,21 +2379,23 @@ sub readstoptimes($)
 
     if ($prvtrip == 0) {
       @newtrip = ();
-      push @newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno);
+      push @newtrip,sprintf("%05u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno);
     } elsif ($prvtrip == $tripid and not $lastline) {
-      push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
+      push(@newtrip,sprintf("%05u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
     } else {
       if ($prvtrip == $tripid) {
-        push(@newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
+        push(@newtrip,sprintf("%05u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno));
       }
       next if @newtrip == 0;
 #      warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1; # todo
-      @newstrip = sort { substr($a,0,3) <=> substr($b,0,3) } @newtrip;
+#      info("seq $seq $newtrip[-1]");
+#      @newstrip = sort { split("\t",$a) <=> split("\t",$b) } @newtrip;
+      @newstrip = sort { substr($a,0,5) <=> substr($b,0,5) } @newtrip;
       @newstrip1 = ();
       foreach $tripline (@newstrip) { push @newstrip1,$tripline; }
 
       @newtrip = ();
-      push @newtrip,sprintf("%03u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno);
+      push @newtrip,sprintf("%05u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno);
 
       vrb("processing last line $newstrip[0]") if $lastline;
 
@@ -2290,7 +2417,7 @@ sub readstoptimes($)
 #          last;
         }
 
-        return error("trip ID '$xtripid' unsorted sequence $seq") if $seq < $prvseq;
+        return error("trip ID '$xtripid' unsorted sequence $seq after $prvseq at line $xlinno") if $seq < $prvseq;
 
         if (length($dep_time) and length($arr_time)) {
           ($thh,$tmm,$tss) = ($dep_time =~ $hhmmpat);
@@ -2900,7 +3027,9 @@ sub writegtfs()
   open($stoptimfile,'>:encoding(UTF-8)',$canondir . "/$fname") or return 0;
   print($stoptimfile "trip_id\tstop_id\tstop_sequence\tarrival_time\tdeparture_time\n");
 
+  $glinno = 0;
   foreach $line (@stop_times) {
+    $glinno++;
     ($tripid,$stopid,$seq,$arr_time,$dep_time) = split("\t",$line);
     $trip_id = $idprefix . $trip_ids{$tripid};
     $stop_id = $idprefix . $rstopbyid{$stopid};
@@ -2915,7 +3044,7 @@ sub merge($$$)
 {
   my ($outdir,$indir,$first) = @_;
 
-  my ($name,$infile,$outfile,$infname,$outfname,$headline,$line,$openmode);
+  my ($name,$infile,$outfile,$infname,$outfname,$headline,$line,$openmode,$cnt);
   my @lines;
 
   info("merge $indir into $outdir " . ($first ? " " : " append"));
@@ -2948,6 +3077,8 @@ sub merge($$$)
     close($infile);
     next unless (@lines > 0);
 
+    $cnt = scalar @lines;
+    info("file $name mode $openmode $cnt lines");
     print($outfile $headline) unless -s $outfname;
     for $line (@lines) {
       print($outfile $line) unless $line eq $headline;

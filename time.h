@@ -26,13 +26,15 @@
   _Static_assert(Erayear > Epochyear,"time span too small");
 #endif
 
+#define lmin2min(lmin,utcofs) lmin2minfln(FLN,(lmin),(utcofs))
+
 extern ub4 gettime_sec(void);
 extern void sec70toyymmdd(ub4 secs, char *dst, ub4 dstlen);
 extern ub4 yymmdd2min(ub4 cd,ub4 utcofs);
 extern ub4 lmin2cd(ub4 min);
 extern ub4 min2wday(ub4 min);
 extern ub4 min2lmin(ub4 min,ub4 utcofs);
-extern ub4 lmin2min(ub4 lmin,ub4 utcofs);
+extern ub4 lmin2minfln(ub4 fln,ub4 lmin,ub4 utcofs);
 extern ub4 utc12ofs(ub4 uo12);
 extern ub4 cdday2wday(ub4 cd);
 extern ub4 cd2day(ub4 cd);

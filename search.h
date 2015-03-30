@@ -9,7 +9,7 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-#define Maxevs 8192
+#define Maxevs 1024
 
 #define Topdts 32
 
@@ -84,6 +84,7 @@ struct srcctx {
   ub4 duraccs[Nxleg];
   ub4 hop1s[Nxleg];
   ub4 hop2s[Nxleg];
+  struct hop *hp1s[Nxleg];
   ub4 parts[Nxleg];
 
   ub4 dcnts[Nxleg];   // #events in dev[leg]

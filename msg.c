@@ -922,6 +922,21 @@ int __attribute__ ((format (printf,3,4))) warnfln(ub4 line, ub4 code, const char
   return 0;
 }
 
+int __attribute__ ((format (printf,4,5))) warnfln2(ub4 line,ub4 code,ub4 fln2,const char *fmt,...)
+{
+  va_list ap;
+
+  msginfo(line);
+  if (msglvl < Warn) return 0;
+  va_start(ap, fmt);
+
+  if (fln2) msg(Warn,0,fln2,0,"",NULL);
+  msg(Warn, 0, line, code, fmt, ap);
+  va_end(ap);
+  if (code & Exit) ccexit(0);
+  return 0;
+}
+
 int __attribute__ ((format (printf,4,5))) errorfln(ub4 fln,ub4 code,ub4 fln2,const char *fmt, ...)
 {
   va_list ap;

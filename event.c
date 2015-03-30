@@ -162,7 +162,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 }
 
 // similar to above, second pass after alloc
-ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid,ub4 dur,ub4 srdep,ub4 srarr)
+ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 maplen,ub4 tdep,ub4 tid,ub4 dur,ub4 srdep,ub4 srarr)
 {
   ub4 t,n = 0;
   ub4 t00,t01,t0,t1,tt,tday,t1day,mday;
@@ -192,22 +192,25 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
   srdep &= 0xff; srarr &= 0xff;
   t1day = min(t1 / daymin,t01);
 
-  tday = t0 / daymin;
+  tday = max(t0 / daymin,t00);
   while (tday < t1day && n + tp->evcnt < evlimit) {
     t = tday * daymin;
     mday = tday - t00;
-    if (daymap[mday]) {
-      tt = t - gt0 + tdep;
-      tt = lmin2min(tt,utcofs);
-      error_ge(tt,xlen);
-      if ( (xp[tt] & hi32) == hi32) {
-        x = (ub8)tid | ((ub8)dayid << 24);
-        dursub = (dur & hi16) | (srdep << 24) | (srarr << 16);
-        x |= (dursub << 32);
-        xp[tt] = x;
-        n++;
-        xpacc[tt >> Accshift] = 1;
-      }
+    error_ge(mday,maplen);
+    if (daymap[mday] == 0) { tday++; continue; }
+
+    tt = t - gt0 + tdep;
+    if (tt < utcofs) { tday++; continue; }
+
+    tt = lmin2min(tt,utcofs);
+    error_ge(tt,xlen);
+    if ( (xp[tt] & hi32) == hi32) {
+      x = (ub8)tid | ((ub8)dayid << 24);
+      dursub = (dur & hi16) | (srdep << 24) | (srarr << 16);
+      x |= (dursub << 32);
+      xp[tt] = x;
+      n++;
+      xpacc[tt >> Accshift] = 1;
     }
     tday++;
   }

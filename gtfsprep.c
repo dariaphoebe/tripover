@@ -217,8 +217,8 @@ static ub4 linecnt(const char *name,const char *buf, ub4 len)
     }
   }
   if (len && buf[len-1] != nl) {
-    return error(Ret0,"%s has unterminated last line",name);
-    error_nz(canonin,cnt);
+    warning(0,"%s has unterminated last line",name);
+    return cnt;
   }
   info(0,"%s: %u data lines", name,cnt);
   return cnt;
@@ -664,10 +664,20 @@ static ub4 addcol(char *lines,ub4 pos,char *col,ub4 collen,char c,bool addpfx)
   return pos;
 }
 
-enum Txmode { Tram,Metro,Rail,Bus,Ferry,Cabcar,Gondola,Funicular,Plane_int,Plane_dom, Modecnt };
+enum Txmode { Tram,Metro,Rail,Bus,Ferry,Cabcar,Gondola,Funicular,Plane_int,Plane_dom,Taxi,Modecnt };
 static const char *modenames[] = { "tram","metro","rail","bus","ferry","cable car","gondola","funicular","air-dom","air-int","unknown" };
 static ub4 rmodecnts[Modecnt + 1];
 static ub4 modecnts[Modecnt + 1];
+
+static ub4 rtype2gtfs(enum Txmode x)
+{
+  switch(x) {
+  case Tram: case Metro: case Rail: case Bus: case Ferry: case Cabcar: case Gondola: case Funicular: case Taxi: return x;
+  case Plane_int: return 1101;
+  case Plane_dom: return 1102;
+  case Modecnt: return x;
+  }
+}
 
 // extended types from support.google.com/transitpartners/answer/3520902
 static ub4 xrtype2rtype(ub4 x)
@@ -683,9 +693,10 @@ static ub4 xrtype2rtype(ub4 x)
   case 300: case 400: case 403: case 404: return Rail;
   case 401: case 402: case 405: case 500: case 600: return Metro;
   case 800: return Bus;
-  case 1103: case 1106: case 1107: case 1112: case 1114: return Plane_int;
-  case 1104: case 1105: case 1108: case 1109: case 1110: case 1111: case 1113: return Plane_dom;
+  case 1101: case 1103: case 1106: case 1107: case 1112: case 1114: return Plane_int;
+  case 1102: case 1104: case 1105: case 1108: case 1109: case 1110: case 1111: case 1113: return Plane_dom;
   case 1200: return Ferry;
+  case 1500: return Taxi;
 
   case 0: return Tram;
   case 1: return Metro;
@@ -1259,7 +1270,7 @@ static int rdroutes(gtfsnet *net,const char *dir)
       linepos = addcol(lines,linepos,agval,agvlen,tab,1);
 
       bound(mem,linepos + vlen + 1,char);
-      linepos += myutoa(lines + linepos,rtype);
+      linepos += myutoa(lines + linepos,rtype2gtfs(rtype));
       lines[linepos++] = tab;
 
       if (canonin == 0) {
@@ -1769,7 +1780,7 @@ static int rdstops(gtfsnet *net,const char *dir)
     // desc
     pos += mysnprintf(elines,pos,elinelen,"%.*s\n",sp->desclen,lines + sp->descofs);
     bound(emem,pos,char);
-    error_ge(pos + 20,elinelen);
+    error_ge(pos + 2,elinelen);
 //    info(0,"stop %u pos %u",stop,pos);
   }
 
@@ -2103,8 +2114,8 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
 
       if (vlen) {
         seq = uvals[stop_seqpos];
-        if (seq == 0) return parserr(FLN,fname,linno,colno,"sequence zero");
-        else if (seq == hi32) return parserr(FLN,fname,linno,colno,"non-numerical sequence '%s'",val);
+//        if (seq == 0) return parserr(FLN,fname,linno,colno,"sequence zero");
+        if (seq == hi32) return parserr(FLN,fname,linno,colno,"non-numerical sequence '%s'",val);
         if (linno > seqline + 1) seqinc = (seq == 1);
         seqline = linno;
       } else {

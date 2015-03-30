@@ -85,9 +85,12 @@ ub4 min2lmin(ub4 min,ub4 utcofs)
 }
 
 // sub utcofs
-ub4 lmin2min(ub4 lmin,ub4 utcofs)
+ub4 lmin2minfln(ub4 fln,ub4 lmin,ub4 utcofs)
 {
-  if (lmin <= utcofs) { warning(0,"time %u at utc offset %u before Epoch UTC",lmin,utcofs); return lmin; }
+  if (lmin < utcofs) {
+    warnfln2(fln,0,FLN,"time %u at utc offset %u before Epoch UTC",lmin,utcofs);
+    return lmin;
+  } else if (lmin == utcofs) return 0;
   else if (utcofs < 12 * 60) return lmin + (12 * 60 - utcofs);
   else if (utcofs > 12 * 60) return lmin - (utcofs - 12 * 60);
   else return lmin;

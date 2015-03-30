@@ -474,7 +474,7 @@ int compound(gnet *net)
       } else { // possible if loop in route
         hop1 = choporg[hop * 2];
         hop2 = choporg[hop * 2 + 1];
-        infovrb(durdif > 30,Notty,"chop %u %u-%u dur %u-%u rid %u %s",hop,hop1,hop2,hoplodur[da],hophidur[da],rid,rp->name);
+        infovrb(durdif > 30,Notty|Iter,"chop %u %u-%u dur %u-%u rid %u %s",hop,hop1,hop2,hoplodur[da],hophidur[da],rid,rp->name);
         dur = hi32;
       }
       hopcdur[hop] = dur;

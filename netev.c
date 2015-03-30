@@ -24,7 +24,7 @@ static ub4 msgfile;
 #include "net.h"
 #include "netev.h"
 
-static const ub4 subsamples = 64;
+static const ub4 subsamples = 256;
 static const ub4 maxscnt = 1024 * 32;
 
 static int vrbena;
@@ -88,11 +88,12 @@ int mksubevs(lnet *net)
 
   nt0 = net->t0; nt1 = net->t1;
   if (nt0 == 0 || nt1 == 0) return error0(0,"no overall time period");
-  else if (nt1 <= nt0)  return error(0,"no overall time period at \ad%u",nt0);
+  else if (nt1 <= nt0)  return error(0,"no overall time period at \ad%u - \ad%u",nt0,nt1);
+  info(0,"overall net period \ad%u - \ad%u, sample \ad%u - \ad%u",nt0,nt1,st0,st1);
   st0 = min(st0,nt1);
   st0 = max(st0,nt0);
-  st1 = min(st0,nt1);
-  st1 = max(st0,nt0);
+  st1 = min(st1,nt1);
+  st1 = max(st1,nt0);
   if (st1 == st0) {
     if (st1 < nt1) st1 = nt1;
     else st0 = nt0;
@@ -378,6 +379,19 @@ int mksubevs(lnet *net)
 
   infocc(noevcnt,0,"%u of %u hops without sample events",noevcnt,chopcnt);
 
+#if 0
+  for (hop = 0; hop < chopcnt; hop++) {
+    scnt = sevcnts[hop];
+    if (scnt) continue;
+
+    dep = portsbyhop[hop * 2];
+    arr = portsbyhop[hop * 2 + 1];
+    pdep = ports + dep;
+    parr = ports + arr;
+    info(0,"hop %u %s to %s no events",hop,pdep->name,parr->name);
+  }
+#endif
+
   for (hop = 0; hop < whopcnt; hop++) {
     warncc(shopdur[hop] == hi32,0,"hop %u sdur %u",hop,shopdur[hop]);
   }
@@ -470,10 +484,12 @@ static ub4 stat_nocnt;
       tdur2 = sev2[e2++];
       t2 = (ub4)(tdur2 >> 32);
 
-      if (dtcnt2 && t2 - t1 + dur1 > ttmax) break;
+//      if (dtcnt2 && t2 - t1 - dur1 > ttmax) break;
 
       dur2 = tdur2 & hi32;
       dur2 &= hi16; // todo
+
+      if (t2 - t1 > lodt) break;
 
       dt = (t2 - t1) + dur2;
       if (dt < lodt) { lodt = dt; dtcnt2++; }
@@ -509,9 +525,11 @@ static ub4 stat_nocnt;
       dur1 = tdur1 & hi32;
       dur1 &= hi16;
 
-      if (dtcnt2 && t2 - t1 + dur1 > ttmax) break;
+//      if (dtcnt2 && t2 - t1 + dur1 > ttmax) break;
 
       dt = (t2 - t1) + dur2;
+      if (t2 - t1 > lodt) break;
+
       if (dt < lodt) { lodt = dt; dtcnt2++; }
     }
     if (dtcnt2 == 0) continue;
@@ -520,7 +538,10 @@ static ub4 stat_nocnt;
     dtbcnt++;
   }
 
-  if (dtcnt == 0 && dtbcnt == 0) return hi32;
+  if (dtcnt == 0 && dtbcnt == 0) {
+    dtbins[dthibin]++;
+    return hi32;
+  }
   else if (dtcnt == 0) avgdt = (ub4)(dtbsum / dtbcnt);
   else if (dtbcnt == 0) avgdt = (ub4)(dtsum / dtcnt);
   else avgdt = (ub4)min(dtsum / dtcnt,dtbsum / dtbcnt);
@@ -529,7 +550,7 @@ static ub4 stat_nocnt;
 
   dtbins[min(avgdt,dthibin)]++;
 
-  if (++statcnt & hi24) return avgdt;
+  if (++statcnt & hi20) return avgdt;
 
   ub8 sumcnt = 0,sumscnt = 0;
   ub4 scnt;

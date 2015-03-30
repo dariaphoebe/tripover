@@ -238,6 +238,7 @@ static int cmd_plan(gnet *net,struct myfile *req,search *src)
   // invoke actual plan here
   info(0,"plan %u to %u in %u to %u stop\as from %u.%u for +%u -%u days",dep,arr,lostop,histop,tdep,ttdep,plusday,minday);
   info(0,"mintt %u maxtt %u maxwalk %u costperstop %u",mintt,maxtt,walklimit,costperstop);
+  info(0,"utcofs %u",utcofs);
 
   rv = plantrip(src,req->name,dep,arr,lostop,histop);
 

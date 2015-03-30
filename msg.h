@@ -141,6 +141,7 @@ extern int errorccfln(ub4 fln,int cc,ub4 code,ub4 fln2,const char *fmt, ...) __a
 
 extern int info0fln(ub4 fln, ub4 code, const char *s);
 extern int infofln2(ub4 fln,ub4 code,ub4 fln2,const char *fmt,...) __attribute__ ((format (printf,4,5)));
+extern int warnfln2(ub4 fln,ub4 code,ub4 fln2,const char *fmt,...) __attribute__ ((format (printf,4,5)));
 
 extern ub4 limit_gt_fln(ub4 x,ub4 lim,ub4 arg,const char *sx,const char *slim,const char *sarg,ub4 fln);
 

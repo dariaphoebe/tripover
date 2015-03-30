@@ -29,7 +29,7 @@
  */
 
 #ifndef Netbase_inc
-  enum txkind { Unknown,Airint,Airdom,Rail,Bus,Ferry,Walk,Kindcnt };
+  enum txkind { Unknown,Airint,Airdom,Rail,Bus,Ferry,Taxi,Walk,Kindcnt };
 #endif
 
 // max number of partitions
