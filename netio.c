@@ -1921,6 +1921,16 @@ static ub4 portmodes(struct portbase *pp)
   if (pp->ferry) m |= 8;
   return m;
 }
+static ub4 sportmodes(struct subportbase *pp)
+{
+  ub4 m = 0;
+
+  if (pp->air) m |= 1;
+  if (pp->rail) m |= 2;
+  if (pp->bus) m |= 4;
+  if (pp->ferry) m |= 8;
+  return m;
+}
 
 // write port reference for name and lat/lon lookup
 int wrportrefs(netbase *net)
@@ -1986,7 +1996,7 @@ int wrportrefs(netbase *net)
       spp = sports + sofs + sport;
       y = lat2ext(spp->lat);
       x = lon2ext(spp->lon);
-      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n",port,sofs + sport + portcnt,spp->name,y,x,portmodes(spp)); // use parent port to make alias
+      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n",port,sofs + sport + portcnt,spp->name,y,x,sportmodes(spp)); // use parent port to make alias
       if (filewrite(fd,buf,pos,portsname)) return 1;
       wportcnt++;
     }
