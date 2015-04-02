@@ -1503,8 +1503,10 @@ static int rdexthops(netbase *net,const char *dir)
 
       if (routeid == hi32) return inerr(FLN,fname,linno,colno,"hop %u has no route id %s to %s",hop,dname,aname);
 
-      if (routeid != hi32) hirrid = max(hirrid,routeid);
-      else info(0,"hop %u has no route id %s to %s",hop,dname,aname);
+      hirrid = max(hirrid,routeid);
+
+      tx = rt2tx(rtype);
+      hp->kind = tx; kinds[tx]++;
 
       if (timecnt && !sumtimes) return inerr(FLN,fname,linno,colno,"hop %u-%u has %u times, sumtimes var zero",depid,arrid,timecnt);
       if (timespos + timecnt > sumtimes) {
@@ -1587,6 +1589,17 @@ static int rdexthops(netbase *net,const char *dir)
           pid = psdep->id;
           if (id2ports[pid] != dep) return inerr(FLN,fname,linno,colno,"parent %u for sub %u differs from dep %u",id2ports[pid],sdep,dep);
           srdep = psdep->seq;
+
+          switch(tx) {
+          case Unknown: case Kindcnt: break;
+          case Airint: case Airdom: psdep->air = 1; break;
+          case Rail: psdep->rail = 1; break;
+          case Ferry: psdep->ferry = 1; break;
+          case Bus: psdep->bus = 1; break;
+          case Taxi: break;
+          case Walk: break;
+          }
+
         } else psdep = NULL;
 
         if (sarrid > maxsubportid) return inerr(FLN,fname,linno,colno,"arr id %u above highest port id %u",sarrid,maxsubportid);
@@ -1597,6 +1610,17 @@ static int rdexthops(netbase *net,const char *dir)
           pid = psarr->id;
           if (id2ports[pid] != arr) return inerr(FLN,fname,linno,colno,"parent %u for sub %u differss from arr %u",id2ports[pid],sarr,arr);
           srarr = psarr->seq;
+
+          switch(tx) {
+          case Unknown: case Kindcnt: break;
+          case Airint: case Airdom: psarr->air = 1; break;
+          case Rail: psarr->rail = 1; break;
+          case Ferry: psarr->ferry = 1; break;
+          case Bus: psarr->bus = 1; break;
+          case Taxi: break;
+          case Walk: break;
+          }
+
         } else psarr = NULL;
 
         error_gt(rtid,hitripid,hop);
@@ -1695,8 +1719,6 @@ static int rdexthops(netbase *net,const char *dir)
       hp->arr = arr;
 
 // todo generalise
-      tx = rt2tx(rtype);
-      hp->kind = tx; kinds[tx]++;
       switch(tx) {
       case Unknown: case Kindcnt: vrb0(0,"unknown route type %u",rtype); break;
       case Airint: case Airdom: pdep->air = parr->air = 1; if (psdep) psdep->air = 1; if (psarr) psarr->air = 1; break;
@@ -1766,8 +1788,8 @@ static int rdexthops(netbase *net,const char *dir)
     cnt = rp->hopcnt;
     rrid = rp->rrid;
     if (cnt == 0) info(0,"r.rid %u.%u has no hops %s",rrid,rid,rp->name);
-    else if (cnt == 1) info(0,"r.rid %u.%u has 1 hop %s",rrid,rid,rp->name);
-    else info(0,"r.rid %u.%u has %u hops %s",rrid,rid,cnt,rp->name);
+    else if (cnt == 1) vrb0(0,"r.rid %u.%u has 1 hop %s",rrid,rid,rp->name);
+    else infovrb(cnt > 150,0,"r.rid %u.%u has %u hops %s",rrid,rid,cnt,rp->name);
   }
 
 #if 0
@@ -1944,6 +1966,7 @@ int wrportrefs(netbase *net)
 
   if (filewrite(fd,buf,pos,portsname)) return 1;
 
+  // write plain ports as-is, members only for parents
   for (port = 0; port < portcnt; port++) {
     pp = ports + port;
     if (pp->ndep == 0 && pp->narr == 0) continue;
@@ -1951,16 +1974,19 @@ int wrportrefs(netbase *net)
     y = lat2ext(pp->lat);
     x = lon2ext(pp->lon);
 
-    pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n", port,port,pp->name,y,x,portmodes(pp));
-    if (filewrite(fd,buf,pos,portsname)) return 1;
-    wportcnt++;
     scnt = pp->subcnt;
+    if (scnt == 0) {
+      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n", port,port,pp->name,y,x,portmodes(pp));
+      if (filewrite(fd,buf,pos,portsname)) return 1;
+      wportcnt++;
+      continue;
+    }
     sofs = pp->subofs;
     for (sport = 0; sport < scnt; sport++) {
       spp = sports + sofs + sport;
       y = lat2ext(spp->lat);
       x = lon2ext(spp->lon);
-      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n",port,sofs + sport + portcnt,spp->name,y,x,portmodes(pp)); // use parent port to make alias
+      pos = fmtstring(buf,"%u\t%u\t%s\t%u\t%u\t%u\n",port,sofs + sport + portcnt,spp->name,y,x,portmodes(spp)); // use parent port to make alias
       if (filewrite(fd,buf,pos,portsname)) return 1;
       wportcnt++;
     }

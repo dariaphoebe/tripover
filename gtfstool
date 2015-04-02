@@ -19,8 +19,8 @@ use strict;
 use utf8;
 
 my $version_maj = 0;
-my $version_min = 31;
-my $lastchanged = "28 mar 2015";
+my $version_min = 32;
+my $lastchanged = " 2 apr 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -679,6 +679,8 @@ sub ddmmm($$)
   return sprintf('%04u',$cdday);
 }
 
+# preliminary pdf timetable to gtfs conversion
+# patterned on qantas pdf only, needs generalisation
 sub air2gtfs($$$)
 {
   my ($dir,$tbox0,$tbox1) = @_;
@@ -690,6 +692,7 @@ sub air2gtfs($$$)
   my ($tripid,$trip_id,$tripline);
   my ($route_id,$rtype,$rname,$stops);
   my ($service_id,$sidt0,$sidt1);
+  my ($agency_id,$fullagency_id);
 
   my %airports;
   my %airportids;
@@ -697,7 +700,9 @@ sub air2gtfs($$$)
   my $tid = 1;
   my $sid = 1;
 
-  my $agency_id = 'qantas';
+  my @dirs = split('/',$dir);
+  if (@dirs > 2) { $agency_id = $dirs[-2]; }
+  else { $agency_id = $dirs[0]; }
 
   my $year = substr($tbox0,0,4);
 
@@ -730,6 +735,16 @@ sub air2gtfs($$$)
 #    info($line);
 
     push @rstops, join("\t",$name,$code,$name,$dlat,$dlon,$dcc);
+
+# create unique agent_id per timezone
+    $fullagency_id = $agency_id . '_' . $dutcofs;
+    unless (exists $agencytz{$dutcofs}) {
+      $agencytz{$dutcofs} = 1;
+      $tdhh = int($dutcofs / 100); $tdmm = int($dutcofs % 100);
+      $ftdep = sprintf('%s%02d:%02u',$tdhh < 0 ? '-' : '+',$tdhh,$tdmm);
+      push @agencies,join("\t",$fullagency_id,$agency_id,'',$ftdep);
+    }
+
     next unless defined $citydst;
     return error("line $linno: incomplete taxi info") unless defined $cdlon;
 
@@ -2173,14 +2188,20 @@ sub do_conn()
 
       $ndep = $stopdeps[$pstopid]; $narr = $stoparrs[$pstopid];
       if ($ndep == 0 and $narr != 0) {
-        info("stop $id $name has no departures, $narr arrivals");
+        infovrb($stopid == $pstopid,"stop $id $name has no departures, only arrivals");
       } elsif ($ndep != 0 and $narr == 0) {
-        info("stop $id $name has no arrivals, $ndep departures");
+        infovrb($stopid == $pstopid,"stop $id $name has no arrivals, only departures");
       }
     }
     info('');
     while (($id,$stopid) = each %stopids) {
       $name = $stopnames{$stopid};
+
+      if ($stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
+        warning("stop $id $stopid $name is unconnected");
+        next;
+      }
+
       $pstopid = toparent($stopid);
       $pname = $stopnames{$pstopid};
       if ($stopdeps[$pstopid] == 0 and $stoparrs[$pstopid] == 0) {
@@ -2196,8 +2217,8 @@ sub do_conn()
 
   info('');
   info("-- connection stats --");
-  my ($nodacnt,$dep0cnt,$arr0cnt,$dep11cnt,$dep22cnt);
-  $nodacnt = 0; $dep0cnt = 0; $arr0cnt = 0; $dep11cnt = 0; $dep22cnt = 0;
+  my ($nodacnt,$dep0cnt,$arr0cnt);
+  $nodacnt = 0; $dep0cnt = 0; $arr0cnt = 0;
 
   for $stopid (values %stopids) {
     $stopid = toparent($stopid);
@@ -2205,33 +2226,10 @@ sub do_conn()
     $nodacnt++ if $ndep == 0 and $narr == 0;
     $dep0cnt++ if $ndep == 0 and $narr != 0;
     $arr0cnt++ if $narr == 0 and $ndep != 0;
-    $dep11cnt++ if $ndep == 1 and $narr == 1;
-    $dep22cnt++ if $ndep == 2 and $narr == 2;
   }
   info("stops without connection : $nodacnt") if $nodacnt;
   info("stops with no departures : $dep0cnt") if $dep0cnt;
   info("stops with no arrivals   : $arr0cnt") if $arr0cnt;
-  info("stops with 1 departure and 1 arrival : $dep11cnt") if $dep11cnt;
-  info("stops with 2 departures and 2 arrivals : $dep22cnt") if $dep22cnt;
-
-  foreach $concnt (1 .. 6) {
-    $depcnt = 0; $arrcnt = 0;
-    for $stopid (values %stopids) {
-      $stopid = toparent($stopid);
-      $depcnt++ if $stopdeps[$stopid] == $concnt;
-      $arrcnt++ if $stoparrs[$stopid] == $concnt;
-    }
-    info("stops with $concnt departures : $depcnt") if $depcnt;
-    info("stops with $concnt arrivals   : $arrcnt") if $arrcnt;
-  }
-  $depcnt = 0; $arrcnt = 0; $concnt = 7;
-  for $stopid (values %stopids) {
-    $stopid = toparent($stopid);
-    $depcnt++ if $stopdeps[$stopid] >= $concnt;
-    $arrcnt++ if $stoparrs[$stopid] >= $concnt;
-  }
-  info("stops with $concnt + departures : $depcnt") if $depcnt;
-  info("stops with $concnt + arrivals   : $arrcnt") if $arrcnt;
 
   while (($service_id,$sid) = each %serviceids) {
     vrb("service id $service_id not referenced") unless exists $sidrefs{$sid};
@@ -2247,7 +2245,7 @@ sub readstoptimes($)
   my ($dir) = @_;
 
   my ($stoptimes,$stoptimesname,$rv,$headline);
-  my ($col,$colname,$line,$fldend,$endq,$c,$req,$tmpcol,$lastline);
+  my ($col,$colname,$fldend,$endq,$c,$req,$tmpcol,$lastline);
 
   my ($route_id,$trip_id,$arr_time,$dep_time,$stop_id,$headsign);
 
@@ -2267,16 +2265,12 @@ sub readstoptimes($)
   my $canoncols = "trip_id\tstop_id\tstop_sequence\tarrival_time\tdeparture_time";
   error_exit("expected $canoncols, found $headline") unless index($headline,$canoncols) == 0;
 
-  my @lines = readline($stoptimes);
-  close($stoptimes);
-  error_exit("$stoptimesname is empty") unless (@lines > 0);
-
   my $linno = 1;
-  my $linecnt = scalar(@lines);
+  my $linecnt;
 
   my $nottcnt = 0;
 
-  my (@newtrip,@newstrip,@newstrip1);
+  my (@newtrip,@newstrip);
   my ($newtripln,$parent,$parentid,$sid,$service_id,$xtripid,$xlinno,$prvpid,$pid);
   my $prvtrip = 0;
   my $prvroute = 0;
@@ -2287,15 +2281,17 @@ sub readstoptimes($)
   my ($htdep,$htarr,$htdeparr);
 
   my ($prvseq,$prvid,$prvtdep,$prvtarr);
-  my $prvrstopid = 0;
 
-  info("$linecnt lines");
+  my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$filesize) = stat $stoptimes;
+  my $donesize = 0;
 
-  foreach $line (@lines) {
+  while (my $line = readline $stoptimes) {
 
+    $donesize += length($line);
     chop $line;
-    $lastline = ($linno >= @lines);
+    $lastline = eof($stoptimes);
     $linno++;
+    $glinno = $linno;
     vrb("last line") if $lastline;
     next if $line eq $headline;  # support catenated files if same col layout
     next unless length $line;
@@ -2341,12 +2337,6 @@ sub readstoptimes($)
       next;
     }
     $rstopid = $rstopids{$rstop_id};
-    if ($rstopid == $prvrstopid and $prvtrip == $tripid) {
-      warning("line $linno: trip to same stop ID $rstop_id $rstopid");
-      next;
-    }
-    $prvrstopid = $rstopid;
-
     $stopid = $stopmerge{$rstopid};
 
     unless (exists $stop_ids{$stopid}) {
@@ -2390,19 +2380,21 @@ sub readstoptimes($)
 #      warning("1-hop trip $trip_id $tripid line $linno") if @newtrip == 1; # todo
 #      info("seq $seq $newtrip[-1]");
 #      @newstrip = sort { split("\t",$a) <=> split("\t",$b) } @newtrip;
-      @newstrip = sort { substr($a,0,5) <=> substr($b,0,5) } @newtrip;
-      @newstrip1 = ();
-      foreach $tripline (@newstrip) { push @newstrip1,$tripline; }
 
+      undef @newstrip;
+      @newstrip = ();
+      @newstrip = sort { substr($a,0,5) <=> substr($b,0,5) } @newtrip;
+
+      undef @newtrip;
       @newtrip = ();
       push @newtrip,sprintf("%05u\t%s\t%s\t%s\t%s\t%s",$seq,$tripid,$id,$dep_time,$arr_time,$linno);
 
       vrb("processing last line $newstrip[0]") if $lastline;
 
       $tdepsec = 0; $tarrsec = 0; $tbias = 0;
-      ($seq,$xtripid,$id,$dep_time,$arr_time,$xlinno) = split("\t",$newstrip1[0]);
+      ($seq,$xtripid,$id,$dep_time,$arr_time,$xlinno) = split("\t",$newstrip[0]);
 
-      foreach $tripline (@newstrip1) {
+      foreach $tripline (@newstrip) {
         $prvtdep = $tdepsec;
         $prvtarr = $tarrsec;
         $prvid = $id;
@@ -2459,7 +2451,9 @@ sub readstoptimes($)
 
         $tdepsec += $tbias;
         $tarrsec += $tbias;
-        next if $id == $prvid;
+        if ($id == $prvid) {
+          next;
+        }
 
         if ($seq == $prvseq) {
           warning("trip ID '$xtripid' duplicate sequence $seq line $xlinno");
@@ -2482,36 +2476,48 @@ sub readstoptimes($)
         $htarr++ if $htdep == $htarr;
         warning("tdep $htdep equals tarr $htarr") if $htdep == $htarr;
 
-        # actual hop derived from key lateron
         warning("no 2parent for $prvid") unless exists $stop2parent{$prvid};
         $prvpid = $stop2parent{$prvid};
         $pid = $stop2parent{$id};
+
+        # actual hop derived from key lateron
         $uniqid = join('_',$prvroute,$prvpid,$pid);
 #        info("uniqid $uniqid");
         $sumtimes++;
 
         if (exists($tripseq{$uniqid})) {
+          $stopdeps[$prvid] = 1;
+          $stoparrs[$id] = 1;
+          $stopdeps[$prvpid] = 1 if $prvid != $prvpid;
+          $stoparrs[$pid] = 1 if $id != $pid;
           push @{ $tripseq{$uniqid} },join('_',$prvid,$id,$xtripid,$htdep,$htarr,$seq);
-        } else {
+        } elsif ($prvpid != $pid) {
           $tripseq{$uniqid} = [ join('_',$prvid,$id,$xtripid,$htdep,$htarr,$seq) ];
           push @uniqids,$uniqid;
-#          info("$prvid $id $prvpid $pid") if $id == 32 or $prvid == 32;
-          $stopdeps[$prvid]++;
-          $stoparrs[$id]++;
-          $stopdeps[$prvpid]++ if $prvid != $prvpid;
-          $stoparrs[$pid]++ if $id != $pid;
+          $stopdeps[$prvid] = 1;
+          $stoparrs[$id] = 1;
+          $stopdeps[$prvpid] = 1 if $prvid != $prvpid;
+          $stoparrs[$pid] = 1 if $id != $pid;
 
           $hopcnt++;
+        } else { # intra-station hop
+          $stopdeps[$prvid] = 1;
+          $stoparrs[$id] = 1;
         }
       } # each tripline
     }
 
     $ttcnt++;
 
-    progress("line %u of %u",$linno,$linecnt) if $linno == 1 or ($linno % 100000) == 0;
+    progress("%u of %u MB",$donesize / 1000000,$filesize / 1000000) if $linno == 1 or ($linno % 10000) == 0;
 
   } # each line
   print "\n";
+  $linecnt = $linno - 1;
+
+  close($stoptimes);
+  error_exit("$stoptimesname is empty") unless ($linecnt > 0);
+
   info("$ttcnt time entries, $nottcnt skipped, $hopcnt hops");
 
   do_conn();
@@ -2633,7 +2639,7 @@ sub writext($$)
     $stop_id = $stop_ids{$stopid};
     if ($omit_unconnect and $stopdeps[$stopid] == 0 and $stoparrs[$stopid] == 0) {
       $unconcnt++;
-      info("omitting unconnected port $stop_name") if $show_unconnect;
+      info("omitting unconnected port $stop_name id $stopid") if $show_unconnect;
       next;
     }
     push @cstops,$stopid;
@@ -3046,6 +3052,7 @@ sub merge($$$)
 
   my ($name,$infile,$outfile,$infname,$outfname,$headline,$line,$openmode,$cnt);
   my @lines;
+  my $linno;
 
   info("merge $indir into $outdir " . ($first ? " " : " append"));
   for $name (qw/agency.tab stops.tab calendar.tab calendar_dates.tab routes.tab trips.tab stop_times.tab/) {
@@ -3078,10 +3085,13 @@ sub merge($$$)
     next unless (@lines > 0);
 
     $cnt = scalar @lines;
-    info("file $name mode $openmode $cnt lines");
+    $linno = 1;
+    info("file $name $openmode $cnt lines");
     print($outfile $headline) unless -s $outfname;
     for $line (@lines) {
       print($outfile $line) unless $line eq $headline;
+      warning("$name.$linno unterminated line" . substr($line,0,16) . '...') if index($line,"\n") < 0;
+      $linno++;
     }
     close($outfile);
   }

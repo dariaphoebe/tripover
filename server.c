@@ -443,8 +443,10 @@ static int start_plan(struct myfile *req,int do_fork)
 
   rv = cmd_plan(net,req,&src);
   if (rv) info(0,"plan returned %d",rv);
-  if (do_fork) exit(rv);
-  else return rv;
+  if (do_fork) {
+    eximsg(0);
+    exit(rv);
+  } else return rv;
 }
 
 /* currently a directory queue based interface

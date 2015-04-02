@@ -103,7 +103,7 @@ static void exit0(void)
 {
   exiutil();
   eximem();
-  if (do_eximsg) eximsg();
+  if (do_eximsg) eximsg(1);
 }
 
 // init network

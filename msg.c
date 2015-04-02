@@ -825,7 +825,7 @@ static void ccexit(int assertion)
   if (globs.sigint) msg_doexit = 2;
   if (msg_doexit == 0) { msg_doexit = 1; return; }
   else if (msg_doexit > 1 || assertion == 0 || assertcnt >= assertlimit) {
-    eximsg();
+    eximsg(0);
     exit(1);
   } else msg_doexit = 1;
 }
@@ -1137,6 +1137,8 @@ int setmsglog(const char *dir,const char *name,bool newonly)
   long nr;
   ub4 n;
 
+  aclear(itercnts);
+
   if (dir && *dir) fmtstring(logname,"%s/%s",dir,name);
   else strcopy(logname,name);
 
@@ -1216,7 +1218,7 @@ static void showhi(enum Msglvl lvl,ub4 lim)
     if (hicnts2[lvl] > lim) infofln(hiflns2[lvl],User,"%s *%u",himsgbufs2[lvl],hicnts2[lvl]);
 }
 
-void eximsg(void)
+void eximsg(bool cnts)
 {
   ub4 i,n,n0,n1,n2,i0,i1,i2;
   int fd;
@@ -1253,19 +1255,23 @@ void eximsg(void)
   char *filename;
   char buf[256];
   ub4 cnt,line,fileno;
-  int mfd = filecreate("tripover.msg",0);
-  if (mfd != -1) {
-    for (i = 0; i < Maxmsgline * Maxmsgfile; i++)
-    {
-      cnt = himsgcnts[i];
-      if (cnt == 0) continue;
-      fileno = i / Maxmsgline;
-      line = i % Maxmsgline;
-      filename = filenames[fileno].name;
-      n = fmtstring(buf,"%s\t%u\t%u\n",filename,line,cnt);
-      oswrite(mfd,buf,n);
+  int mfd;
+
+  if (cnts) {
+    mfd = filecreate("tripover.msg",0);
+    if (mfd != -1) {
+      for (i = 0; i < Maxmsgline * Maxmsgfile; i++)
+      {
+        cnt = himsgcnts[i];
+        if (cnt == 0) continue;
+        fileno = i / Maxmsgline;
+        line = i % Maxmsgline;
+        filename = filenames[fileno].name;
+        n = fmtstring(buf,"%s\t%u\t%u\n",filename,line,cnt);
+        oswrite(mfd,buf,n);
+      }
+      osclose(mfd);
     }
-    osclose(mfd);
   }
 
   fd = globs.msg_fd;

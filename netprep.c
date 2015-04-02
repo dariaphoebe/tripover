@@ -204,7 +204,7 @@ int prepnet(netbase *basenet)
     else info(0,"sport %u has no name", sport);
     spp->namelen = nlen;
     if (bspp->ndep == 0 && bspp->narr == 0) {
-      info(Notty,"unconnected subport %u %s",sport,bspp->name);
+      vrb0(Notty,"unconnected subport %u %s",sport,bspp->name);
 //      continue;
     }
 

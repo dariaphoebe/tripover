@@ -90,7 +90,7 @@ extern ub4 msgfln(char *dst,ub4 pos,ub4 len,ub4 fln,ub4 wid);
 extern void msg_write(const char *buf,ub4 len);
 
 extern void inimsg(char *progname, const char *logname, ub4 opts);
-extern void eximsg(void);
+extern void eximsg(bool cnts);
 
 extern void setmsglvl(enum Msglvl lvl, ub4 vlvl,ub4 limassert);
 extern enum Msglvl getmsglvl(void);

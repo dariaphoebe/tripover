@@ -9,7 +9,7 @@
    To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-nd/4.0/
  */
 
-#define Nearstop 4096
+#define Nearstop 256
 
 struct gtstop {
   ub4 id;

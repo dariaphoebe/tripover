@@ -172,7 +172,7 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur,ub4 costlim)
   ub4 t0 = tp->t0;
   ub4 t1 = tp->t1;
 
-  ub4 extracost,extracost_win = 0;
+  ub4 extracost;
 
   if (gencnt == 0) return vrb0(Notty,"no events for hop %u at \ad%u - \ad%u",hop,t0 + gt0,t1 + gt0);
 
@@ -192,10 +192,10 @@ static ub4 mkdepevs(search *src,lnet *net,ub4 hop,ub4 midur,ub4 costlim)
   if (t0 + gt0 > deptmax) {
     gencnt = 1;
 //    extracost_win = t0 + gt0 - deptmax;
-    info(Iter|Notty,"hop %u \ad%u - \ad%u after dep window \ad%u - \ad%u",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
+    info(Notty|Iter,"hop %u \ad%u - \ad%u after dep window \ad%u - \ad%u",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax);
 
   } else if (t1 + gt0 <= deptmin) {
-    info(Notty,"hop %u \ad%u - \ad%u before dep window \ad%u - \ad%u %s",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax,hp1->name);
+    info(Notty|Iter,"hop %u \ad%u - \ad%u before dep window \ad%u - \ad%u %s",hp1->gid,t0 + gt0,t1 + gt0,deptmin,deptmax,hp1->name);
     gndx0 = gencnt - 1;
 //    extracost_win = (deptmin - (t1 + gt0)) * 8;
   }
@@ -550,7 +550,7 @@ static ub4 nxtevs(search *src,lnet *net,ub4 leg,ub4 bstop,ub4 hop,ub4 midur,ub4 
           }
         }
         srda2 = (ub4)crpp[rh1];
-        if ( (srda2 >> 8) != srdep) info(Notty,"srdep %u vs %u",srda2 >> 8,srdep);
+        if ( (srda2 >> 8) != srdep) info(Notty|Iter,"srdep %u vs %u",srda2 >> 8,srdep);  // todo
         srda2 = (ub4)crpp[rh2];
         srarr = srda2 & 0xff;
         srda = (srdep << 8) | srarr;
@@ -1631,7 +1631,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
         if (walkdist > walklimit || sumwalkdist > sumwalklimit) break;
       } else walkdist = 0;
     }
-    if (walkdist > walklimit || sumwalkdist > sumwalklimit) break;
+    if (walkdist > walklimit || sumwalkdist > sumwalklimit) { vp += nleg; continue; }
 
 //    infovrb(dist == 0,0,"dist %u for var %u",dist,v0);
     if (dist < lodist) {
@@ -1669,7 +1669,7 @@ static ub4 srclocal(ub4 callee,gnet *gnet,lnet *net,ub4 part,ub4 dep,ub4 arr,ub4
     costlim = curcost;
 
     evcnt = getevs(src,gnet,nleg,0);
-    if (evcnt == 0) continue;
+    if (evcnt == 0) { vp += nleg; continue; }
 
     for (leg = 0; leg < nleg; leg++) {
       stp->trip[leg * 2 + 1] = vp[leg];
