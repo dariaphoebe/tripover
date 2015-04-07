@@ -77,7 +77,7 @@ my $logfd;
 my $canonmagic = 'x4BAb35S';
 my $iscanonin = 0;
 
-my ($indir,$outdir);
+my ($indir,$outdir,$format);
 
 my $glinno = 0;
 
@@ -191,6 +191,14 @@ sub vrb0($) { vrb($_[0]); }
 sub infovrb($$) {
   info($_[1]) if $_[0];
   vrb($_[1]);
+}
+
+sub plural($$)
+{
+  my ($n,$str) = @_;
+  my $s = "$n $str";
+  $s .= 's' if $n != 1;
+  return $s;
 }
 
 sub max($$) {
@@ -679,11 +687,77 @@ sub ddmmm($$)
   return sprintf('%04u',$cdday);
 }
 
+# undo 2-column layout
+# work in progress
+sub split2cols($$)
+{
+  my ($format,$dir) = @_;
+
+  my ($dep,$line);
+
+  my $tname2 = "$dir/timetable-2col.txt";
+  my $tname = "$dir/timetable.txt";
+  return error("required $tname not present") unless -f $tname2;
+
+  open(my $fh,'<:encoding(UTF-8)',$tname2) or return error("cannot open $tname2:$!");
+
+  my @lines = readline($fh);
+  close $fh;
+
+  my (@cols,@ltcols,@rtcols,@ltlines,@rtlines);
+  my $state = 0;
+
+  for my $line (@lines) {
+    $line = trimws($line);
+    @cols = split("\t",$line);
+
+    if ($state == 0 and @cols == 2) {
+      push @ltcols,$cols[0];
+      push @rtcols,$cols[1];
+      $state = 1;
+    } elsif ($state == 1 and @cols == 2) {
+      push @ltcols,$cols[0];
+      push @rtcols,$cols[1];
+      $state = 2;
+    } elsif ($state == 2 and $cols[0] eq 'From-To') {
+      $state = 3;
+    } elsif ($state == 2 and $cols[0] eq 'Validity') {
+      $state = 4;
+    } elsif ($state == 4 and @cols == 0) {
+      push @ltlines,join("\t",@ltcols);
+      push @rtlines,join("\t",@rtcols);
+      @ltcols = ();
+      @rtcols = ();
+      $state = 0;
+    } elsif ($state == 4 and @cols == 14) { # left col only
+      push @ltcols,@cols;
+    } elsif ($state == 4 and @cols > 14) {
+      if (length($cols[0])) { # left + right
+        push @ltcols,@cols[0 .. 13];
+        push @rtcols,@cols[14 .. 27];
+      } else { # right only
+        while (length($cols[0]) == 0) { shift @cols; }
+        push @rtcols,@cols;
+      }
+    } else {
+    }
+  }
+
+  open($fh,'>:encoding(UTF-8)',$tname) or return error("cannot open $tname:$!");
+  for $line (@ltlines) {
+    print $fh "$line\n";
+  }
+  for $line (@rtlines) {
+    print $fh "$line\n";
+  }
+  close $fh;
+}
+
 # preliminary pdf timetable to gtfs conversion
 # patterned on qantas pdf only, needs generalisation
-sub air2gtfs($$$)
+sub air2gtfs($$$$)
 {
-  my ($dir,$tbox0,$tbox1) = @_;
+  my ($format,$dir,$tbox0,$tbox1) = @_;
   my ($tname,$pname,$fh,$line,$linno,$state);
   my ($dep,$arr,$idep,$depid,$arrid,$idepid,$flno);
   my ($tdep,$tarr,$ftdep,$ftarr,$tdhh,$tdmm,$tahh,$tamm,$dow);
@@ -699,6 +773,10 @@ sub air2gtfs($$$)
   my $rid = 1;
   my $tid = 1;
   my $sid = 1;
+
+  if ($format eq 'oneworld') {
+    split2cols($format,$dir);
+  }
 
   my @dirs = split('/',$dir);
   if (@dirs > 2) { $agency_id = $dirs[-2]; }
@@ -1001,7 +1079,7 @@ sub air2gtfs($$$)
 
 #    info("flno $flno td $tdep ta $tarr dow $dow $dep to $arr");
     $route_id = $idep . '_' . $arr;
-    $trip_id = join('_',$flno,$route_id,$tid);
+    $trip_id = '_' . join('_',$flno,$route_id,$tid);
     $tripline = join("\t",$route_id,$service_id,$trip_id,$arr);
     $trip_ids{$tid} = $trip_id;
     push @trips,$tripline;
@@ -1875,7 +1953,12 @@ sub readtrips($)
     }
     unless (exists($serviceids{$service_id})) {
       $filtercnt++;
-      warning("$linno: unknown service id $service_id");
+      vrb("$linno: unknown service id $service_id");
+      next;
+    }
+    $sid = $serviceids{$service_id};
+    if ($servicedow{$sid} == 0 and $serviceadd{$sid} == 0) {
+      info("$linno: skip trio $trip_id on empty sid $service_id");
       next;
     }
 
@@ -1890,7 +1973,7 @@ sub readtrips($)
 
     $tripno = '';
     if ($rtype == 1101 || $rtype == 1102) {
-      ($tripno) = split('_',$trip_id);
+      ($tripno) = split('_',substr($trip_id,1));
       $tripno = '' unless defined $tripno;
     }
     $tripnos{$tripid} = $tripno;
@@ -1927,7 +2010,7 @@ sub readcalendar($)
   my ($val,$col,$colid,$colname,$line,$comma,$endq,$c,$req,$fln);
   my ($service_id,$sid,$t0,$t1,$day,$dayno,$dows,$dow,$utcofs);
   my $filtercnt = 0;
-  my @dow;
+  my @days;
 
   $calfname = $dir . '/' . 'calendar.tab';
 
@@ -1964,7 +2047,7 @@ sub readcalendar($)
 
     $fln = "calendar.tab:$linno";
 
-    ($service_id,$dow[6],$dow[5],$dow[4],$dow[3],$dow[2],$dow[1],$dow[0],$t0,$t1) = split "\t",$line;
+    ($service_id,$days[6],$days[5],$days[4],$days[3],$days[2],$days[1],$days[0],$t0,$t1) = split "\t",$line;
 
     $sid = $linno;
 
@@ -1990,9 +2073,10 @@ sub readcalendar($)
       $t1 = $t0;
     }
 
-    $dows = '..............'; $dow = 0; $dayno = 0;
+    $dows = '..............';
+    $dow = 0; $dayno = 0;
     for $dayno (0 .. 6) {
-      $day = $dow[$dayno];
+      $day = $days[$dayno];
       return error("$fln: $day not 0 or 1") if $day ne '0' and $day ne '1';
       $dow <<= 1;
       if ($day) {
@@ -2002,7 +2086,8 @@ sub readcalendar($)
     }
 
     if ($dow == 0) {
-      vrb("$fln: empty service id $service_id");
+      info("$fln: empty service id $service_id");
+      next;
     }
 
     warning("$fln: end time $t1 before start time $t0") if $t1 < $t0;
@@ -2020,7 +2105,7 @@ sub readcalendar($)
     if (defined $rsids2watch{$sid} or defined $rsids2watch{'*'}) {
       $analines .= sprintf("rsid %02x.%02u: $t0 .. $t1 at $dows %x '$service_id'\n",$sid,$sid,$dow);
     }
-    push @calendar,join("\t",$service_id,$dow[6],$dow[5],$dow[4],$dow[3],$dow[2],$dow[1],$dow[0],$t0,$t1);
+    push @calendar,join("\t",$service_id,$days[6],$days[5],$days[4],$days[3],$days[2],$days[1],$days[0],$t0,$t1);
   } # each line
 
 # dummy for unknown
@@ -2215,8 +2300,6 @@ sub do_conn()
     }
   }
 
-  info('');
-  info("-- connection stats --");
   my ($nodacnt,$dep0cnt,$arr0cnt);
   $nodacnt = 0; $dep0cnt = 0; $arr0cnt = 0;
 
@@ -2292,6 +2375,7 @@ sub readstoptimes($)
     $lastline = eof($stoptimes);
     $linno++;
     $glinno = $linno;
+
     vrb("last line") if $lastline;
     next if $line eq $headline;  # support catenated files if same col layout
     next unless length $line;
@@ -2505,7 +2589,7 @@ sub readstoptimes($)
           $stoparrs[$id] = 1;
         }
       } # each tripline
-    }
+    } # each trip
 
     $ttcnt++;
 
@@ -2864,7 +2948,7 @@ sub writext($$)
   }
   return error("wrote 0 hops") if $hopno == 0;
   print "\n";
-  info("wrote $hopno hops, filtered $dupcnt duplicates");
+  info("wrote $hopno hops" . ($dupcnt ? "filtered $dupcnt duplicates" : ''));
   return 1;
 }
 
@@ -3159,14 +3243,15 @@ if (@args > 0) {
       merge($outdir,$args[$argno],$argno == 2) or exit 1;
     }
   } elsif ($cmd eq 'air2gtfs') {
-    unless (@args > 4) { basemsg("$cmd needs indir,outdir,startdate,enddate"); exit 1; }
-    $outdir = $args[1];
-    $indir = $args[2];
+    unless (@args > 5) { basemsg("$cmd needs format,indir,outdir,startdate,enddate"); exit 1; }
+    $format = $args[1];
+    $outdir = $args[2];
+    $indir = $args[3];
     $canondir = $outdir;
-    $tbox0 = $args[3];
-    $tbox1 = $args[4];
+    $tbox0 = $args[4];
+    $tbox1 = $args[5];
     info("$cmd from $indir to $outdir");
-    if (air2gtfs($indir,$tbox0,$tbox1)) {
+    if (air2gtfs($format,$indir,$tbox0,$tbox1)) {
       writegtfs();
     }
   }
@@ -3175,15 +3260,14 @@ if (@args > 0) {
 
 my $usertime = time() - $starttime;
 if ($usertime > 60) { info("elapsed time " . int($usertime / 60) . " min " . $usertime % 60 . " sec"); }
-else { info("elapsed time $usertime seconds"); }
+else { info("elapsed time " . plural($usertime,'second')); }
 
-info("1 warning") if $warningcnt == 1;
-info("$warningcnt warnings") if $warningcnt > 1;
+info(plural($warningcnt,"warning")) if $warningcnt;
+
 while (my ($line,$cnt) = each %warncnts) {
   info("line $line $warnings{$line} * $cnt");
 }
 
-info("1 error") if $errorcnt == 1;
-info("$errorcnt errors") if $errorcnt > 1;
+info(plural($errorcnt,"error")) if $errorcnt;
 
 # POSIX::_exit($errorcnt > 0);

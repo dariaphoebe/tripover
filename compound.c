@@ -522,8 +522,10 @@ int compound(gnet *net)
 
   if (cumfhops) fhopofs = net->fhopofs = alloc(chopcnt,ub4,0xff,"fare fhopofs",cumfhops);
 
+  ub4 *ridhops,*ridhopbase = net->ridhopbase;
+
   ub4 ofs = 0;
-  ub4 h1ndx,h2ndx,hopndx,h;
+  ub4 h1ndx,h2ndx,hopndx,rhopcnt,h;
   for (hop = 0; hop < hopcnt; hop++) {
     hp = hops + hop;
     if (hp->reserve) { fhopofs[hop] = ofs; ofs += hp->tp.evcnt; }
@@ -535,8 +537,10 @@ int compound(gnet *net)
     if (hp->reserve && fhopofs) { fhopofs[chop] = ofs; ofs += hp->tp.evcnt; }
     rid = hp->rid;
     rp = routes + rid;
-    hopndx = 0; h1ndx = h2ndx = hi32; 
-    while (hopndx < min(rp->hopcnt,Chainlen) && (h1ndx == hi32 || h2ndx == hi32)) {
+    rhopcnt = rp->hopcnt;
+    hopndx = 0; h1ndx = h2ndx = hi32;
+    ridhops = ridhopbase + rp->hop2pos;
+    while (hopndx < min(rhopcnt,Chainlen) && (h1ndx == hi32 || h2ndx == hi32)) {
       h = rp->hops[hopndx];
       if (h == hop1) h1ndx = hopndx;
       else if (h == hop2) h2ndx = hopndx;
@@ -546,7 +550,9 @@ int compound(gnet *net)
       vrb0(0,"rid %u hop %u-%u not found at %u-%u chop %u",rid,hop1,hop2,h1ndx,h2ndx,chop);
       continue;
     }
-    rp->hop2chop[h1ndx * Chainlen + h2ndx] = chop;
+    error_ge(h1ndx,rhopcnt);
+    error_ge(h2ndx,rhopcnt);
+    ridhops[h1ndx * rhopcnt + h2ndx] = chop;
   }
 
   if (cumfhops) net->fareposbase = mkblock(&net->faremem,cumfevcnt * Faregrp,ub2,Init0,"fare entries for %u reserved hops",cumfhops);

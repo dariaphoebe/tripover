@@ -341,7 +341,7 @@ static int mknet0(struct network *net)
   portsbyhop = net->portsbyhop;
 
   con0cnt = alloc(port2, ub2,0,"net0 concnt",portcnt);
-  con0ofs = alloc(port2, ub4,0xff,"net0 conofs",portcnt);
+  con0ofs = alloc(port2, ub4,0,"net0 conofs",portcnt);
 
   con0lst = mkblock(net->conlst,whopcnt,ub4,Init1,"net0 0-stop conlst");
 
@@ -1635,4 +1635,57 @@ ub4 fgeodist(struct port *pdep,struct port *parr)
   double x = 180 / M_PI;
   info(0,"port %u-%u distance %e for %f,%f - %f,%f %s to %s",dep,arr,fdist,dlat * x,dlon * x,alat * x,alon * x,dname,aname);
   return (ub4)fdist;
+}
+
+int geocode(ub4 ilat,ub4 ilon,ub4 scale,struct myfile *rep)
+{
+  double lat = (double)ilat / (double)scale - 90;
+  double lon = (double)ilon / (double)scale - 180;
+  double rlat = lat * M_PI / 180;
+  double rlon = lon * M_PI / 180;
+  double x = 180 / M_PI;
+  double lolat,lolon;
+  double dist,lodist = 1e+10;
+  ub4 mdist,losport = hi32,loport = hi32;
+
+  info(0,"scale %u lat %f lon %f %f %f",scale,lat,lon,rlat,rlon);
+
+  gnet *net = getgnet();
+  struct port *pp,*lopp,*ports = net->ports;
+  struct sport *sp,*losp,*sports = net->sports;
+  ub4 port,portcnt = net->portcnt;
+  ub4 sport,sportcnt = net->sportcnt;
+
+  lopp = NULL;
+  losp = NULL;
+
+  for (sport = 0; sport < sportcnt; sport++) {
+    sp = sports + sport;
+    dist = geodist(rlat,rlon,sp->rlat,sp->rlon);
+    if (dist < lodist) { lodist = dist; losport = sport; losp = sp; }
+    else if (dist >= Georange) return 1;
+  }
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    if (pp->ndep == 0 && pp->narr == 0) continue;
+    if (pp->subcnt) continue;
+    dist = geodist(rlat,rlon,pp->rlat,pp->rlon);
+    if (dist < lodist) { lodist = dist; loport = port; lopp = pp; }
+    else if (dist >= Georange) return 1;
+  }
+  mdist = (int)(lodist * 1000 / Geoscale);
+
+  //  reqid \t dist \t lat \t lon \t id \t pid \t modes \t name \t pname",0);
+
+  if (loport != hi32) {
+   lolat = lopp->rlat * x;
+   lolon = lopp->rlon * x;
+   rep->len = fmtstring(rep->localbuf,".geo\t0\t%u\t%f\t%f\t%u\t%u\t%u\t%s\t%s\n",mdist,lolat,lolon,loport,loport,lopp->modes,lopp->name,lopp->name);
+  } else if (losport != hi32) {
+   lolat = losp->rlat * x;
+   lolon = losp->rlon * x;
+   rep->len = fmtstring(rep->localbuf,".geo\t0\t%u\t%f\t%f\t%u\t%u\t%u\t%s\t%s\n",mdist,lolat,lolon,losport + portcnt,losp->parent,losp->modes,losp->name,"(n/a)");
+  } else return error(0,"no geocode port for %f , %f",lat,lon);
+  rep->buf = rep->localbuf;
+  return info(0,"%s",rep->localbuf);
 }

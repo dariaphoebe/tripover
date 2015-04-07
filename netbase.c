@@ -314,13 +314,8 @@ int prepbasenet(void)
   ub4 dist;
   int dbg = 0;
 
-  cnt = 0;
-  for (rid = 0; rid < ridcnt; rid++) {
-    rp = routes + rid;
-    cnt += rp->hopcnt;
-  }
-
-  ub4 cumrhops,ofs = 0,chainofs = 0;
+  ub4 cumrhops;
+  ub4 ofs = 0,chainofs = 0;
   for (chain = 0; chain < rawchaincnt; chain++) {
     cp = chains + chain;
     cp->hopofs = chainofs;
@@ -338,8 +333,8 @@ int prepbasenet(void)
   error_ne(chainofs,cumhoprefs);
   cumrhops = ofs;
 
-  ub8 *chrp,*chainrhops = alloc(cumrhops,ub8,0xff,"chain rhops",cnt);
-  ub8 *chrpp,*chainrphops = alloc(cumrhops,ub8,0xff,"chain rphops",cnt);
+  ub8 *chrp,*chainrhops = alloc(cumrhops,ub8,0xff,"chain rhops",cumrhops);
+  ub8 *chrpp,*chainrphops = alloc(cumrhops,ub8,0xff,"chain rphops",cumrhops);
 
   // assign rid-relative hops
   for (hop = 0; hop < hopcnt; hop++) {
@@ -384,8 +379,6 @@ int prepbasenet(void)
 
     msgprefix(0,"hop %u",hop);
 
-    dbg = (hop == 94);
-
     dep = hp->dep;
     arr = hp->arr;
     error_ge(dep,portcnt);
@@ -410,7 +403,7 @@ int prepbasenet(void)
     }
     hp->dist = max(dist,1);
 
-    if (hp->t1 <= hp->t0) { vrb0(0,"skip hop %u on t %u %u",hop,hp->t0,hp->t1); continue; }
+    if (hp->t1 <= hp->t0) { warn(0,"skip hop %u on t %u %u",hop,hp->t0,hp->t1); continue; }
 
     rrid = hp->rrid;
     rid = hp->rid;
@@ -977,6 +970,9 @@ int prepbasenet(void)
   info(0,"\ah%lu org time events to \ah%lu",cumevcnt,cumzevcnt2);
   error_ne(cumevcnt,cumevcnt2);
   noexit error_ne(cumzevcnt,cumzevcnt2);
+
+  afree(sidmaps,"time sidmap");
+  basenet.sidmaps = NULL;
 
   info(0,"done preparing %u base hops",hopcnt);
 

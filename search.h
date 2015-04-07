@@ -21,6 +21,7 @@ struct srcctx {
   char resbuf[2 * Nxleg * 256];
   ub4 reslen;
   ub8 querytlim,queryt0;
+  ub4 tlim;
   struct trip trips[2];
   ub4 hisrcstop;
 
@@ -30,7 +31,7 @@ struct srcctx {
   ub4 viacnt;
 
   // search params
-  ub4 deptmin,deptmax,deptmid;
+  ub4 deptmin,deptmax,deptmid,udeptmax,dephwin;
   ub4 deptmin_cd,depttmin_cd;
   ub4 plusday,minday;
   ub4 utcofs12;
@@ -50,6 +51,10 @@ struct srcctx {
   ub4 lot,lotid;
   ub4 timestop;
 
+  ub4 firsthop[Nxleg];
+  ub4 first[Nxleg];
+  ub4 firstndx[Nxleg];
+
   // store current best trip
   ub4 curdts[Nxleg];
   ub4 curdurs[Nxleg];
@@ -59,6 +64,7 @@ struct srcctx {
   ub4 cursdeps[Nxleg];
   ub4 cursarrs[Nxleg];
   ub4 curdt,curt; // shorthand for overall props
+  ub4 curhwin;
 
   ub4 locvarcnt;
   ub4 locnocnt;

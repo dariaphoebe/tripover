@@ -505,6 +505,27 @@ static int showconstats(struct portbase *ports,ub4 portcnt)
   return 0;
 }
 
+static ub4 portmodes(struct portbase *pp)
+{
+  ub4 m = 0;
+
+  if (pp->air) m |= 1;
+  if (pp->rail) m |= 2;
+  if (pp->bus) m |= 4;
+  if (pp->ferry) m |= 8;
+  return m;
+}
+static ub4 sportmodes(struct subportbase *pp)
+{
+  ub4 m = 0;
+
+  if (pp->air) m |= 1;
+  if (pp->rail) m |= 2;
+  if (pp->bus) m |= 4;
+  if (pp->ferry) m |= 8;
+  return m;
+}
+
 static int rdextports(netbase *net,const char *dir)
 {
   enum extresult res;
@@ -877,7 +898,7 @@ static void expandsid(ub4 rsid,ub1 *map,ub4 maplen,ub4 t00,ub4 t0,ub4 t1,ub4 dow
 
   vrb0(0,"rsid %u map %p base %u \ad%u start %u len %u",rsid,map + t0,t00,t00,t0,t1 - t0);
   while (t < t1 - t00 && t < maplen) {
-    if (daymask & dow) map[t] = 2;
+    if (daymask & dow) map[t] = 0xaa;
     if (daymask == (1 << 6)) daymask = 1;
     else daymask <<= 1;
     t++;
@@ -988,7 +1009,7 @@ static int rdexttimes(netbase *net,const char *dir)
           dtbox = daybox1 - daybox0 + 7;
         }
         info(0,"timebox %u-%u = %u days",tbox0,tbox1,daybox1 - daybox0);
-        sidmaps = alloc(rawsidcnt * (dtbox+1),ub1,0,"time sidmap",dtbox);
+        sidmaps = alloc(rawsidcnt * (dtbox+2),ub1,0x55,"time sidmap",dtbox);
         initvars = 1;
       }
       namelen = eft.namelen;
@@ -1006,11 +1027,16 @@ static int rdexttimes(netbase *net,const char *dir)
       subcnt = vals[6];
       valndx = 7;
 
+      if (dow == 0 && addcnt == 0) {
+        info(0,"skip empty rsid %u delcnt %u",rsid,subcnt);
+        continue;
+      }
+
       // overall date range in localtime days is daybox0 .. daybox1
       // sids are based on this
-      vrb(0,"rsid %x dow %x %u..%u +%u -%u",rsid,dow,t0_cd,t1_cd,addcnt,subcnt);
+      vrb0(0,"rsid %u dow %x %u..%u +%u -%u",rsid,dow,t0_cd,t1_cd,addcnt,subcnt);
 
-      if (utcofs12 < 1200) { warning(0,"UTCoffset %d below lowest -1100", utcofs12 - 1200); utcofs12 = 1200; }
+      if (utcofs12 < 100) { warning(0,"UTCoffset %d below lowest -1100", utcofs12 - 1200); utcofs12 = 1200; }
       else if (utcofs12 > 1400 + 1200) { warning(0,"UTCoffset %u above highest +1400", utcofs12 - 1200); utcofs12 = 1200; }
       hh = utcofs12 / 100;
       mm = utcofs12 % 100;
@@ -1020,11 +1046,11 @@ static int rdexttimes(netbase *net,const char *dir)
 
       if (addcnt > dtbox) {
         infovrb(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,addcnt,dtbox);
-        addcnt = dtbox;
+//        addcnt = dtbox;
       }
       if (subcnt > dtbox) {
         infovrb(timespanlimit > 356,0,"line %u sid %u has %u calendar entries, time range %u",linno,rsid,subcnt,dtbox);
-        subcnt = dtbox;
+//        subcnt = dtbox;
       }
       if (timespanlimit == hi32 && valndx + addcnt + subcnt != valcnt) {
         parsewarn(FLN,fname,linno,colno,"expected 6 + %u + %u args, found %u",addcnt,subcnt,valcnt);
@@ -1069,8 +1095,9 @@ static int rdexttimes(netbase *net,const char *dir)
         error_lt(tday,daybox0);
         if (tday >= daybox1) continue;
         error_ge(tday,daybox1); // todo
+        error_ge(tday - daybox0,dtbox);
         vrb0(0,"rsid %x add %u - %u = %u at %u %p",rsid,t_cd,tbox0,tday - daybox0,mapofs + tday - daybox0,map + tday - daybox0);
-        map[tday - daybox0] = 1;
+        map[tday - daybox0] = 0xaa;
       }
 
       subndx = 0;
@@ -1085,9 +1112,12 @@ static int rdexttimes(netbase *net,const char *dir)
           continue;
         }
         tday = cd2day(t_cd);
+        error_lt(tday,daybox0);
+        error_gt(tday,daybox1,0);
+        error_ge(tday - daybox0,dtbox);
         if (map[tday - daybox0]) {
           vrb(0,"delete %u %u",t_cd,tday);
-          map[tday - daybox0] = 0;
+          map[tday - daybox0] = 0x55;
         }
       }
 
@@ -1095,18 +1125,18 @@ static int rdexttimes(netbase *net,const char *dir)
       daycnt = 0;
       for (tday = 0; tday < dtbox; tday++) {
         cnt = map[tday];
-        if (cnt) daycnt++;
+        errorcc(cnt != 0x55 && cnt != 0xaa,Exit,"rsid %u day %u invalid code %x",rsid,tday,cnt);
+        if (cnt == 0xaa) daycnt++;
       }
       tday = 0;
-      while (tday < dtbox && map[tday] == 0) tday++;
+      while (tday < dtbox && map[tday] == 0x55) tday++;
       if (tday == dtbox) {
         warninfo(timespanlimit > 365,0,"line %u: rsid \ax%u has no service days",linno,rsid);
-        t0_cd = day2cd(daybox0);
-        t1_cd = day2cd(daybox1 + 1);
+        continue;
       } else {
         t0_cd = day2cd(tday + daybox0);
         tday = dtbox - 1;
-        while (tday && map[tday] == 0) tday--;
+        while (tday && map[tday] == 0x55) tday--;
         t1_cd = day2cd(tday + daybox0 + 1);
         vsidcnt++;
         sp->valid = 1;
@@ -1129,6 +1159,7 @@ static int rdexttimes(netbase *net,const char *dir)
       sp->rsid = rsid;
       sp->t0 = t0;
       sp->t1 = t1;
+      sp->dow = dow;
       sp->utcofs = utcofs;
 //      sp->t0map = yymmdd2min(tbox0,1200);
       sp->lt0day = daybox0;
@@ -1145,7 +1176,7 @@ static int rdexttimes(netbase *net,const char *dir)
       if (namelen) memcpy(sp->name,name,namelen);
       maxsid = max(maxsid,rsid);
       sp->mapofs = mapofs;
-      mapofs += dtbox + 1;
+      mapofs += sp->maplen + 1;
       sp++;
       sidcnt++;
       break;
@@ -1158,18 +1189,22 @@ static int rdexttimes(netbase *net,const char *dir)
   } while (res < Eof);  // each input char
 
   // add internal generic
+#if 0
   sp->sid  = sidcnt++;
   sp->rsid = 0;
   sp->t0 = t0lo;
   sp->t1 = t1hi;
   sp->utcofs = 12 * 60;
   sp->refcnt = 1;
+#endif
 
   if (maxsid > 100 * 1000 * 1000) warning(0,"max service id %u",maxsid);
   rsid2sids = alloc(maxsid+1,ub4,0xff,"sid2tids",maxsid);
   for (sid = 0; sid < sidcnt; sid++) {
     sp = sids + sid;
     rsid = sp->rsid;
+    error_z(rsid,sid);
+    error_gt(rsid,maxsid,0);
     if (rsid2sids[rsid] != hi32) warning(0,"service ID %u doubly defined", rsid);
     else rsid2sids[rsid] = sid;
   }
@@ -1552,10 +1587,11 @@ static int rdexthops(netbase *net,const char *dir)
         tbp += Tentries;
         tndx++;
       }
-      hoplog(hop,1,"at %u %u-%u %s to %s",linno,dep,arr,dname,aname);
 
       nosidcnt = 0;
       vrb0(0,"%u time entries, %u vals",timecnt,valndx);
+      infocc(timecnt == 0,0,"hop %u no time entries %u-%u rrid %u %s to %s",linno,dep,arr,routeid,dname,aname);
+
       while (vndx <= valndx && tndx < timecnt) {
         prvsid = rsid; prvtid = rtid; prvtdep = tdepsec; prvtarr = tarrsec;
         prvsdep = sdepid; prvsarr = sarrid;
@@ -1579,6 +1615,21 @@ static int rdexthops(netbase *net,const char *dir)
         vndx += 5;
 
         if (fmt & Fmt_diftid) rtid += prvtid;
+
+        if (fmt & Fmt_diftdep) tdepsec += prvtdep;
+        if (fmt & Fmt_diftarr) tarrsec += prvtarr;
+
+        if (rsid > maxsid) { nosidcnt++; vrb0(0,"skip service id %u above highest %u",rsid,maxsid); continue; }
+        sid = rsid2sids[rsid];
+        if (sid == hi32) { nosidcnt++; vrb0(0,"rsid %u skipped %s",rsid,hp->name); continue; }
+
+        error_ge(sid,sidcnt);
+        sp = sids + sid;
+        if (sp->valid == 0) { nosidcnt++; vrb0(0,"sid %u skipped %s",sid,sp->name); continue; }
+
+        sp->refcnt++;
+
+        hoplog(hop,0,"rtid %u rsid %u dow %x %s",rtid,rsid,sp->dow,sp->name);
 
         srdep = srarr = hi32;
         if (sdepid > maxsubportid) return inerr(FLN,fname,linno,colno,"dep id %u above highest port id %u",sdepid,maxsubportid);
@@ -1638,9 +1689,6 @@ static int rdexthops(netbase *net,const char *dir)
         } else tid = hi32;
         cumhoprefs++;
 
-        if (fmt & Fmt_diftdep) tdepsec += prvtdep;
-        if (fmt & Fmt_diftarr) tarrsec += prvtarr;
-
         if (tarrsec < tdepsec) {
           parsewarn(FLN,fname,linno,colno,"hop %u arr %u before dep %u %s %s",hop,tarrsec,tdep,dname,aname);
           tarrsec = tdepsec;
@@ -1649,15 +1697,6 @@ static int rdexthops(netbase *net,const char *dir)
         }
 
 //        info(0,"fmt %x at %u.%u rsid \ax%u tid %u,%u td %u ta %u",fmt,linno,tndx,rsid,tid,rtid,tdepsec,tarrsec);
-
-        if (rsid > maxsid) return inerr(FLN,fname,linno,colno,"service id %u above highest id %u",rsid,maxsid);
-        sid = rsid2sids[rsid];
-
-        error_ge(sid,sidcnt);
-        sp = sids + sid;
-        if (sp->valid == 0) { nosidcnt++; vrb0(0,"sid %u skipped %s",sid,sp->name); continue; }
-
-        sp->refcnt++;
 
         tdep = tdepsec / 60;
         tarr = tarrsec / 60;
@@ -1701,9 +1740,11 @@ static int rdexthops(netbase *net,const char *dir)
       if (tndx) {
         hp->t0 = ht0;
         hp->t1 = ht1 + 1440; // tdep can be above 24h
-      } else continue;
-
-      hoplog(hop,0,"t range %u-%u \ad%u \ad%u",ht0,ht1,ht0,ht1);
+        hoplog(hop,0,"t range %u-%u \ad%u \ad%u",ht0,ht1,ht0,ht1);
+      } else {
+        hp->t0 = hp->t1 = net->t0;
+        warn(0,"hop %u no time entries %u-%u rrid %u %s to %s",linno,dep,arr,routeid,dname,aname);
+      }
 
       pdep->ndep++;
       parr->narr++;
@@ -1775,6 +1816,8 @@ static int rdexthops(netbase *net,const char *dir)
     rp = routes + rid;
     cnt = rp->hopcnt + 1;
     rp->hopcnt = cnt;
+    hoplog(hop,0,"r.rid %u.%u %s",rrid,rid,rp->name);
+
     if (cnt > ridhicnt) { ridhicnt = cnt; ridhihop = hop; }
   }
   if (ridhihop != hi32) {
@@ -1872,6 +1915,18 @@ static int rdexthops(netbase *net,const char *dir)
   if (nilchains) info(0,"%u of %u chains with hops",chaincnt - nilchains,chaincnt);
   else info(0,"%u chains",chaincnt);
 
+  ub4 sport,port,sportcnt = net->subportcnt;
+  struct portbase *pp;
+  struct subportbase *spp,*sports = net->subports;
+  for (sport = 0; sport < sportcnt; sport++) {
+    spp = sports + sport;
+    spp->modes = sportmodes(spp);
+  }
+  for (port = 0; port < portcnt; port++) {
+    pp = ports + port;
+    pp->modes = portmodes(pp);
+  }
+
   net->rawchaincnt = chaincnt;
   net->chainhopcnt = cumhoprefs;
   net->chains = chains;
@@ -1910,27 +1965,6 @@ int readextnet(netbase *net,const char *dir)
 
 static ub4 lat2ext(ub4 lat) { return lat; }
 static ub4 lon2ext(ub4 lon) { return lon; }
-
-static ub4 portmodes(struct portbase *pp)
-{
-  ub4 m = 0;
-
-  if (pp->air) m |= 1;
-  if (pp->rail) m |= 2;
-  if (pp->bus) m |= 4;
-  if (pp->ferry) m |= 8;
-  return m;
-}
-static ub4 sportmodes(struct subportbase *pp)
-{
-  ub4 m = 0;
-
-  if (pp->air) m |= 1;
-  if (pp->rail) m |= 2;
-  if (pp->bus) m |= 4;
-  if (pp->ferry) m |= 8;
-  return m;
-}
 
 // write port reference for name and lat/lon lookup
 int wrportrefs(netbase *net)

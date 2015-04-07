@@ -88,12 +88,12 @@ void showxtime(struct timepatbase *tp,ub8 *xp,ub4 xlim)
 ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct sidbase *sp,ub1 *daymap,ub4 tdep,ub4 tid)
 {
   ub4 t,n = 0,ndup = 0;
-  ub4 t00,t01,t0,t1,tt,tlo,thi,dayid,tday,t1day,mday;
+  ub4 t00,t01,t0,t1,tt,tlo,thi,dayid,tday,t1day,mday,daycode;
   ub4 hop = tp->hop;
   ub4 rsid = sp->rsid;
   ub4 sid = sp->sid;
   ub4 utcofs = sp->utcofs;
-  int dbg = (hop == 259 && rsid == 28);
+  int dbg = 0;
 
   t0 = sp->t0;
   t1 = sp->t1;  // exclusive
@@ -127,7 +127,10 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
   while (tday < t1day && n + tp->evcnt < evlimit) {
     mday = tday - t00;
     if (mday >= sp->maplen) { warning(0,"tday %u maplen %u",mday,sp->maplen); break; }
-    if (daymap[mday] == 0) { infocc(dbg,0,"no day at \ad%u",tday); tday++; continue; }
+    daycode = daymap[mday];
+    errorcc(daycode != 0x55 && daycode != 0xaa,Exit,"rsid %u day %u invalid code %x",rsid,mday,daycode);
+
+    if (daycode == 0x55) { infocc(dbg,0,"no day at \ad%u",tday); tday++; continue; }
 
     t = tday * daymin;
 
@@ -147,7 +150,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
       thi = max(thi,tt);
       n++;
       xpacc[tt >> Accshift] = 1;
-//      infocc(dbg,0,"day at t %u \ad%u map %u rsid %u",t,t,mapofs + tday,rsid);
+//      infocc(dbg,0,"day at t \ad%u dep %u map %u rsid %u",t,tdep,tday,rsid);
     } else { ndup++; infocc(dbg,0,"dup at t %u \ad%u rsid %u",t,t,rsid); } // duplicate/overlap
     tday++;
   }
@@ -158,6 +161,7 @@ ub4 fillxtime(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct 
 //    hoplog(hop,0,"%u event\as tlo %u thi %u",n,tlo,thi);
   } else if (ndup) vrb0(0,"duplicate events for rsid %u range %u-%u",rsid,tlo,thi);
   else vrb0(0,"no events for r.sid %u.%u range %u-%u",rsid,sid,t0,t1);
+  infocc(dbg,0,"%u events for r.sid %u.%u range %u-%u",n,rsid,sid,t0,t1);
   return n;
 }
 
@@ -197,7 +201,7 @@ ub4 fillxtime2(struct timepatbase *tp,ub8 *xp,ub1 *xpacc,ub4 xlen,ub4 gt0,struct
     t = tday * daymin;
     mday = tday - t00;
     error_ge(mday,maplen);
-    if (daymap[mday] == 0) { tday++; continue; }
+    if (daymap[mday] != 0xaa) { tday++; continue; }
 
     tt = t - gt0 + tdep;
     if (tt < utcofs) { tday++; continue; }
@@ -447,6 +451,7 @@ ub4 filltrep(struct chainbase *chbase,ub4 chaincnt,ub4 rid,block *evmem,block *e
   ub4 hi0pat,hi1pat,hi2pat,hi3pat,gen,hi0day,hi1day,hi2day,hi3day,genday;
   ub4 gndx = 0;
   struct chainbase *chp;
+  int dbg = 0;
 
   evs = blkdata(evmem,tp->evofs,ub8);
   days = blkdata(evmapmem,tp->dayofs,ub2);
@@ -476,7 +481,7 @@ ub4 filltrep(struct chainbase *chbase,ub4 chaincnt,ub4 rid,block *evmem,block *e
   gen = (hi0span + hi1span + hi2span + hi3span) * 2;
   bound(evmem,gen,ub8);
 
-  vrb0(0,"evcnt %u t \ad%u - \ad%u",tp->genevcnt,t0+gt0,t1+gt0);
+  infovrb(dbg,0,"evcnt %u t \ad%u - \ad%u",tp->genevcnt,t0+gt0,t1+gt0);
 
   t >>= Accshift; t <<= Accshift;
   if (gen == 0) { // no repetition: currently only supported case
@@ -496,6 +501,8 @@ ub4 filltrep(struct chainbase *chbase,ub4 chaincnt,ub4 rid,block *evmem,block *e
       error_ge(tid,chaincnt);
       chp = chbase + tid;
       error_ne(chp->rid,rid);
+
+//      infocc(dbg,0,"t \ad%u dur %u",t + gt0,(ub4)dur);
 
       evs[gndx++] = (ub8)t | (dur << 32);
       evs[gndx++] = x;  // srarr-srdep-dur-dayid-tid

@@ -307,10 +307,10 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
   lam1 = rlon1;
   lam2 = rlon2;
 
-  if (rlat1 <= -0.5 * M_PI || rlat1 >= 0.5 * M_PI) { error(0,"lat1 %e", rlat1); return 0.0; }
-  if (rlat2 <= -0.5 * M_PI || rlat2 >= 0.5 * M_PI) { error(0,"lat2 %e", rlat2); return 0.0; }
-  if (rlon1 < -M_PI || rlon1 > M_PI) { error(0,"lon1 %e", rlon1); return 0.0; }
-  if (rlon2 < -M_PI || rlon2 > M_PI) { error(0,"lon2 %e", rlon2); return 0.0; }
+  if (rlat1 <= -0.5 * M_PI || rlat1 >= 0.5 * M_PI) { error(0,"lat1 %e", rlat1); return Georange; }
+  if (rlat2 <= -0.5 * M_PI || rlat2 >= 0.5 * M_PI) { error(0,"lat2 %e", rlat2); return Georange; }
+  if (rlon1 < -M_PI || rlon1 > M_PI) { error(0,"lon1 %e", rlon1); return Georange; }
+  if (rlon2 < -M_PI || rlon2 > M_PI) { error(0,"lon2 %e", rlon2); return Georange; }
 
   dlam = lam2 - lam1;
   dphi = phi2 - phi1;
@@ -327,12 +327,12 @@ double geodist(double rlat1, double rlon1, double rlat2, double rlon2)
   }
 
   d = sin(phi1) * sin(phi2) + cos(phi1) * cos(phi2) * cos(dlam);
-  if (d >= 1.0) { error(0,"geodist d %e for %e %e-%e %e",d,rlat1,rlon1,rlat2,rlon2); return 0.0; }
-  else if (d <= -1.0) { error(0,"geodist d %e for %e %e-%e %e",d,rlat1,rlon1,rlat2,rlon2); return 0.0; }
+  if (d >= 1.0) { error(0,"geodist d %e for %e %e-%e %e",d,rlat1,rlon1,rlat2,rlon2); return Georange; }
+  else if (d <= -1.0) { error(0,"geodist d %e for %e %e-%e %e",d,rlat1,rlon1,rlat2,rlon2); return Georange; }
 
   dsig = acos(d);
 
-  if (isnan(dsig)) error(0,"geodist %e %e-%e %e nan",rlat1,rlon1,rlat2,rlon2);
+  if (isnan(dsig)) { error(0,"geodist %e %e-%e %e nan",rlat1,rlon1,rlat2,rlon2); return Georange; }
 
   dist = dsig * mean_earth_radius;
 

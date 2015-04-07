@@ -151,6 +151,7 @@ struct myfile {
 
 // Km * scale = res: 10m
 #define Geoscale 100
+#define Georange 1e8
 
 #define NVALGRIND
 #ifdef NVALGRIND

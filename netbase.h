@@ -57,6 +57,7 @@ struct portbase {
   bool parentsta;
 
   bool air,rail,bus,ferry;
+  ub4 modes;
 
   ub4 lat,lon;
   double rlat,rlon;
@@ -78,6 +79,7 @@ struct subportbase {
 
   ub4 ndep,narr;
   bool air,rail,bus,ferry;
+  ub4 modes;
 
   ub4 lat,lon;
   double rlat,rlon;
@@ -214,6 +216,7 @@ struct sidbase {
   ub4 service;
 
   ub4 t0,t1;      // tt range in minutes std
+  ub4 dow;
 
   ub4 lt0day,lt1day; // tt range in localtime days
 

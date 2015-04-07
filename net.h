@@ -40,7 +40,7 @@
 #define Nleg (Nstop+1)
 #define Nxleg (Nxstop+1)
 
-#define Chainlen 256
+#define Chainlen 348
 
 #define Faregrp 4
 
@@ -74,6 +74,8 @@ struct port {
 
   bool tpart; // member of global part
 
+  ub4 modes;
+
   bool valid;
   bool isagg;
   bool full;
@@ -106,7 +108,8 @@ struct port {
 };
 
 struct sport {
-  ub4 id,pid;
+  ub4 id;
+//  ub4 pid;
   ub4 cid;     // constant at net changes
   ub4 parent;
 
@@ -117,6 +120,7 @@ struct sport {
 
   ub4 ndep,narr;
 //  bool air,rail,bus,ferry;
+  ub4 modes;
 
   ub4 lat,lon;
   double rlat,rlon;
@@ -192,7 +196,7 @@ struct route {
   ub4 hopcnt;
   ub4 hichainlen;
   ub4 hops[Chainlen];  // global
-  ub4 hop2chop[Chainlen * Chainlen];  // global. todo: allocate actual hopcnt^2
+  ub4 hop2pos;
 
   ub4 chainofs;
   ub4 chaincnt;
@@ -391,6 +395,8 @@ struct gnetwork {
 
   ub4 *tid2rtid;   // [chaincnt]
   ub4 *rrid2rid;   // [hirrid+1]
+  struct memblk ridhopmem;
+  ub4 *ridhopbase;
 
   ub4 bbox[10];    // lat/lon bounding box
 
@@ -436,6 +442,7 @@ extern void checktrip_fln(struct network *net,ub4 *legs,ub4 nleg,ub4 dep,ub4 arr
 extern void checktrip3_fln(struct network *net,ub4 *legs,ub4 nleg,ub4 dep,ub4 arr,ub4 via,ub4 dist,ub4 fln);
 
 extern ub4 fgeodist(struct port *pdep,struct port *parr);
+extern int geocode(ub4 ilat,ub4 ilon,ub4 scale,struct myfile *rep);
 
 extern int showconn(struct port *ports,ub4 portcnt,int local);
 

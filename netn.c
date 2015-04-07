@@ -1272,7 +1272,7 @@ int mknet1(struct network *net,ub4 varlimit,ub4 var12limit,bool nilonly)
 #endif
 
   // prepare list matrix and its offsets
-  conofs = alloc(port2, ub4,0xff,"net conofs",portcnt);  // = org
+  conofs = alloc(port2, ub4,0,"net conofs",portcnt);  // = org
 
   lstblk = net->conlst + nstop;
 

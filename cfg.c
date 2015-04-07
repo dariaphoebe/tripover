@@ -200,7 +200,7 @@ static int writecfg(int havecfg,const char *cname)
   const char *desc;
   char *sval;
   enum Runlvl lvl;
-  char *origin;
+  const char *origin;
 
   if (havecfg) {
     fmtstring(fname,"%s/%s.cur",globs.netdir,cname);

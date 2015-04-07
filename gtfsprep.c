@@ -56,13 +56,13 @@ static ub4 msgfile;
 static double grouplimit = 10;
 static bool useparentname = 0;
 
-static char *fileext = "txt";
+static const char *fileext = "txt";
 static bool canonin;
 static bool intid;
 static bool testonly;
 static ub4 dateshift = 0;
 
-static char *prefix = "";
+static const char *prefix = "";
 static ub4 prefixlen1,prefixlen = 0;
 
 static ub4 hidate = 20000101;
@@ -154,7 +154,7 @@ static ub4 gethash(hash *ht,const char *str,ub4 slen,ub4 ucode)
   char *spool = ht->strpool;
   ub4 eq = 0;
 
-  warncc(ucode == 0,0,"hash code 0 for %s",str);
+//  warncc(ucode == 0,0,"%s: hash code 0 for %s",ht->desc,str);
 
 //  info(0,"get code %u %s len %u",code,str,slen);
 
@@ -181,7 +181,7 @@ static ub4 addhash(hash *ht,const char *str,ub4 slen,ub4 ucode,ub4 data)
   ub4 sofs = ht->sofs;
   ub4 cnt = ht->itemcnt;
 
-  warncc(ucode == 0,0,"hash code 0 for %s",str);
+//  warncc(ucode == 0,0,"hash code 0 for %s",str);
 
   error_z(slen,data);
   if (sofs + slen >= ht->spoollen) {
@@ -1501,7 +1501,9 @@ static int rdstops(gtfsnet *net,const char *dir)
 // loc
       if (stop_locpos != hi32) {
         val = vals + stop_locpos * Collen;
-        uval = uvals[stop_locpos];
+        vlen = vallens[stop_locpos];
+        if (vlen == 0) uval = 0;
+        else uval = uvals[stop_locpos];
         if (uval == hi32) return parserr(FLN,fname,linno,colno,"location_type %s not numerical",val);
         else if (uval > 1) return parserr(FLN,fname,linno,colno,"location_type %u not 0 or 1",uval);
 
@@ -1948,7 +1950,7 @@ static int rdtrips(gtfsnet *net,const char *dir)
       tid = gethash(trips,val,vlen,rtid);
       if (tid == hi32) return error(0,"stored trip %s not present",val);
 
-      if (intid) {
+      if (intid && vlen && *val != '_') {
         bound(mem,linepos + 12,char);
         linepos = addint(lines,linepos,tid,tab,1);
       } else {
@@ -2065,6 +2067,8 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
 
   colcnt = 0;
 
+  if (progress(&eta,"reading stop_time %u of %u in %s",0,rawcnt,fname)) return 1;
+
   do {
 
     res = nextchar(&eft);
@@ -2093,11 +2097,10 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
 
     case Newitem:
 
-      if (progress(&eta,"reading stop_time %u of %u in %s",cnt,rawcnt,fname)) return 1;
+      linno = eft.linno;
+      if (progress(&eta,"reading stop_time %u of %u in %s",linno,rawcnt,fname)) return 1;
 
       valcnt = eft.valcnt;
-      prvlinno = linno;
-      linno = eft.linno;
       colno = eft.colno;
       vallens = eft.vallens;
       error_ge(cnt,rawcnt);
@@ -2111,6 +2114,7 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
       else if (valcnt != colcnt) infocc(cnt == 0,0,"row has %u columns, header %u",valcnt,colcnt);
 
       if (linno != prvlinno + 1) lines[linepos++] = '\n';
+      prvlinno = linno;
 
 // tripid
       val = vals + trip_idpos * Collen;
@@ -2159,7 +2163,7 @@ static int rdstoptimes(gtfsnet *net,const char *dir)
         break;
       } else {
         prvstopid = stopid;
-        if (intid) {
+        if (intid && prvtripidlen && *prvtripid != '_') {
           linepos = addint(lines,linepos,tid,tab,1);
         } else {
           bound(mem,linepos + prvtripidlen + 1,char);
@@ -2510,7 +2514,7 @@ static int cmd_intid(struct cmdval *cv) {
 static int cmd_notram(struct cmdval *cv) { notram = 1; return info(0,"%s set",cv->subarg); }
 static int cmd_nometro(struct cmdval *cv) { nometro = 1; return info(0,"%s set",cv->subarg); }
 static int cmd_norail(struct cmdval *cv) { norail = 1; return info(0,"%s set",cv->subarg); }
-static int cmd_nobus(struct cmdval *cv) { nobus = 1; return info(0,"%s set",cv->subarg); }
+static int cmd_nobus(struct cmdval *cv) { nobus = 1; show_omitstop = 0; return info(0,"%s set",cv->subarg); }
 static int cmd_noferry(struct cmdval *cv) { noferry = 1; return info(0,"%s set",cv->subarg); }
 static int cmd_noair(struct cmdval *cv) { noair = 1; return info(0,"%s set",cv->subarg); }
 
@@ -2563,7 +2567,7 @@ static struct cmdarg cmdargs[] = {
 int main(int argc, char *argv[])
 {
   gtfsnet net;
-  char *dir;
+  const char *dir;
   struct myfile mf;
 
   oclear(net);

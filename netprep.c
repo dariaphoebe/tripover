@@ -186,6 +186,7 @@ int prepnet(netbase *basenet)
     pp->rlat = bpp->rlat;
     pp->rlon = bpp->rlon;
     pp->utcofs = bpp->utcofs;
+    pp->modes = bpp->modes;
     pp->subcnt = bpp->subcnt;
     pp->subofs = bpp->subofs;
     portcnt++;
@@ -217,6 +218,7 @@ int prepnet(netbase *basenet)
     spp->lon = bspp->lon;
     spp->rlat = bspp->rlat;
     spp->rlon = bspp->rlon;
+    spp->modes = bspp->modes;
     spp->seq = bspp->seq;
     sportcnt++;
   }
@@ -240,6 +242,10 @@ int prepnet(netbase *basenet)
   }
   info(0,"%u sids",sidcnt);
 
+  ub4 cumrhops = 0,cumrhops2 = 0;
+
+  ub4 ofs = 0;
+
   ridcnt = bridcnt;
   routes = alloc(ridcnt,struct route,0,"routes",ridcnt);
   broutes = basenet->routes;
@@ -251,16 +257,21 @@ int prepnet(netbase *basenet)
     rp->reserve = brp->reserve;
     rp->chainofs = brp->chainofs;
     rp->chaincnt = brp->chaincnt;
-    rp->hopcnt = brp->hopcnt;
+    cnt = rp->hopcnt = brp->hopcnt;
     rp->hichainlen = brp->hichainlen;
     nlen = brp->namelen;
     if (nlen) {
       memcpy(rp->name,brp->name,nlen);
       rp->namelen = nlen;
     }
-    nsethi(rp->hop2chop,Chainlen * Chainlen);
+    rp->hop2pos = ofs;
+    ofs += cnt * cnt;
   }
   info(0,"%u routes",ridcnt);
+  cumrhops = ofs;
+
+  block *ridhopmem = &gnet->ridhopmem;
+  gnet->ridhopbase = mkblock(ridhopmem,cumrhops + cumrhops2,ub4,Init1,"net");
 
   ub4 *gportsbyhop = alloc(bhopcnt * 2, ub4,0xff,"net portsbyhop",bhopcnt);
   ub4 dist,*hopdist = alloc(bhopcnt,ub4,0,"net hopdist",bhopcnt);
@@ -471,7 +482,7 @@ int prepnet(netbase *basenet)
   info0(0,"global connectivity");
   showconn(ports,portcnt,0);
 
-  ub4 i,idx,bofs,ofs,seq,prvseq,rtid;
+  ub4 i,idx,bofs,seq,prvseq,rtid;
 
   chains = alloc(bchaincnt,struct chain,0,"chains",bchaincnt);
   bchains = basenet->chains;

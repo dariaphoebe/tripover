@@ -24,8 +24,8 @@ use Fcntl ':mode';
 use Time::HiRes qw(gettimeofday);
 
 my $version_maj = 0;
-my $version_min = 27;
-my $lastchanged = "24 mar 2015";
+my $version_min = 28;
+my $lastchanged = "7 apr 2015";
 
 my $copyright = "Copyright (C) 2014-2015, and Creative Commons CC-by-nc-nd'd by Joris van der Geer";
 
@@ -50,7 +50,7 @@ my $portrefname = 'portrefs.txt';
 my $haveportrefs = 0;
 my @portrefs;
 
-my $timeout = 3; # seconds
+my $timeout = 4; # seconds
 
 my $agelimit = 60; # seconds
 my $repagelimit = 7200; # seconds
@@ -60,7 +60,7 @@ my $foreground = 0;
 my $do_lcname = 0;
 
 # defaults, modifyable with 'set' cmd or args
-my $maxstop = 5;
+my $maxstop = 6;
 my $maxnetstop = 5;
 
 my $plusday = 1;
@@ -494,6 +494,17 @@ sub doplan($$$$$)
   query($cmd,'glob',$qstr);
 }
 
+sub geocode2($$$)
+{
+  my ($lat,$lon,$scale) = @_;
+
+  my $qstr = "lat i $lat\nlon i $lon\nscale i $scale\n";
+
+  my $cmd = 'g';
+  info("$qstr");
+  query($cmd,'glob',$qstr);
+}
+
 sub iplan($$)
 {
   my ($dep,$arr) = @_;
@@ -672,6 +683,7 @@ sub setvar($$)
   if ($var eq 'date' or $var eq 'startdate') {
     $startdatetime = $val;
   } elsif ($var eq 'plusday') {
+    $val = 99 if $val eq 'auto';
     $plusday = $val;
   } elsif ($var eq 'minday') {
     $minday = $val;
@@ -1298,11 +1310,13 @@ sub runcgi()
 
     iplan($Dep,$Arr);
     agedir($querydir,time() - $agelimit);
-  } elsif ($Cmd == 1) { #geocode
+  } elsif ($Cmd == 1) { # local geocode
     $rlat = ($Deplat / $geoscale) - 90;
     $rlon = ($Deplon / $geoscale) - 180;
     info("lat $rlat lon $rlon");
     geocode($rlat,$rlon);
+  } elsif ($Cmd == 2) { # tripover geocode
+    geocode2($Deplat,$Deplon,$geoscale);
   }
 
   return 1;
@@ -1394,8 +1408,10 @@ if (@ARGV > 0) {
       splice(@args,0,6);
       foreach $arg (@args) { $xargs .= set_var($arg); }
       update($rid,$dep,$arr,$d0,$t0,$xargs);
+    } elsif ($cmd eq 'geo2') {
+      geocode2($args[1],$args[2],$args[3]);
     } else { info("unknown command"); }
-    agedir($repdir,time() - $repagelimit);
+#    agedir($repdir,time() - $repagelimit);
     exit 0;
   }
 }

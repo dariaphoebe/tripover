@@ -496,7 +496,7 @@ int setqentry(struct myfile *mfreq,struct myfile *mfrep,const char *ext)
   strcpy(q,".ren");
   strcpy(r,ext);
 
-  vrb0(0,"write %s len %u",mfrep->name,(ub4)(mfrep->len));
+  info(0,"write %s len %u",mfrep->name,(ub4)(mfrep->len));
   fd = oscreate(mfrep->name);
   if (fd == -1) return oserror(0,"cannot create %s",mfrep->name);
   oswrite(fd,mfrep->buf,(ub4)mfrep->len);

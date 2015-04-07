@@ -80,7 +80,77 @@ static void mkbitmask(void)
   }
 }
 
-enum Cmds { Cmd_nil,Cmd_plan,Cmd_upd,Cmd_stop,Cmd_cnt };
+enum Cmds { Cmd_nil,Cmd_plan,Cmd_upd,Cmd_geo,Cmd_stop,Cmd_cnt };
+
+static int cmd_geo(struct myfile *req)
+{
+  struct myfile rep;
+  char *vp,*lp = req->buf;
+  ub4 n,pos = 0,len = (ub4)req->len;
+  ub4 ival;
+  ub4 varstart,varend,varlen,valstart,valend,type;
+  ub4 lat = 0,lon = 0,scale = 1;
+  int rv;
+
+  enum Vars {
+    Cnone,
+    Clat,
+    Clon,
+    Cscale
+  } var;
+
+  if (len == 0) return 1;
+
+  oclear(rep);
+
+  while (pos < len && lp[pos] >= 'a' && lp[pos] <= 'z') {
+    ival = 0;
+    varstart = varend = pos;
+    while (varend < len && lp[varend] >= 'a' && lp[varend] <= 'z') varend++;
+    varlen = varend - varstart; pos = varend;
+    if (varlen == 0) break;
+
+    while (pos < len && lp[pos] == ' ') pos++;
+    if (pos == len) break;
+    type = lp[pos++];
+    if (type == '\n' || pos == len) break;
+    while (pos < len && lp[pos] == ' ') pos++;
+    lp[varend] = 0;
+
+    valstart = valend = pos;
+    while (valend < len && lp[valend] != '\n') valend++;
+    if (valend == len) break;
+    pos = valend;
+    while (pos < len && lp[pos] != '\n') pos++;
+    if (lp[pos] == '\n') pos++;
+    if (pos == len) break;
+    lp[valend] = 0;
+
+    if (type == 'i') {
+      n = str2ub4(lp + valstart,&ival);
+      if (n == 0) return error(0,"expected integer for %s, found '%.*s'",lp + varstart,valend - valstart,lp + valstart);
+    }
+    vp = lp + varstart;
+    vrb0(0,"len %u %.*s",varlen,varlen,vp);
+    if (varlen == 3 && memeq(vp,"lat",3)) var = Clat;
+    else if (varlen == 3 && memeq(vp,"lon",3)) var = Clon;
+    else if (varlen == 5 && memeq(vp,"scale",5)) var = Cscale;
+    else {
+      warn(0,"ignoring unknown var '%s'",vp);
+      var = Cnone;
+    }
+    switch (var) {
+    case Cnone: break;
+    case Clat: lat = ival; break;
+    case Clon: lon = ival; break;
+    case Cscale: scale = ival; break;
+    }
+  }
+  rv = geocode(lat,lon,scale,&rep);
+
+  rv |= setqentry(req,&rep,".rep");
+  return rv;
+}
 
 // parse parameters and invoke actual planning. Runs in separate process
 // to be elaborated: temporary simple interface
@@ -320,10 +390,15 @@ static int updfares(gnet *net,ub4 *vals,ub4 valcnt)
   if (rp->reserve == 0) return warn(0,"ignoring rrid %u for nonreserved route",rrid);
   if (rp->hopcnt == 0) return warn(0,"no hops on rrid %u",rrid);
 
+  ub4 *ridhops,*ridhopbase = net->ridhopbase;
+  ridhops = ridhopbase + rp->hop2pos;
+
   // get hop from rid,dep,arr. orgs in case of compound
   ub4 hopndx = 0,h1ndx = 0,h2ndx = 0;
+  ub4 rhopcnt = rp->hopcnt;
   ub4 h,chop,hop1 = hi32,hop2 = hi32;
-  while (hopndx < rp->hopcnt && (hop1 == hi32 || hop2 == hi32)) {
+
+  while (hopndx < rhopcnt && (hop1 == hi32 || hop2 == hi32)) {
     h = rp->hops[hopndx];
     if (portsbyhop[h * 2] == dep) { hop1 = h; h1ndx = hopndx; }
     if (portsbyhop[h * 2 + 1] == arr) { hop2 = h;  h2ndx = hopndx; }
@@ -333,7 +408,7 @@ static int updfares(gnet *net,ub4 *vals,ub4 valcnt)
   else if (hop1 >= hopcnt) return error(0,"invalid hop %u found for %u-%u",hop1,dep,arr);
   else if (hop2 >= hopcnt) return error(0,"invalid hop %u found for %u-%u",hop2,dep,arr);
   if (hop1 == hop2) chop = hop1;
-  else chop = rp->hop2chop[h1ndx * Chainlen + h2ndx];
+  else chop = ridhops[h1ndx * rhopcnt + h2ndx];
   if (chop == hi32) return 1;
 
   info(0,"found hop %u,%u = %u",hop1,hop2,chop);
@@ -493,6 +568,7 @@ int serverloop(void)
       case 's': cmd = Cmd_stop; break;
       case 'p': cmd = Cmd_plan; break;
       case 'P': cmd = Cmd_plan; do_fork = 0; break;
+      case 'g': cmd = Cmd_geo; do_fork = 0; break;
       case 'u': cmd = Cmd_upd; break;
       default: info(0,"unknown command '%c'",c);
       }
@@ -510,6 +586,9 @@ int serverloop(void)
         if (prv) info(0,"update returned %d",prv);
         if (req.alloced) afree(req.buf,"client request");
         useq++;
+      } else if (cmd == Cmd_geo) {
+        prv = cmd_geo(&req);
+        if (req.alloced) afree(req.buf,"client request");
       }
     }
   } while (rv == 0 && cmd != Cmd_stop && globs.sigint == 0);
